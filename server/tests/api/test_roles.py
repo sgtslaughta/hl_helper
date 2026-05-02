@@ -265,3 +265,193 @@ async def test_list_roles_admin_gated_401(sm):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
             r = await c.get("/v1/roles")
             assert r.status_code == 401, r.text
+
+
+@pytest.mark.asyncio
+async def test_create_duplicate_name_409(sm):
+    """Verify POST with duplicate name returns 409."""
+    app = create_app()
+    app.state.sessionmaker = sm
+
+    # Create first role
+    async with sm() as session:
+        role = Role(
+            id="role-1",
+            name="duplicate_name",
+            description="First",
+            built_in=False,
+            permissions=["host:read"],
+        )
+        session.add(role)
+        await session.commit()
+
+    with mock.patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=FleetSettings(admin_token=SecretStr(ADMIN_TOKEN)),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+            # Try to create second role with same name
+            body = {
+                "name": "duplicate_name",
+                "description": "Second",
+                "permissions": ["host:read"],
+            }
+            r = await c.post("/v1/roles", json=body, headers={"Authorization": f"Bearer {ADMIN_TOKEN}"})
+            assert r.status_code == 409, r.text
+            assert "role_name_conflict" in r.text
+
+
+@pytest.mark.asyncio
+async def test_patch_invalid_permission_422(sm):
+    """Verify PATCH with invalid permission returns 422."""
+    app = create_app()
+    app.state.sessionmaker = sm
+
+    # Create custom role
+    async with sm() as session:
+        role = Role(
+            id="patch-perm-test",
+            name="patch_perm_test",
+            description="Original",
+            built_in=False,
+            permissions=["host:read"],
+        )
+        session.add(role)
+        await session.commit()
+
+    with mock.patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=FleetSettings(admin_token=SecretStr(ADMIN_TOKEN)),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+            # Try to PATCH with invalid permission
+            r = await c.patch(
+                "/v1/roles/patch-perm-test",
+                json={"permissions": ["bogus:perm"]},
+                headers={"Authorization": f"Bearer {ADMIN_TOKEN}"}
+            )
+            assert r.status_code == 422, r.text
+            assert "bogus:perm" in r.text
+
+
+@pytest.mark.asyncio
+async def test_patch_empty_permissions_list_allowed(sm):
+    """Verify PATCH with empty permissions list is allowed (inert role)."""
+    app = create_app()
+    app.state.sessionmaker = sm
+
+    # Create custom role with permissions
+    async with sm() as session:
+        role = Role(
+            id="empty-perm-test",
+            name="empty_perm_test",
+            description="Original",
+            built_in=False,
+            permissions=["host:read", "group:read"],
+        )
+        session.add(role)
+        await session.commit()
+
+    with mock.patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=FleetSettings(admin_token=SecretStr(ADMIN_TOKEN)),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+            # PATCH with empty list
+            r = await c.patch(
+                "/v1/roles/empty-perm-test",
+                json={"permissions": []},
+                headers={"Authorization": f"Bearer {ADMIN_TOKEN}"}
+            )
+            assert r.status_code == 200, r.text
+            data = r.json()
+            assert data["permissions"] == []
+
+            # Verify GET shows empty permissions
+            r = await c.get(
+                "/v1/roles/empty-perm-test",
+                headers={"Authorization": f"Bearer {ADMIN_TOKEN}"}
+            )
+            assert r.status_code == 200
+            data = r.json()
+            assert data["permissions"] == []
+
+
+@pytest.mark.asyncio
+async def test_patch_clear_description_to_null(sm):
+    """Verify PATCH can clear description by setting to null."""
+    app = create_app()
+    app.state.sessionmaker = sm
+
+    # Create custom role with description
+    async with sm() as session:
+        role = Role(
+            id="clear-desc-test",
+            name="clear_desc_test",
+            description="Original description",
+            built_in=False,
+            permissions=["host:read"],
+        )
+        session.add(role)
+        await session.commit()
+
+    with mock.patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=FleetSettings(admin_token=SecretStr(ADMIN_TOKEN)),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+            # PATCH to clear description
+            r = await c.patch(
+                "/v1/roles/clear-desc-test",
+                json={"description": None},
+                headers={"Authorization": f"Bearer {ADMIN_TOKEN}"}
+            )
+            assert r.status_code == 200, r.text
+            data = r.json()
+            assert data["description"] is None
+
+            # Verify GET shows cleared description
+            r = await c.get(
+                "/v1/roles/clear-desc-test",
+                headers={"Authorization": f"Bearer {ADMIN_TOKEN}"}
+            )
+            assert r.status_code == 200
+            data = r.json()
+            assert data["description"] is None
+
+
+@pytest.mark.asyncio
+async def test_role_name_immutable_via_patch(sm):
+    """Verify PATCH silently ignores name changes (RoleUpdate excludes name)."""
+    app = create_app()
+    app.state.sessionmaker = sm
+
+    # Create custom role
+    async with sm() as session:
+        role = Role(
+            id="immutable-name-test",
+            name="original_name",
+            description="Original",
+            built_in=False,
+            permissions=["host:read"],
+        )
+        session.add(role)
+        await session.commit()
+
+    with mock.patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=FleetSettings(admin_token=SecretStr(ADMIN_TOKEN)),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+            # Try to PATCH name (should be ignored)
+            r = await c.patch(
+                "/v1/roles/immutable-name-test",
+                json={"name": "renamed_name", "description": "Updated"},
+                headers={"Authorization": f"Bearer {ADMIN_TOKEN}"}
+            )
+            assert r.status_code == 200, r.text
+            data = r.json()
+            # Name should remain unchanged (Pydantic RoleUpdate excludes name field)
+            assert data["name"] == "original_name"
+            # Description should be updated
+            assert data["description"] == "Updated"

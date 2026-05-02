@@ -136,16 +136,16 @@ async def create_role(
         session.add(role)
         try:
             await session.commit()
-        except IntegrityError as e:
+        except IntegrityError:
             await session.rollback()
-            if "uq_role_name" in str(e):
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=f"Role name '{body.name}' already exists",
-                )
-            raise
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="role_name_conflict",
+            ) from None
 
         await session.refresh(role)
+        # TODO(T2.4): bump engine perm-cache version on role mutate
+        # TODO: emit audit event action="role.created" if audit chain available
         return RoleOut.model_validate(role)
 
 
@@ -160,10 +160,13 @@ async def update_role(
     """Update a custom role (PATCH).
 
     Only custom roles can be updated. Built-in roles reject with 403.
+    Empty permissions list is valid (creates an inert role with no permissions).
 
     Args:
         role_id: Role to update
         body: Fields to update (description?, permissions?)
+              - description: None clears the field; string sets it
+              - permissions: empty list is valid; None leaves unchanged
 
     Returns:
         Updated role.
@@ -188,16 +191,19 @@ async def update_role(
                 detail="Cannot modify built-in roles",
             )
 
-        # Update description if provided
-        if body.description is not None:
-            role.description = body.description
+        # Update only fields that were explicitly set in the request
+        data = body.model_dump(exclude_unset=True)
 
-        # Update permissions if provided
-        if body.permissions is not None:
-            _validate_permissions(body.permissions)
-            role.permissions = body.permissions
+        if "description" in data:
+            role.description = data["description"]
+
+        if "permissions" in data and data["permissions"] is not None:
+            _validate_permissions(data["permissions"])
+            role.permissions = data["permissions"]
 
         await session.commit()
+        # TODO(T2.4): bump engine perm-cache version on role mutate
+        # TODO: emit audit event action="role.updated" if audit chain available
         await session.refresh(role)
         return RoleOut.model_validate(role)
 
@@ -248,3 +254,5 @@ async def delete_role(
 
         await session.delete(role)
         await session.commit()
+        # TODO(T2.4): bump engine perm-cache version on role mutate
+        # TODO: emit audit event action="role.deleted" if audit chain available
