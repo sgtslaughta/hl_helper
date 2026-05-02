@@ -36,6 +36,26 @@ agent-tpm:
   script:
     - cd agent && go test ./internal/keystore/... -v -run TPM
 
+py-test:
+  stage: test
+  image: python:3.12
+  before_script:
+    - pip install -e '.[dev]'
+  script:
+    - ruff check .
+    - mypy server/app/
+    - pytest server/tests/ --cov=server/app --cov-report=term-missing --cov-report=xml --cov-fail-under=70 -q
+  coverage: '/(?i)total.*?(\d+(?:\.\d+)?)%/'
+  artifacts:
+    when: always
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+    paths:
+      - coverage.xml
+    expire_in: 1 week
+
 py-memcheck:
   stage: test
   image: python:3.12
@@ -43,6 +63,16 @@ py-memcheck:
     - pip install -e '.[dev]'
   script:
     - pytest server/tests/test_memory_leaks.py server/tests/test_tracemalloc_smoke.py -v
+
+py-migrations:
+  stage: test
+  image: python:3.12
+  before_script:
+    - pip install -e '.[dev]'
+  script:
+    - alembic upgrade head
+    - alembic downgrade base
+    - alembic upgrade head
 
 sast:
   stage: test
