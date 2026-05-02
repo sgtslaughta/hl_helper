@@ -1,0 +1,7 @@
+# hl_helper agent — allowed package management commands
+hl-agent ALL=(root) NOPASSWD: /sbin/apk update
+hl-agent ALL=(root) NOPASSWD: /sbin/apk upgrade
+hl-agent ALL=(root) NOPASSWD: /sbin/apk add *
+hl-agent ALL=(root) NOPASSWD: /sbin/reboot
+hl-agent ALL=(root) NOPASSWD: /sbin/shutdown
+Defaults!/sbin/apk !requiretty

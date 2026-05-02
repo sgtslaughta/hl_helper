@@ -9,6 +9,13 @@ stages:
 - test
 - secret-detection
 
+packaging-test:
+  stage: test
+  image: python:3.12
+  script:
+    - pip install pytest
+    - pytest tests/packaging/ -v
+
 go-leakcheck:
   stage: test
   image: golang:1.23

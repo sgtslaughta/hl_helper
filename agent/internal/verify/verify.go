@@ -8,8 +8,10 @@ import (
 	"sync"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/hlhelper/hl-agent/internal/manifest"
-	pb "github.com/hlhelper/hl-agent/internal/transport/pb"
+	pb "github.com/hlhelper/hl-agent/proto/fleet/v1"
 )
 
 var (
@@ -85,40 +87,30 @@ func (v *Verifier) Accept(env *pb.CommandEnvelope, now time.Time) error {
 	}
 
 	// 2. Map oneof to action string and check allowed
-	action := env.WhichPayload()
+	action := payloadAction(env)
 	if action == "" {
 		return ErrActionNotAllowed
 	}
 
-	actionMap := map[string]string{
-		"pkg_update":    "pkg.update",
-		"reboot":        "reboot",
-		"shell_exec":    "shell.exec",
-		"get_facts":     "get_facts",
-		"docker_op":     "docker.op",
-		"plugin_invoke": "plugin.invoke",
-		"terminal_open": "terminal.open",
-		"file_transfer": "file.transfer",
-	}
-
-	mappedAction, ok := actionMap[action]
-	if !ok || !v.allowed[mappedAction] {
+	if !v.allowed[action] {
 		return ErrActionNotAllowed
 	}
 
-	// 3. Check risk
+	// 3. Check risk; map proto RiskLevel (0-2) to manifest level (0-3)
+	// Proto: RISK_LOW=0, RISK_MED=1, RISK_HIGH=2
+	// Manifest: low=0, medium=1, high=2, critical=3
 	riskLevel := int(env.Risk)
 	if riskLevel > v.maxRisk {
 		return ErrRiskTooHigh
 	}
 
 	// 4. Check expiration
-	if env.ExpiresAt != nil && env.ExpiresAt.Before(now) {
+	if env.ExpiresAt != nil && env.ExpiresAt.AsTime().Before(now) {
 		return ErrExpired
 	}
 
 	// 5. Check issued_at (clock skew)
-	if env.IssuedAt != nil && env.IssuedAt.After(now.Add(time.Duration(v.skewS)*time.Second)) {
+	if env.IssuedAt != nil && env.IssuedAt.AsTime().After(now.Add(time.Duration(v.skewS)*time.Second)) {
 		return ErrExpired
 	}
 
@@ -165,66 +157,32 @@ func (v *Verifier) verifySignature(env *pb.CommandEnvelope) error {
 // canonicalMsg produces a deterministic byte representation of the envelope.
 // This must match the server's signing logic.
 func canonicalMsg(env *pb.CommandEnvelope) []byte {
-	var buf []byte
+	cp := proto.Clone(env).(*pb.CommandEnvelope)
+	cp.Signature = nil
+	data, _ := proto.MarshalOptions{Deterministic: true}.Marshal(cp)
+	return data
+}
 
-	// Simple serialization: command_id, host_id, sequence, nonce, issued_at, expires_at, issued_by, risk, payload
-	buf = append(buf, []byte(env.CommandID)...)
-	buf = append(buf, 0)
-	buf = append(buf, []byte(env.HostID)...)
-	buf = append(buf, 0)
-
-	// Sequence as little-endian uint64
-	for i := 0; i < 8; i++ {
-		buf = append(buf, byte(env.Sequence>>(uint(i)*8)))
+// payloadAction extracts and normalizes the payload action name.
+func payloadAction(env *pb.CommandEnvelope) string {
+	switch env.Payload.(type) {
+	case *pb.CommandEnvelope_PkgUpdate:
+		return "pkg.update"
+	case *pb.CommandEnvelope_Reboot:
+		return "reboot"
+	case *pb.CommandEnvelope_ShellExec:
+		return "shell.exec"
+	case *pb.CommandEnvelope_GetFacts:
+		return "get_facts"
+	case *pb.CommandEnvelope_DockerOp:
+		return "docker.op"
+	case *pb.CommandEnvelope_PluginInvoke:
+		return "plugin.invoke"
+	case *pb.CommandEnvelope_TerminalOpen:
+		return "terminal.open"
+	case *pb.CommandEnvelope_FileTransfer:
+		return "file.transfer"
+	default:
+		return ""
 	}
-
-	buf = append(buf, env.Nonce...)
-	buf = append(buf, 0)
-
-	if env.IssuedAt != nil {
-		t := env.IssuedAt.UnixNano()
-		for i := 0; i < 8; i++ {
-			buf = append(buf, byte(t>>(uint(i)*8)))
-		}
-	}
-
-	if env.ExpiresAt != nil {
-		t := env.ExpiresAt.UnixNano()
-		for i := 0; i < 8; i++ {
-			buf = append(buf, byte(t>>(uint(i)*8)))
-		}
-	}
-
-	buf = append(buf, []byte(env.IssuedBy)...)
-	buf = append(buf, 0)
-
-	// Risk as int32
-	risk := int32(env.Risk)
-	for i := 0; i < 4; i++ {
-		buf = append(buf, byte(risk>>(uint(i)*8)))
-	}
-
-	// Payload discriminator and basic data
-	switch {
-	case env.PkgUpdate != nil:
-		buf = append(buf, []byte("pkg_update")...)
-	case env.Reboot != nil:
-		buf = append(buf, []byte("reboot")...)
-	case env.ShellExec != nil:
-		buf = append(buf, []byte("shell_exec")...)
-		buf = append(buf, []byte(env.ShellExec.Command)...)
-	case env.TerminalOpen != nil:
-		buf = append(buf, []byte("terminal_open")...)
-	case env.FileTransfer != nil:
-		buf = append(buf, []byte("file_transfer")...)
-	case env.DockerOp != nil:
-		buf = append(buf, []byte("docker_op")...)
-	case env.GetFacts != nil:
-		buf = append(buf, []byte("get_facts")...)
-	case env.PluginInvoke != nil:
-		buf = append(buf, []byte("plugin_invoke")...)
-		buf = append(buf, env.PluginInvoke.Payload...)
-	}
-
-	return buf
 }

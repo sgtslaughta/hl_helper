@@ -1,0 +1,9 @@
+# hl_helper agent — allowed package management commands
+hl-agent ALL=(root) NOPASSWD: /usr/bin/dnf -y update
+hl-agent ALL=(root) NOPASSWD: /usr/bin/dnf -y upgrade
+hl-agent ALL=(root) NOPASSWD: /usr/bin/dnf -y install *
+hl-agent ALL=(root) NOPASSWD: /usr/bin/dnf check-update
+hl-agent ALL=(root) NOPASSWD: /usr/bin/needs-restarting -r
+hl-agent ALL=(root) NOPASSWD: /usr/sbin/reboot
+hl-agent ALL=(root) NOPASSWD: /usr/sbin/shutdown
+Defaults!/usr/bin/dnf !requiretty

@@ -6,7 +6,9 @@ import (
 	"testing"
 	"time"
 
-	pb "github.com/hlhelper/hl-agent/internal/transport/pb"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
+	pb "github.com/hlhelper/hl-agent/proto/fleet/v1"
 )
 
 func TestAcceptValidCommand(t *testing.T) {
@@ -21,16 +23,16 @@ func TestAcceptValidCommand(t *testing.T) {
 
 	// Build a valid envelope
 	env := &pb.CommandEnvelope{
-		CommandID:   "cmd-123",
-		HostID:      "host-1",
-		Sequence:    1,
-		Nonce:       []byte("nonce-001"),
-		IssuedAt:    &now,
-		ExpiresAt:   &fut,
-		IssuedBy:    "server",
-		Risk:        pb.RISK_LOW,
-		Capability:  &pb.CapabilityToken{},
-		ShellExec:   &pb.ShellExec{Command: "ls"},
+		CommandId: "cmd-123",
+		HostId:    "host-1",
+		Sequence:  1,
+		Nonce:     []byte("nonce-001"),
+		IssuedAt:  timestamppb.New(now),
+		ExpiresAt: timestamppb.New(fut),
+		IssuedBy:  "server",
+		Risk:      pb.RiskLevel_RISK_LOW,
+		Capability: &pb.CapabilityToken{},
+		Payload:   &pb.CommandEnvelope_ShellExec{ShellExec: &pb.ShellExec{Command: "ls"}},
 	}
 
 	// Sign it

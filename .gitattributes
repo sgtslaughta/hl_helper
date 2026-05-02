@@ -1,0 +1,3 @@
+*.sh export-ignore
+deploy/agent/build.sh export-subst
+deploy/agent/build_native.sh export-subst

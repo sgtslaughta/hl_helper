@@ -1,0 +1,44 @@
+[Unit]
+Description=hl_helper agent
+Documentation=https://gitlab.com/richardsoto1010/hl_helper
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=hl-agent
+Group=hl-agent
+ExecStart=/usr/local/bin/hl-agent service
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=30
+TimeoutStopSec=30
+WatchdogSec=60
+
+# Security hardening (compatible with majority of distros)
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+
+# Allow writing to data dir
+ReadWritePaths=/var/lib/hl-agent
+
+# Capabilities — none by default; sudo handles privileged commands
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,11 @@
+# hl_helper agent — allowed package management commands
+hl-agent ALL=(root) NOPASSWD: /usr/bin/apt-get update
+hl-agent ALL=(root) NOPASSWD: /usr/bin/apt-get -y upgrade
+hl-agent ALL=(root) NOPASSWD: /usr/bin/apt-get -y dist-upgrade
+hl-agent ALL=(root) NOPASSWD: /usr/bin/apt-get -y install *
+hl-agent ALL=(root) NOPASSWD: /usr/bin/apt-mark *
+hl-agent ALL=(root) NOPASSWD: /usr/bin/dpkg --configure -a
+hl-agent ALL=(root) NOPASSWD: /usr/bin/needrestart -b
+hl-agent ALL=(root) NOPASSWD: /sbin/reboot
+hl-agent ALL=(root) NOPASSWD: /sbin/shutdown
+Defaults!/usr/bin/apt-get,/usr/bin/apt-mark,/usr/bin/dpkg !requiretty
