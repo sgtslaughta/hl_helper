@@ -34,10 +34,12 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
         dispatcher: CommandDispatcher,
         result_handler: ResultHandler | None = None,
         revocation: RevocationService | None = None,
+        sessionmaker: Any | None = None,
     ) -> None:
         self._dispatcher = dispatcher
         self._result_handler = result_handler
         self._revocation = revocation
+        self._sessionmaker = sessionmaker
 
     async def Stream(
         self,
@@ -94,6 +96,9 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
 
                     if term_task in done:
                         # Host was revoked; terminate stream.
+                        # If pull_task already got an envelope, requeue it to avoid loss.
+                        if pull_task in done and pull_task.exception() is None:
+                            state.queue.put_nowait(pull_task.result())
                         pull_task.cancel()
                         recv_task.cancel()
                         await context.abort(grpc.StatusCode.PERMISSION_DENIED, "host revoked")
@@ -101,6 +106,9 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
 
                     if recv_task in done:
                         # Agent closed sending side. Cancel pending pull.
+                        # If pull_task already got an envelope, requeue it to avoid loss.
+                        if pull_task in done and pull_task.exception() is None:
+                            state.queue.put_nowait(pull_task.result())
                         pull_task.cancel()
                         term_task.cancel()
                         break
@@ -123,12 +131,14 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
 
         Handles:
           - result: verify signature, persist, audit, then ack.
-          - heartbeat: log/track (detailed handling deferred).
+          - heartbeat: update Host.last_seen_at.
           - other messages: log as unknown.
 
         Raises:
             Exception: If the stream is closed (normal exit).
         """
+        from datetime import datetime, timezone
+
         async for msg in request_iterator:
             kind = msg.WhichOneof("msg")
             if kind == "result":
@@ -152,8 +162,21 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
                 # The agent should fix signature issues on its side.
                 await self._dispatcher.ack(host_id, msg.result.command_id)
             elif kind == "heartbeat":
-                # Heartbeat handling deferred; for now, just no-op.
-                # Future: update Host.last_seen_at.
-                pass
+                # Update Host.last_seen_at
+                if self._sessionmaker is not None:
+                    from server.app.models.host import Host
+
+                    try:
+                        async with self._sessionmaker() as session:
+                            host = await session.get(Host, host_id)
+                            if host:
+                                host.last_seen_at = datetime.now(timezone.utc)
+                                await session.commit()
+                    except Exception as e:
+                        log.warning(
+                            "heartbeat.update_failed",
+                            host_id=host_id,
+                            error=str(e),
+                        )
             else:
                 log.warning("agent.unknown_message", host_id=host_id, kind=kind)

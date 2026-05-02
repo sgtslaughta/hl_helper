@@ -130,6 +130,7 @@ class ResultHandler:
 
             # 2. Verify host_id match
             if env.host_id != expected_host_id:
+                host.status = "quarantined"
                 await self._audit.append(
                     session,
                     actor=expected_host_id,
@@ -149,6 +150,7 @@ class ResultHandler:
 
             # 3. Verify signature
             if not verify_result(env, host.agent_pubkey):
+                host.status = "quarantined"
                 await self._audit.append(
                     session,
                     actor=expected_host_id,
@@ -166,7 +168,7 @@ class ResultHandler:
                     f"Signature verification failed for {expected_host_id}"
                 )
 
-            # 4. Check chain linkage
+            # 4. Check chain linkage: ALWAYS enforce contiguous sequences
             last_result = await session.execute(
                 select(Result)
                 .where(Result.host_id == expected_host_id)
@@ -176,15 +178,16 @@ class ResultHandler:
             last_row = last_result.scalar_one_or_none()
 
             if last_row is None:
-                # First result: must have prev_hash == 32 zero bytes
+                # First result: must have prev_hash == 32 zero bytes and sequence == 1
                 if env.prev_result_hash != b"\x00" * 32:
+                    host.status = "quarantined"
                     await self._audit.append(
                         session,
                         actor=expected_host_id,
                         action="result.reject",
                         subject=env.command_id,
                         payload={
-                            "reason": "chain_broken",
+                            "reason": "chain_broken_or_gap",
                             "detail": "first_result_invalid_prev_hash",
                             "sequence": env.sequence,
                         },
@@ -195,40 +198,48 @@ class ResultHandler:
                         f"First result for {expected_host_id} must have prev_hash = zeros"
                     )
             else:
-                # Subsequent result: enforce chain only if sequence is contiguous
-                if env.sequence == last_row.sequence + 1:
-                    expected_prev = _canonical_result_hash(
-                        # Reconstruct the previous envelope for hashing
-                        # We store the canonical bytes, so we need to fetch the signature
-                        # and reconstruct. For now, we'll use a helper that works with
-                        # the Result row's stored signature.
-                        _result_to_envelope(last_row)
+                # Subsequent result: ALWAYS enforce contiguous sequence AND matching prev_hash
+                if env.sequence != last_row.sequence + 1:
+                    # Gap detected: reject and quarantine
+                    host.status = "quarantined"
+                    await self._audit.append(
+                        session,
+                        actor=expected_host_id,
+                        action="result.reject",
+                        subject=env.command_id,
+                        payload={
+                            "reason": "chain_broken_or_gap",
+                            "detail": "sequence_gap",
+                            "expected_seq": last_row.sequence + 1,
+                            "actual_seq": env.sequence,
+                        },
+                        timestamp=now,
                     )
-                    if env.prev_result_hash != expected_prev:
-                        await self._audit.append(
-                            session,
-                            actor=expected_host_id,
-                            action="result.reject",
-                            subject=env.command_id,
-                            payload={
-                                "reason": "chain_broken",
-                                "detail": "prev_hash_mismatch",
-                                "sequence": env.sequence,
-                                "last_sequence": last_row.sequence,
-                            },
-                            timestamp=now,
-                        )
-                        await session.commit()
-                        raise ChainBrokenError(
-                            f"prev_result_hash mismatch for {expected_host_id} seq {env.sequence}"
-                        )
-                else:
-                    # Skipped sequence: log warning but accept
-                    log.warning(
-                        "result.skipped_sequence",
-                        host_id=expected_host_id,
-                        expected_seq=last_row.sequence + 1,
-                        actual_seq=env.sequence,
+                    await session.commit()
+                    raise ChainBrokenError(
+                        f"Sequence gap for {expected_host_id}: expected {last_row.sequence + 1}, got {env.sequence}"
+                    )
+
+                # Compute expected prev_hash for this contiguous result
+                expected_prev = _canonical_result_hash(_result_to_envelope(last_row))
+                if env.prev_result_hash != expected_prev:
+                    host.status = "quarantined"
+                    await self._audit.append(
+                        session,
+                        actor=expected_host_id,
+                        action="result.reject",
+                        subject=env.command_id,
+                        payload={
+                            "reason": "chain_broken_or_gap",
+                            "detail": "prev_hash_mismatch",
+                            "sequence": env.sequence,
+                            "last_sequence": last_row.sequence,
+                        },
+                        timestamp=now,
+                    )
+                    await session.commit()
+                    raise ChainBrokenError(
+                        f"prev_result_hash mismatch for {expected_host_id} seq {env.sequence}"
                     )
 
             # 5. Insert Result row

@@ -21,6 +21,14 @@ go-race:
   script:
     - cd agent && go test -race -count=1 ./...
 
+agent-tpm:
+  stage: test
+  image: golang:1.23
+  before_script:
+    - apt-get update && apt-get install -y swtpm
+  script:
+    - cd agent && go test ./internal/keystore/... -v -run TPM
+
 py-memcheck:
   stage: test
   image: python:3.12

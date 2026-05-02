@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 from typing import AsyncIterator
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -44,15 +44,22 @@ class EnrollResponse(BaseModel):
     grpc_endpoint: str
 
 
-# Dependency providers (will be overridden in tests)
-async def get_session() -> AsyncIterator[AsyncSession]:
-    """Get database session. Override in tests."""
-    raise NotImplementedError("get_session must be provided by app startup")
+# Dependency providers (can be overridden in tests)
+async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
+    """Get database session from app state."""
+    from server.app.api.app import get_app_state
+
+    state = get_app_state(request)
+    async with state.sessionmaker() as session:
+        yield session
 
 
-def get_enrollment_service() -> EnrollmentService:
-    """Get enrollment service. Override in tests."""
-    raise NotImplementedError("get_enrollment_service must be provided by app startup")
+def get_enrollment_service(request: Request) -> EnrollmentService:
+    """Get enrollment service from app state."""
+    from server.app.api.app import get_app_state
+
+    state = get_app_state(request)
+    return state.enrollment_service
 
 
 @router.post("/enroll", response_model=EnrollResponse, dependencies=[Depends(rate_limit_dependency(_limiter))])

@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timezone
-from uuid import uuid4
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric import ed25519
-from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from server.app.audit.sql_chain import SqlAuditChain
 from server.app.crypto.result_envelope import canonical_result_bytes, sign_result
@@ -257,10 +256,10 @@ async def test_handle_chain_link_enforced(sm: async_sessionmaker, tmp_path) -> N
 
 
 @pytest.mark.asyncio
-async def test_handle_skipped_sequence_does_not_break_chain(
+async def test_handle_sequence_gap_rejected(
     sm: async_sessionmaker, tmp_path
 ) -> None:
-    """Skipped sequence (seq 1 -> seq 5) accepted without chain break."""
+    """Skipped sequence (seq 1 -> seq 5) is rejected as chain break."""
     backend = FileBackend.bootstrap(tmp_path / "audit")
     audit_chain = SqlAuditChain(backend)
     handler = ResultHandler(sm, audit_chain)
@@ -288,22 +287,28 @@ async def test_handle_skipped_sequence_does_not_break_chain(
     )
     result1 = await handler.handle(env1, expected_host_id=host_id)
 
-    # Second result seq=5 (skipped) with arbitrary prev_hash
+    # Second result seq=5 (skipped) — should be rejected
     env2 = make_signed_result(
         host_id=host_id,
         command_id="cmd-5",
         sequence=5,
-        prev_hash=b"\xff" * 32,  # Any hash, not enforced for skips
+        prev_hash=b"\xff" * 32,
         agent_key=agent_key,
     )
-    result2 = await handler.handle(env2, expected_host_id=host_id)
 
-    # Both should be accepted (no ChainBrokenError)
+    with pytest.raises(ChainBrokenError):
+        await handler.handle(env2, expected_host_id=host_id)
+
+    # Verify first result accepted, second rejected
     async with session_scope(sm) as session:
         r1 = await session.get(Result, result1.id)
-        r2 = await session.get(Result, result2.id)
         assert r1 is not None
-        assert r2 is not None
+        # Second result should NOT exist
+        all_results = await session.execute(
+            select(Result).where(Result.host_id == host_id)
+        )
+        rows = all_results.scalars().all()
+        assert len(rows) == 1
 
 
 @pytest.mark.asyncio
@@ -355,3 +360,94 @@ async def test_handle_chain_broken_on_contiguous_mismatch(
         entries = await audit_chain.length(session)
         # First accept + second reject = 2 entries
         assert entries == 2
+
+
+@pytest.mark.asyncio
+async def test_handle_bad_signature_quarantines_host(
+    sm: async_sessionmaker, tmp_path
+) -> None:
+    """Bad signature rejection sets host.status = 'quarantined'."""
+    backend = FileBackend.bootstrap(tmp_path / "audit")
+    audit_chain = SqlAuditChain(backend)
+    handler = ResultHandler(sm, audit_chain)
+
+    # Create Host with one key
+    key_a = ed25519.Ed25519PrivateKey.generate()
+    pubkey_a = key_a.public_key().public_bytes_raw()
+    host_id = "host-test-1"
+
+    async with session_scope(sm) as session:
+        host = Host(
+            id=host_id,
+            hostname="test-host",
+            agent_pubkey=pubkey_a,
+        )
+        session.add(host)
+        await session.commit()
+
+    # Sign with different key
+    key_b = ed25519.Ed25519PrivateKey.generate()
+    env = make_signed_result(
+        host_id=host_id,
+        command_id="cmd-1",
+        sequence=1,
+        agent_key=key_b,
+    )
+
+    with pytest.raises(BadSignatureError):
+        await handler.handle(env, expected_host_id=host_id)
+
+    # Verify host is quarantined
+    async with session_scope(sm) as session:
+        host = await session.get(Host, host_id)
+        assert host.status == "quarantined"
+
+
+@pytest.mark.asyncio
+async def test_handle_chain_broken_quarantines_host(
+    sm: async_sessionmaker, tmp_path
+) -> None:
+    """Chain break rejection sets host.status = 'quarantined'."""
+    backend = FileBackend.bootstrap(tmp_path / "audit")
+    audit_chain = SqlAuditChain(backend)
+    handler = ResultHandler(sm, audit_chain)
+
+    agent_key = ed25519.Ed25519PrivateKey.generate()
+    pubkey = agent_key.public_key().public_bytes_raw()
+    host_id = "host-test-1"
+
+    async with session_scope(sm) as session:
+        host = Host(
+            id=host_id,
+            hostname="test-host",
+            agent_pubkey=pubkey,
+        )
+        session.add(host)
+        await session.commit()
+
+    # First result seq=1
+    env1 = make_signed_result(
+        host_id=host_id,
+        command_id="cmd-1",
+        sequence=1,
+        prev_hash=b"\x00" * 32,
+        agent_key=agent_key,
+    )
+    await handler.handle(env1, expected_host_id=host_id)
+
+    # Second result seq=5 (gap) should quarantine host
+    env2 = make_signed_result(
+        host_id=host_id,
+        command_id="cmd-5",
+        sequence=5,
+        prev_hash=b"\xff" * 32,
+        agent_key=agent_key,
+    )
+
+    with pytest.raises(ChainBrokenError):
+        await handler.handle(env2, expected_host_id=host_id)
+
+    # Verify host is quarantined
+    async with session_scope(sm) as session:
+        host = await session.get(Host, host_id)
+        assert host.status == "quarantined"

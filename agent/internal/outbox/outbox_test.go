@@ -2,6 +2,8 @@ package outbox_test
 
 import (
 	"bytes"
+	"encoding/binary"
+	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -643,5 +645,325 @@ func TestConcurrentAppendIsSerialized(t *testing.T) {
 
 	if len_ != nGoroutines {
 		t.Errorf("Len = %d, want %d", len_, nGoroutines)
+	}
+}
+
+func TestVerifyDetectsTruncation(t *testing.T) {
+	tmpdir := t.TempDir()
+	path := filepath.Join(tmpdir, "outbox.db")
+
+	ob, err := outbox.Open(path, outbox.Options{
+		MasterKey:  testMasterKey(),
+		MaxBytes:   1 << 30,
+		MaxEntries: 1000,
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	const n = 5
+	for i := 0; i < n; i++ {
+		_, err := ob.Append(testPayload(i))
+		if err != nil {
+			t.Fatalf("Append %d: %v", i, err)
+		}
+	}
+	ob.Close()
+
+	// Truncate: delete entry id=3 from raw bbolt without updating meta
+	rawdb, err := bolt.Open(path, 0600, nil)
+	if err != nil {
+		t.Fatalf("bolt.Open: %v", err)
+	}
+
+	err = rawdb.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("outbox"))
+		if b == nil {
+			return nil
+		}
+		keyBuf := make([]byte, 8)
+		binary.BigEndian.PutUint64(keyBuf, 3)
+		return b.Delete(keyBuf)
+	})
+	if err != nil {
+		t.Fatalf("truncation: %v", err)
+	}
+	rawdb.Close()
+
+	// Reopen and verify should detect truncation
+	ob2, err := outbox.Open(path, outbox.Options{
+		MasterKey:  testMasterKey(),
+		MaxBytes:   1 << 30,
+		MaxEntries: 1000,
+	})
+	if err != nil {
+		t.Fatalf("Open 2: %v", err)
+	}
+	defer ob2.Close()
+
+	err = ob2.Verify()
+	if err == nil {
+		t.Fatal("Verify should have detected truncation")
+	}
+	if err != outbox.ErrChainTruncated {
+		t.Errorf("Verify returned %v, want ErrChainTruncated", err)
+	}
+}
+
+func TestVerifyDetectsReorder(t *testing.T) {
+	tmpdir := t.TempDir()
+	path := filepath.Join(tmpdir, "outbox.db")
+
+	ob, err := outbox.Open(path, outbox.Options{
+		MasterKey:  testMasterKey(),
+		MaxBytes:   1 << 30,
+		MaxEntries: 1000,
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	const n = 5
+	for i := 0; i < n; i++ {
+		_, err := ob.Append(testPayload(i))
+		if err != nil {
+			t.Fatalf("Append %d: %v", i, err)
+		}
+	}
+	ob.Close()
+
+	// Reorder: swap entries 2 and 4 in raw bbolt
+	rawdb, err := bolt.Open(path, 0600, nil)
+	if err != nil {
+		t.Fatalf("bolt.Open: %v", err)
+	}
+
+	err = rawdb.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("outbox"))
+		if b == nil {
+			return nil
+		}
+		key2 := make([]byte, 8)
+		binary.BigEndian.PutUint64(key2, 2)
+		key4 := make([]byte, 8)
+		binary.BigEndian.PutUint64(key4, 4)
+
+		val2 := b.Get(key2)
+		val4 := b.Get(key4)
+
+		if err := b.Put(key4, val2); err != nil {
+			return err
+		}
+		return b.Put(key2, val4)
+	})
+	if err != nil {
+		t.Fatalf("reordering: %v", err)
+	}
+	rawdb.Close()
+
+	// Reopen and verify should detect reordering (chain broken)
+	ob2, err := outbox.Open(path, outbox.Options{
+		MasterKey:  testMasterKey(),
+		MaxBytes:   1 << 30,
+		MaxEntries: 1000,
+	})
+	if err != nil {
+		t.Fatalf("Open 2: %v", err)
+	}
+	defer ob2.Close()
+
+	err = ob2.Verify()
+	if err == nil {
+		t.Fatal("Verify should have detected reorder")
+	}
+	// Either ChainBroken or ChainReordered is acceptable
+	if err != outbox.ErrChainBroken && err != outbox.ErrChainReordered {
+		t.Errorf("Verify returned %v, want ErrChainBroken or ErrChainReordered", err)
+	}
+}
+
+func TestAckPreservesChainEvidence(t *testing.T) {
+	tmpdir := t.TempDir()
+	path := filepath.Join(tmpdir, "outbox.db")
+
+	ob, err := outbox.Open(path, outbox.Options{
+		MasterKey:  testMasterKey(),
+		MaxBytes:   1 << 30,
+		MaxEntries: 1000,
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	const n = 5
+	for i := 0; i < n; i++ {
+		_, err := ob.Append(testPayload(i))
+		if err != nil {
+			t.Fatalf("Append %d: %v", i, err)
+		}
+	}
+
+	// Ack entry 3
+	if err := ob.Ack(3); err != nil {
+		t.Fatalf("Ack: %v", err)
+	}
+
+	// Verify should succeed (acked entry is recorded, chain preserved)
+	err = ob.Verify()
+	if err != nil {
+		t.Fatalf("Verify after Ack: %v", err)
+	}
+	ob.Close()
+}
+
+func TestVerifyDetectsTamperAfterAck(t *testing.T) {
+	tmpdir := t.TempDir()
+	path := filepath.Join(tmpdir, "outbox.db")
+
+	ob, err := outbox.Open(path, outbox.Options{
+		MasterKey:  testMasterKey(),
+		MaxBytes:   1 << 30,
+		MaxEntries: 1000,
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	const n = 5
+	for i := 0; i < n; i++ {
+		_, err := ob.Append(testPayload(i))
+		if err != nil {
+			t.Fatalf("Append %d: %v", i, err)
+		}
+	}
+
+	// Ack entry 3
+	if err := ob.Ack(3); err != nil {
+		t.Fatalf("Ack: %v", err)
+	}
+
+	ob.Close()
+
+	// Tamper with the acked entry digest
+	rawdb, err := bolt.Open(path, 0600, nil)
+	if err != nil {
+		t.Fatalf("bolt.Open: %v", err)
+	}
+
+	err = rawdb.Update(func(tx *bolt.Tx) error {
+		mb := tx.Bucket([]byte("meta"))
+		if mb == nil {
+			return nil
+		}
+		ackedKey := append([]byte("acked:"), byte(0), byte(0), byte(0), byte(0), byte(0), byte(0), byte(0), byte(3))
+		blob := mb.Get(ackedKey)
+		if blob == nil {
+			return fmt.Errorf("acked entry for id=3 missing")
+		}
+		tampered := make([]byte, len(blob))
+		copy(tampered, blob)
+		tampered[0] ^= 0xFF
+		return mb.Put(ackedKey, tampered)
+	})
+	if err != nil {
+		t.Fatalf("tampering: %v", err)
+	}
+	rawdb.Close()
+
+	// Reopen and verify should detect tampering
+	ob2, err := outbox.Open(path, outbox.Options{
+		MasterKey:  testMasterKey(),
+		MaxBytes:   1 << 30,
+		MaxEntries: 1000,
+	})
+	if err != nil {
+		t.Fatalf("Open 2: %v", err)
+	}
+	defer ob2.Close()
+
+	err = ob2.Verify()
+	if err == nil {
+		t.Fatal("Verify should have detected tampering after ack")
+	}
+	if err != outbox.ErrChainBroken {
+		t.Errorf("Verify returned %v, want ErrChainBroken", err)
+	}
+}
+
+func TestPersistedChainTipUnchangedAfterReopen(t *testing.T) {
+	tmpdir := t.TempDir()
+	path := filepath.Join(tmpdir, "outbox.db")
+
+	ob, err := outbox.Open(path, outbox.Options{
+		MasterKey:  testMasterKey(),
+		MaxBytes:   1 << 30,
+		MaxEntries: 1000,
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	const n = 3
+	for i := 0; i < n; i++ {
+		_, err := ob.Append(testPayload(i))
+		if err != nil {
+			t.Fatalf("Append %d: %v", i, err)
+		}
+	}
+
+	ob.Close()
+
+	// Get the chain tip from raw db
+	rawdb, err := bolt.Open(path, 0600, nil)
+	if err != nil {
+		t.Fatalf("bolt.Open: %v", err)
+	}
+
+	var chainTip1 []byte
+	err = rawdb.View(func(tx *bolt.Tx) error {
+		mb := tx.Bucket([]byte("meta"))
+		if mb == nil {
+			return nil
+		}
+		chainTip1 = mb.Get([]byte("chain_tip"))
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("View 1: %v", err)
+	}
+	rawdb.Close()
+
+	// Reopen and check that chain_tip is unchanged
+	ob2, err := outbox.Open(path, outbox.Options{
+		MasterKey:  testMasterKey(),
+		MaxBytes:   1 << 30,
+		MaxEntries: 1000,
+	})
+	if err != nil {
+		t.Fatalf("Open 2: %v", err)
+	}
+	ob2.Close()
+
+	rawdb, err = bolt.Open(path, 0600, nil)
+	if err != nil {
+		t.Fatalf("bolt.Open 2: %v", err)
+	}
+
+	var chainTip2 []byte
+	err = rawdb.View(func(tx *bolt.Tx) error {
+		mb := tx.Bucket([]byte("meta"))
+		if mb == nil {
+			return nil
+		}
+		chainTip2 = mb.Get([]byte("chain_tip"))
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("View 2: %v", err)
+	}
+	rawdb.Close()
+
+	if !bytes.Equal(chainTip1, chainTip2) {
+		t.Errorf("chain_tip changed after reopen")
 	}
 }

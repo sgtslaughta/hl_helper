@@ -1,0 +1,46 @@
+#!/bin/sh
+# hl-agent installation script
+# Generated for server: {{ server }}
+
+set -e
+
+# Detect architecture
+arch=$(uname -m)
+case "$arch" in
+  x86_64) agent_arch="amd64" ;;
+  aarch64) agent_arch="arm64" ;;
+  armv7l) agent_arch="armv7" ;;
+  *) echo "Unsupported architecture: $arch" >&2; exit 1 ;;
+esac
+
+echo "Detected architecture: $agent_arch"
+
+# Download agent binary
+echo "Downloading hl-agent for $agent_arch..."
+agent_url="https://${SERVER}/agent/${agent_arch}/hl-agent"
+echo "Download URL: $agent_url (placeholder)"
+
+# Create systemd unit file
+echo "Creating systemd unit..."
+cat > /tmp/hl-agent.service <<'EOF'
+[Unit]
+Description=HL Agent
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/hl-agent run
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Enroll with token if provided
+{% if token %}
+echo "Enrolling with token..."
+/usr/local/bin/hl-agent enroll --token="{{ token }}" --server="{{ server }}"
+{% endif %}
+
+echo "Installation complete"

@@ -58,8 +58,12 @@ def revocation_service(
 
 
 @pytest.fixture
-async def client(async_session_maker, revocation_service: RevocationService):
+async def client(async_session_maker, revocation_service: RevocationService, monkeypatch):
     """Create FastAPI test client with overridden dependencies."""
+    from unittest import mock
+    from server.app.settings.config import FleetSettings
+    from pydantic import SecretStr
+
     app = create_app()
 
     async def override_session_dep() -> AsyncIterator[AsyncSession]:
@@ -73,11 +77,18 @@ async def client(async_session_maker, revocation_service: RevocationService):
     app.dependency_overrides[get_session] = override_session_dep
     app.dependency_overrides[get_revocation_service] = override_service_dep
 
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app),
-        base_url="http://testserver",
-    ) as client:
-        yield client
+    # Mock load_settings to return a settings object with admin_token set
+    mock_settings = FleetSettings(admin_token=SecretStr("test-admin-token"))
+
+    with mock.patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=mock_settings,
+    ):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://testserver",
+        ) as client:
+            yield client
 
 
 @pytest.mark.asyncio
@@ -94,8 +105,11 @@ async def test_delete_host_204(client: httpx.AsyncClient, async_session_maker):
         session.add(host)
         await session.commit()
 
-    # Delete
-    response = await client.delete("/v1/hosts/test-host-1")
+    # Delete (with admin token header)
+    response = await client.delete(
+        "/v1/hosts/test-host-1",
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
     assert response.status_code == 204
 
     # Verify host is marked revoked
@@ -107,7 +121,10 @@ async def test_delete_host_204(client: httpx.AsyncClient, async_session_maker):
 @pytest.mark.asyncio
 async def test_delete_unknown_host_404(client: httpx.AsyncClient):
     """Test DELETE unknown host returns 404."""
-    response = await client.delete("/v1/hosts/nonexistent")
+    response = await client.delete(
+        "/v1/hosts/nonexistent",
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
     assert response.status_code == 404
     assert "not found" in response.text.lower()
 
@@ -127,7 +144,10 @@ async def test_delete_already_revoked_409(client: httpx.AsyncClient, async_sessi
         session.add(host)
         await session.commit()
 
-    # Delete
-    response = await client.delete("/v1/hosts/test-host-1")
+    # Delete (with admin token header)
+    response = await client.delete(
+        "/v1/hosts/test-host-1",
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
     assert response.status_code == 409
     assert "revoked" in response.text.lower()

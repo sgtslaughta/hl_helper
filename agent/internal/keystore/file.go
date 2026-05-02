@@ -111,6 +111,10 @@ func (ks *FileKeystore) loadSigning() error {
 	return nil
 }
 
+func (ks *FileKeystore) Dir() string {
+	return ks.dir
+}
+
 func (ks *FileKeystore) SigningPub() ed25519.PublicKey {
 	return ks.signingPub
 }

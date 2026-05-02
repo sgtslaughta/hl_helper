@@ -211,7 +211,7 @@ async def test_stream_rejects_concurrent_for_same_host(
                 yield agent_bridge_pb2.AgentToServer()  # Dummy heartbeat
                 await asyncio.sleep(0.05)
 
-        call1 = stub1.Stream(keep_stream_open())
+        _call1 = stub1.Stream(keep_stream_open())
 
         # Give the handler a moment to start
         await asyncio.sleep(0.1)

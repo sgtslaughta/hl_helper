@@ -1,9 +1,7 @@
 package verify
 
 import (
-	"bytes"
 	"crypto/ed25519"
-	"encoding/hex"
 	"fmt"
 	"testing"
 	"time"
@@ -36,8 +34,8 @@ func TestAcceptValidCommand(t *testing.T) {
 	}
 
 	// Sign it
-	canonicalBytes := canonicalBytes(env)
-	sig := ed25519.Sign(priv, canonicalBytes)
+	canonBytes := canonicalBytesFn(env)
+	sig := ed25519.Sign(priv, canonBytes)
 	env.Signature = sig
 
 	// Create verifier
@@ -103,8 +101,8 @@ func TestRejectsDisallowedAction(t *testing.T) {
 		ShellExec:   &pb.ShellExec{Command: "ls"},
 	}
 
-	canonicalBytes := canonicalBytes(env)
-	sig := ed25519.Sign(priv, canonicalBytes)
+	canonBytes := canonicalBytesFn(env)
+	sig := ed25519.Sign(priv, canonBytes)
 	env.Signature = sig
 
 	// Only allow pkg.update
@@ -141,8 +139,8 @@ func TestRejectsHighRiskAboveLimit(t *testing.T) {
 	// Manually set to 3 (critical) since our pb shim doesn't have it
 	env.Risk = 3
 
-	canonicalBytes := canonicalBytes(env)
-	sig := ed25519.Sign(priv, canonicalBytes)
+	canonBytes := canonicalBytesFn(env)
+	sig := ed25519.Sign(priv, canonBytes)
 	env.Signature = sig
 
 	// Max risk is medium (1)
@@ -175,8 +173,8 @@ func TestRejectsExpired(t *testing.T) {
 		ShellExec:   &pb.ShellExec{Command: "ls"},
 	}
 
-	canonicalBytes := canonicalBytes(env)
-	sig := ed25519.Sign(priv, canonicalBytes)
+	canonBytes := canonicalBytesFn(env)
+	sig := ed25519.Sign(priv, canonBytes)
 	env.Signature = sig
 
 	v := New(pub, []string{"shell.exec"}, "high")
@@ -209,8 +207,8 @@ func TestRejectsClockSkew(t *testing.T) {
 		ShellExec:   &pb.ShellExec{Command: "ls"},
 	}
 
-	canonicalBytes := canonicalBytes(env)
-	sig := ed25519.Sign(priv, canonicalBytes)
+	canonBytes := canonicalBytesFn(env)
+	sig := ed25519.Sign(priv, canonBytes)
 	env.Signature = sig
 
 	// Default skew is 60 seconds, so 10 minutes should fail
@@ -244,8 +242,8 @@ func TestRejectsReplayedSequence(t *testing.T) {
 		ShellExec:   &pb.ShellExec{Command: "ls"},
 	}
 
-	canonicalBytes1 := canonicalBytes(env1)
-	sig1 := ed25519.Sign(priv, canonicalBytes1)
+	canonBytes1 := canonicalBytesFn(env1)
+	sig1 := ed25519.Sign(priv, canonBytes1)
 	env1.Signature = sig1
 
 	v := New(pub, []string{"shell.exec"}, "high")
@@ -269,8 +267,8 @@ func TestRejectsReplayedSequence(t *testing.T) {
 		ShellExec:   &pb.ShellExec{Command: "ls"},
 	}
 
-	canonicalBytes2 := canonicalBytes(env2)
-	sig2 := ed25519.Sign(priv, canonicalBytes2)
+	canonBytes2 := canonicalBytesFn(env2)
+	sig2 := ed25519.Sign(priv, canonBytes2)
 	env2.Signature = sig2
 
 	err = v.Accept(env2, now)
@@ -302,8 +300,8 @@ func TestRejectsReplayedNonce(t *testing.T) {
 		ShellExec:   &pb.ShellExec{Command: "ls"},
 	}
 
-	canonicalBytes1 := canonicalBytes(env1)
-	sig1 := ed25519.Sign(priv, canonicalBytes1)
+	canonBytes1 := canonicalBytesFn(env1)
+	sig1 := ed25519.Sign(priv, canonBytes1)
 	env1.Signature = sig1
 
 	v := New(pub, []string{"shell.exec"}, "high")
@@ -326,8 +324,8 @@ func TestRejectsReplayedNonce(t *testing.T) {
 		ShellExec:   &pb.ShellExec{Command: "ls"},
 	}
 
-	canonicalBytes2 := canonicalBytes(env2)
-	sig2 := ed25519.Sign(priv, canonicalBytes2)
+	canonBytes2 := canonicalBytesFn(env2)
+	sig2 := ed25519.Sign(priv, canonBytes2)
 	env2.Signature = sig2
 
 	err = v.Accept(env2, now)
@@ -365,8 +363,8 @@ func TestNonceLRUEviction(t *testing.T) {
 			ShellExec:   &pb.ShellExec{Command: "ls"},
 		}
 
-		canonicalBytes := canonicalBytes(env)
-		sig := ed25519.Sign(priv, canonicalBytes)
+		canonBytes := canonicalBytesFn(env)
+		sig := ed25519.Sign(priv, canonBytes)
 		env.Signature = sig
 
 		if err := v.Accept(env, now); err != nil {
@@ -389,8 +387,8 @@ func TestNonceLRUEviction(t *testing.T) {
 		ShellExec:   &pb.ShellExec{Command: "ls"},
 	}
 
-	canonicalBytes := canonicalBytes(env1Replay)
-	sig := ed25519.Sign(priv, canonicalBytes)
+	canonBytes := canonicalBytesFn(env1Replay)
+	sig := ed25519.Sign(priv, canonBytes)
 	env1Replay.Signature = sig
 
 	// Should succeed because nonce-1 was evicted
@@ -412,8 +410,8 @@ func TestNonceLRUEviction(t *testing.T) {
 		ShellExec:   &pb.ShellExec{Command: "ls"},
 	}
 
-	canonicalBytes = canonicalBytes(env3Replay)
-	sig = ed25519.Sign(priv, canonicalBytes)
+	canonBytes = canonicalBytesFn(env3Replay)
+	sig = ed25519.Sign(priv, canonBytes)
 	env3Replay.Signature = sig
 
 	err = v.Accept(env3Replay, now)
@@ -422,51 +420,12 @@ func TestNonceLRUEviction(t *testing.T) {
 	}
 }
 
-// Helper to build canonical bytes from envelope (signature cleared)
-func canonicalBytes(env *pb.CommandEnvelope) []byte {
-	// Create a copy and clear signature
-	copy := *env
-	copy.Signature = nil
-
-	// Serialize to deterministic bytes
-	var buf bytes.Buffer
-
-	// Simple deterministic encoding
-	buf.WriteString(copy.CommandID)
-	buf.WriteString(copy.HostID)
-	buf.Write(encodeUint64(copy.Sequence))
-	buf.Write(copy.Nonce)
-	if copy.IssuedAt != nil {
-		buf.Write(encodeInt64(copy.IssuedAt.UnixNano()))
-	}
-	if copy.ExpiresAt != nil {
-		buf.Write(encodeInt64(copy.ExpiresAt.UnixNano()))
-	}
-	buf.WriteString(copy.IssuedBy)
-	buf.Write(encodeInt32(int32(copy.Risk)))
-
-	// Payload
-	switch {
-	case copy.ShellExec != nil:
-		buf.WriteString("shell_exec")
-		buf.WriteString(copy.ShellExec.Command)
-	case copy.PkgUpdate != nil:
-		buf.WriteString("pkg_update")
-	case copy.Reboot != nil:
-		buf.WriteString("reboot")
-	case copy.TerminalOpen != nil:
-		buf.WriteString("terminal_open")
-	case copy.FileTransfer != nil:
-		buf.WriteString("file_transfer")
-	case copy.DockerOp != nil:
-		buf.WriteString("docker_op")
-	case copy.GetFacts != nil:
-		buf.WriteString("get_facts")
-	case copy.PluginInvoke != nil:
-		buf.WriteString("plugin_invoke")
-	}
-
-	return buf.Bytes()
+// canonicalBytesFn delegates to the package-internal canonicalMsg so tests
+// match production signing semantics exactly.
+func canonicalBytesFn(env *pb.CommandEnvelope) []byte {
+	cp := *env
+	cp.Signature = nil
+	return canonicalMsg(&cp)
 }
 
 func encodeUint64(v uint64) []byte {

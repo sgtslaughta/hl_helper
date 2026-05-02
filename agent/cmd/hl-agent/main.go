@@ -7,6 +7,10 @@ import (
 	"runtime"
 
 	"github.com/spf13/cobra"
+
+	"github.com/hlhelper/hl-agent/internal/decom"
+	"github.com/hlhelper/hl-agent/internal/enrollment"
+	"github.com/hlhelper/hl-agent/internal/keystore"
 )
 
 var (
@@ -59,15 +63,52 @@ func versionCmd() *cobra.Command {
 }
 
 func enrollCmd() *cobra.Command {
-	return &cobra.Command{
+	enrollCmd := &cobra.Command{
 		Use:   "enroll",
 		Short: "enroll the agent",
-		Long:  "enroll the agent with a server (not yet implemented)",
+		Long:  "enroll the agent with a server",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Fprintf(cmd.OutOrStderr(), "enroll: not yet implemented\n")
-			return fmt.Errorf("enroll: not yet implemented")
+			server, _ := cmd.Flags().GetString("server")
+			token, _ := cmd.Flags().GetString("token")
+			hostname, _ := cmd.Flags().GetString("hostname")
+			dir, _ := cmd.Flags().GetString("dir")
+
+			if hostname == "" {
+				h, _ := os.Hostname()
+				hostname = h
+			}
+
+			if err := os.MkdirAll(dir, 0700); err != nil {
+				return fmt.Errorf("create keystore dir: %w", err)
+			}
+
+			ks, err := keystore.OpenFile(dir)
+			if err != nil {
+				return fmt.Errorf("open keystore: %w", err)
+			}
+
+			resp, err := enrollment.Run(ks, enrollment.EnrollOptions{
+				Server:   server,
+				Token:    token,
+				Hostname: hostname,
+			})
+			if err != nil {
+				return err
+			}
+
+			fmt.Fprintf(cmd.OutOrStdout(), "enrolled: host_id=%s\n", resp.HostID)
+			return nil
 		},
 	}
+
+	enrollCmd.Flags().String("server", "", "server URL (required)")
+	enrollCmd.Flags().String("token", "", "enrollment token (required)")
+	enrollCmd.Flags().String("hostname", "", "agent hostname (default: os.Hostname)")
+	enrollCmd.Flags().String("dir", "/var/lib/hl-agent", "keystore directory")
+	enrollCmd.MarkFlagRequired("server")
+	enrollCmd.MarkFlagRequired("token")
+
+	return enrollCmd
 }
 
 func serviceCmd() *cobra.Command {
@@ -83,15 +124,27 @@ func serviceCmd() *cobra.Command {
 }
 
 func decommissionCmd() *cobra.Command {
-	return &cobra.Command{
+	decommissionCmd := &cobra.Command{
 		Use:   "decommission",
 		Short: "decommission the agent",
-		Long:  "decommission the agent (not yet implemented)",
+		Long:  "decommission the agent, securely wiping all sensitive data",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Fprintf(cmd.OutOrStderr(), "decommission: not yet implemented\n")
-			return fmt.Errorf("decommission: not yet implemented")
+			dir, _ := cmd.Flags().GetString("dir")
+			force, _ := cmd.Flags().GetBool("force")
+
+			if !force {
+				fmt.Fprintf(cmd.OutOrStderr(), "decommission will wipe %s — pass --force to proceed\n", dir)
+				return fmt.Errorf("not forced")
+			}
+
+			return decom.Run(decom.Options{Dir: dir, Force: force, Overwrite: 1})
 		},
 	}
+
+	decommissionCmd.Flags().String("dir", "/var/lib/hl-agent", "keystore directory")
+	decommissionCmd.Flags().Bool("force", false, "confirm decommissioning")
+
+	return decommissionCmd
 }
 
 func rotateSigningKeyCmd() *cobra.Command {

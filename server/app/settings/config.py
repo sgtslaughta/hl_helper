@@ -11,6 +11,7 @@ from .scope import SettingScope
 SECRET_FIELDS: frozenset[str] = frozenset({
     "vault_token",
     "session_signing_key_ref",  # may carry inline key material in future
+    "admin_token",
 })
 
 # Per-key scope registry. Anything not listed defaults to RUNTIME_MUTABLE.
@@ -27,6 +28,7 @@ SETTING_SCOPES: dict[str, SettingScope] = {
     "vault_addr": SettingScope.BOOT_ONLY,
     "vault_token": SettingScope.BOOT_ONLY,
     "session_signing_key_ref": SettingScope.BOOT_ONLY,
+    "admin_token": SettingScope.BOOT_ONLY,
 }
 
 
@@ -65,6 +67,9 @@ class FleetSettings(BaseSettings):
 
     # Signing key reference
     session_signing_key_ref: str = Field(default="local:/data/keys/session")
+
+    # Admin API token (boot-only)
+    admin_token: SecretStr | None = Field(default=None)
 
     # Origin tracking — populated by load_settings()
     # key -> "env" | "file" | "default"

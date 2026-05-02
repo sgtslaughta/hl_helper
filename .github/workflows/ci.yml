@@ -55,6 +55,18 @@ jobs:
       - name: go test -race
         working-directory: agent
         run: go test -race -count=1 ./...
+  agent-tpm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - name: Install swtpm
+        run: sudo apt-get update && sudo apt-get install -y swtpm
+      - name: go test TPM
+        working-directory: agent
+        run: go test ./internal/keystore/... -v -run TPM
   proto:
     runs-on: ubuntu-latest
     steps:
