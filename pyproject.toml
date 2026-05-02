@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "hl_helper"
 version = "0.0.1"
@@ -27,3 +31,6 @@ target-version = "py312"
 [tool.mypy]
 strict = true
 python_version = "3.12"
+
+[tool.setuptools]
+packages = ["server", "agent"]
