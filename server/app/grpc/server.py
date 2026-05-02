@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
-import grpc
 from grpc.aio import server as aio_server
 from grpc.aio import Server
 
@@ -12,17 +9,9 @@ from grpc.aio import Server
 from server.app.grpc._pb import fleet  # noqa: F401
 from server.app.grpc._pb.fleet.v1 import agent_bridge_pb2_grpc
 
+from .agent_bridge import AgentBridgeService
+from .dispatcher import CommandDispatcher
 from .tls import make_server_credentials
-
-
-class _StubAgentBridge(agent_bridge_pb2_grpc.AgentBridgeServicer):
-    """Placeholder AgentBridge service. Real implementation lands in C1 Task 5.2."""
-
-    async def Stream(self, request_iterator: Any, context: Any) -> None:
-        """Stub Stream RPC that returns UNIMPLEMENTED."""
-        await context.abort(
-            grpc.StatusCode.UNIMPLEMENTED, "AgentBridge.Stream not yet implemented"
-        )
 
 
 def make_grpc_server(
@@ -31,7 +20,8 @@ def make_grpc_server(
     server_key_pem: bytes,
     client_ca_pem: bytes,
     bind_address: str = "0.0.0.0:8444",
-) -> tuple[Server, str]:
+    dispatcher: CommandDispatcher | None = None,
+) -> tuple[Server, str, CommandDispatcher]:
     """Build configured async gRPC server with mTLS + servicer wired.
 
     Args:
@@ -39,13 +29,17 @@ def make_grpc_server(
         server_key_pem: PEM-encoded private key for the leaf.
         client_ca_pem: trust roots used to verify client certs (CA chain PEM).
         bind_address: Address to bind to (e.g., "0.0.0.0:8444" or "127.0.0.1:0").
+        dispatcher: CommandDispatcher instance; created if None.
 
     Returns:
-        (server, bound_address) tuple. Caller must `await server.start()`.
+        (server, bound_address, dispatcher) tuple. Caller must `await server.start()`.
         If bind_address ends with ":0", bound_address contains the actual port.
     """
+    dispatcher = dispatcher or CommandDispatcher()
     server = aio_server()
-    agent_bridge_pb2_grpc.add_AgentBridgeServicer_to_server(_StubAgentBridge(), server)  # type: ignore[no-untyped-call]
+    agent_bridge_pb2_grpc.add_AgentBridgeServicer_to_server(
+        AgentBridgeService(dispatcher), server  # type: ignore[no-untyped-call]
+    )
     creds = make_server_credentials(server_cert_chain_pem, server_key_pem, client_ca_pem)
     bound_port = server.add_secure_port(bind_address, creds)
 
@@ -56,4 +50,4 @@ def make_grpc_server(
     else:
         actual_address = bind_address
 
-    return server, actual_address
+    return server, actual_address, dispatcher
