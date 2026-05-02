@@ -211,7 +211,9 @@ class TestVerifyDetectsBrokenLink:
         # Tamper with prev_hash directly via SQL
         await session.execute(
             text(
-                "UPDATE audit_entries SET prev_hash=X'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' WHERE sequence=1"
+                "UPDATE audit_entries SET "
+                "prev_hash=X'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' "
+                "WHERE sequence=1"
             )
         )
         await session.commit()
@@ -231,7 +233,8 @@ class TestVerifyDetectsTamperedCheckpoint:
         # Tamper with merkle_root directly via SQL
         await session.execute(
             text(
-                "UPDATE audit_checkpoints SET merkle_root=X'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'"
+                "UPDATE audit_checkpoints SET "
+                "merkle_root=X'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'"
             )
         )
         await session.commit()

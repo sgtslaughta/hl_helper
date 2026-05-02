@@ -227,7 +227,8 @@ class SqlAuditChain:
 
             if recomputed_root != checkpoint.merkle_root:
                 raise CheckpointError(
-                    f"Checkpoint covers_sequence {checkpoint.covers_sequence} merkle_root does not match recomputed root"
+                    f"Checkpoint covers_sequence {checkpoint.covers_sequence} "
+                    f"merkle_root does not match recomputed root"
                 )
 
             # Verify signature
@@ -236,7 +237,8 @@ class SqlAuditChain:
             )
             if not self._backend.verify(signed_message, checkpoint.signature):
                 raise CheckpointError(
-                    f"Checkpoint covers_sequence {checkpoint.covers_sequence} signature does not verify"
+                    f"Checkpoint covers_sequence {checkpoint.covers_sequence} "
+                    f"signature does not verify"
                 )
 
     async def _checkpoint_now(
