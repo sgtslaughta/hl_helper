@@ -137,3 +137,101 @@ async def test_patch_unknown_key_404(auth_headers, sm):
                               json={"key": "nope.unknown", "value": "x"},
                               headers=auth_headers)
             assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_patch_emits_audit_entry(auth_headers, sm, signing_backend):
+    """Verify PATCH emits audit entry with old + new values."""
+    from server.app.audit.sql_chain import SqlAuditChain
+    from server.app.models import AuditEntry
+    from sqlalchemy import select
+
+    async with sm() as session:
+        session.add(Setting(key="ui.theme", value="dark",
+                            source="default", scope="runtime-mutable",
+                            updated_at=datetime.now(timezone.utc)))
+        await session.commit()
+
+    audit = SqlAuditChain(signing_backend)
+    app = create_app()
+    app.state.sessionmaker = sm
+    app.state.audit_chain = audit
+
+    with mock.patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=FleetSettings(admin_token=SecretStr(ADMIN_TOKEN)),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+            r = await c.patch("/v1/settings", json={"key": "ui.theme", "value": "light"},
+                              headers=auth_headers)
+            assert r.status_code == 200
+
+    async with sm() as session:
+        rows = (await session.execute(select(AuditEntry))).scalars().all()
+        write_rows = [r for r in rows if r.action == "setting.write"]
+        assert write_rows, "expected setting.write audit entry"
+        payload = write_rows[0].payload
+        assert payload.get("old") == "dark"
+        assert payload.get("new") == "light"
+        assert payload.get("source") == "runtime"
+
+
+@pytest.mark.asyncio
+async def test_patch_response_redacts_secrets(auth_headers, sm):
+    """Verify PATCH response redacts secret values."""
+    from server.app.settings.config import SECRET_FIELDS
+    secret_key = next(iter(SECRET_FIELDS))
+    async with sm() as session:
+        session.add(Setting(key=secret_key, value="old-value",
+                            source="env", scope="runtime-mutable",
+                            updated_at=datetime.now(timezone.utc)))
+        await session.commit()
+    app = create_app()
+    app.state.sessionmaker = sm
+    with mock.patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=FleetSettings(admin_token=SecretStr(ADMIN_TOKEN)),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+            r = await c.patch("/v1/settings",
+                              json={"key": secret_key, "value": "new-secret-value"},
+                              headers=auth_headers)
+            assert r.status_code == 200
+            body = r.json()
+            assert body["redacted"] is True
+            assert body["value"] != "new-secret-value"
+            assert body["value"] == "***REDACTED***"
+
+
+@pytest.mark.asyncio
+async def test_patch_audit_redacts_secrets(auth_headers, sm, signing_backend):
+    """For SECRET_FIELDS, audit log must NOT contain plaintext old/new values."""
+    from server.app.audit.sql_chain import SqlAuditChain
+    from server.app.models import AuditEntry
+    from server.app.settings.config import SECRET_FIELDS
+    from sqlalchemy import select
+    secret_key = next(iter(SECRET_FIELDS))
+    async with sm() as session:
+        session.add(Setting(key=secret_key, value="old-secret",
+                            source="env", scope="runtime-mutable",
+                            updated_at=datetime.now(timezone.utc)))
+        await session.commit()
+    audit = SqlAuditChain(signing_backend)
+    app = create_app()
+    app.state.sessionmaker = sm
+    app.state.audit_chain = audit
+    with mock.patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=FleetSettings(admin_token=SecretStr(ADMIN_TOKEN)),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+            r = await c.patch("/v1/settings",
+                              json={"key": secret_key, "value": "new-secret"},
+                              headers=auth_headers)
+            assert r.status_code == 200
+    async with sm() as session:
+        rows = (await session.execute(select(AuditEntry))).scalars().all()
+        for row in rows:
+            payload_str = str(row.payload)
+            assert "old-secret" not in payload_str
+            assert "new-secret" not in payload_str
