@@ -32,5 +32,9 @@ target-version = "py312"
 strict = true
 python_version = "3.12"
 
+[[tool.mypy.overrides]]
+module = "server.app.grpc._pb.*"
+ignore_errors = true
+
 [tool.setuptools]
 packages = ["server", "agent"]
