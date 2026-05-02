@@ -14,8 +14,8 @@ jobs:
           python-version: "3.12"
       - run: pip install -e .[dev]
       - run: ruff check .
-      - run: mypy server || true   # server dir doesn't exist yet; gate later
-      - run: pytest -q || true     # tests dir doesn't exist yet; gate later
+      - run: mypy server/app/
+      - run: pytest server/tests/ -q
   go:
     runs-on: ubuntu-latest
     steps:
@@ -23,11 +23,11 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.23"
-      - run: cd agent && go vet ./... || true
-      - run: cd agent && go test ./... || true
+      - run: cd agent && go vet ./...
+      - run: cd agent && go test ./...
   proto:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: bufbuild/buf-setup-action@v1
-      - run: buf lint proto || true
+      - run: buf lint proto
