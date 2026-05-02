@@ -1,0 +1,194 @@
+"""Tests for BuiltinEngine PolicyDecisionProvider."""
+from __future__ import annotations
+
+import hashlib
+import json
+from uuid import uuid4
+
+import pytest
+
+from server.app.models import Binding, Role
+from server.app.rbac.engine import BuiltinEngine
+from server.app.rbac.provider import Principal, AuthContext
+from server.app.rbac.scope import Resource
+
+
+def compute_scope_hash(scope_kind: str, scope_value: dict) -> str:
+    """Compute scope_hash for a binding."""
+    data = {"kind": scope_kind, "value": scope_value}
+    return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
+
+
+@pytest.mark.asyncio
+async def test_engine_denies_default(sm) -> None:
+    """No bindings -> deny."""
+    async with sm() as session:
+        engine = BuiltinEngine(session)
+        principal = Principal(user_id="u-1")
+        resource = Resource()
+        ctx = AuthContext()
+
+        decision = await engine.is_authorized(principal, "host:read", resource, ctx)
+        assert not decision.allow
+        assert decision.reason == "no_matching_binding"
+
+
+@pytest.mark.asyncio
+async def test_engine_grants_via_user_binding_global_scope(sm) -> None:
+    """User with viewer role + global scope -> host:read allowed."""
+    async with sm() as session:
+        # Get viewer role from DB
+        from sqlalchemy import select
+        viewer_role = (await session.execute(
+            select(Role).where(Role.name == "viewer")
+        )).scalar_one()
+
+        # Create binding
+        binding = Binding(
+            id=str(uuid4()),
+            principal_type="user",
+            principal_id="u-1",
+            role_id=viewer_role.id,
+            scope_kind="global",
+            scope_value={},
+            scope_hash=compute_scope_hash("global", {}),
+        )
+        session.add(binding)
+        await session.commit()
+
+        # Test authorization
+        engine = BuiltinEngine(session)
+        principal = Principal(user_id="u-1")
+        resource = Resource()
+        ctx = AuthContext()
+
+        decision = await engine.is_authorized(principal, "host:read", resource, ctx)
+        assert decision.allow
+        assert decision.binding_id == binding.id
+        assert "viewer" in (decision.reason or "")
+
+
+@pytest.mark.asyncio
+async def test_engine_denies_action_outside_role_perms(sm) -> None:
+    """Viewer role does NOT grant host:exec."""
+    async with sm() as session:
+        from sqlalchemy import select
+        viewer_role = (await session.execute(
+            select(Role).where(Role.name == "viewer")
+        )).scalar_one()
+
+        binding = Binding(
+            id=str(uuid4()),
+            principal_type="user",
+            principal_id="u-1",
+            role_id=viewer_role.id,
+            scope_kind="global",
+            scope_value={},
+            scope_hash=compute_scope_hash("global", {}),
+        )
+        session.add(binding)
+        await session.commit()
+
+        engine = BuiltinEngine(session)
+        principal = Principal(user_id="u-1")
+        resource = Resource()
+        ctx = AuthContext()
+
+        decision = await engine.is_authorized(principal, "host:exec", resource, ctx)
+        assert not decision.allow
+        assert decision.reason == "no_matching_binding"
+
+
+@pytest.mark.asyncio
+async def test_engine_denies_when_scope_excludes(sm) -> None:
+    """host_list scope ["h-1"] does not cover resource id="h-2"."""
+    async with sm() as session:
+        from sqlalchemy import select
+        viewer_role = (await session.execute(
+            select(Role).where(Role.name == "viewer")
+        )).scalar_one()
+
+        scope_value = {"host_ids": ["h-1"]}
+        binding = Binding(
+            id=str(uuid4()),
+            principal_type="user",
+            principal_id="u-1",
+            role_id=viewer_role.id,
+            scope_kind="host_list",
+            scope_value=scope_value,
+            scope_hash=compute_scope_hash("host_list", scope_value),
+        )
+        session.add(binding)
+        await session.commit()
+
+        engine = BuiltinEngine(session)
+        principal = Principal(user_id="u-1")
+        resource = Resource(id="h-2")
+        ctx = AuthContext()
+
+        decision = await engine.is_authorized(principal, "host:read", resource, ctx)
+        assert not decision.allow
+        assert decision.reason == "no_matching_binding"
+
+
+@pytest.mark.asyncio
+async def test_engine_grants_via_user_group_binding(sm) -> None:
+    """User has user_group_ids={ug-1}, binding on user_group ug-1 -> allowed."""
+    async with sm() as session:
+        from sqlalchemy import select
+        operator_role = (await session.execute(
+            select(Role).where(Role.name == "operator")
+        )).scalar_one()
+
+        binding = Binding(
+            id=str(uuid4()),
+            principal_type="user_group",
+            principal_id="ug-1",
+            role_id=operator_role.id,
+            scope_kind="global",
+            scope_value={},
+            scope_hash=compute_scope_hash("global", {}),
+        )
+        session.add(binding)
+        await session.commit()
+
+        engine = BuiltinEngine(session)
+        principal = Principal(user_id="u-1", user_group_ids=frozenset({"ug-1"}))
+        resource = Resource()
+        ctx = AuthContext()
+
+        decision = await engine.is_authorized(principal, "task:create", resource, ctx)
+        assert decision.allow
+        assert decision.binding_id == binding.id
+
+
+@pytest.mark.asyncio
+async def test_engine_decision_includes_binding_id_and_reason_role_name(sm) -> None:
+    """Decision includes binding_id and reason with role name."""
+    async with sm() as session:
+        from sqlalchemy import select
+        admin_role = (await session.execute(
+            select(Role).where(Role.name == "admin")
+        )).scalar_one()
+
+        binding = Binding(
+            id=str(uuid4()),
+            principal_type="user",
+            principal_id="u-1",
+            role_id=admin_role.id,
+            scope_kind="global",
+            scope_value={},
+            scope_hash=compute_scope_hash("global", {}),
+        )
+        session.add(binding)
+        await session.commit()
+
+        engine = BuiltinEngine(session)
+        principal = Principal(user_id="u-1")
+        resource = Resource()
+        ctx = AuthContext()
+
+        decision = await engine.is_authorized(principal, "role:write", resource, ctx)
+        assert decision.allow
+        assert decision.binding_id == binding.id
+        assert decision.reason == "role:admin"
