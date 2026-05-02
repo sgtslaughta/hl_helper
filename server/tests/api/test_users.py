@@ -297,3 +297,223 @@ async def test_service_account_crud(client: httpx.AsyncClient):
         headers={"Authorization": "Bearer test-admin-token"},
     )
     assert delete_resp.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_patch_user_404_when_missing(client: httpx.AsyncClient):
+    """PATCH /v1/users/{id} with missing user returns 404."""
+    response = await client.patch(
+        "/v1/users/nonexistent",
+        json={"display_name": "New Name"},
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
+    assert response.status_code == 404
+    assert "not found" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_delete_user_404_when_missing(client: httpx.AsyncClient):
+    """DELETE /v1/users/{id} with missing user returns 404."""
+    response = await client.delete(
+        "/v1/users/nonexistent",
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
+    assert response.status_code == 404
+    assert "not found" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_delete_service_account_404_when_missing(client: httpx.AsyncClient):
+    """DELETE /v1/service-accounts/{id} with missing account returns 404."""
+    response = await client.delete(
+        "/v1/service-accounts/nonexistent",
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
+    assert response.status_code == 404
+    assert "not found" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_remove_user_group_member_404_when_missing(client: httpx.AsyncClient):
+    """DELETE /v1/user-groups/{id}/members/{user_id} with missing membership returns 404."""
+    # Create a user and group
+    user_resp = await client.post(
+        "/v1/users",
+        json={"email": "test404@example.com", "kind": "local"},
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
+    user_id = user_resp.json()["id"]
+
+    group_resp = await client.post(
+        "/v1/user-groups",
+        json={"name": "test404group"},
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
+    group_id = group_resp.json()["id"]
+
+    # Try to remove a non-existent membership
+    response = await client.delete(
+        f"/v1/user-groups/{group_id}/members/{user_id}",
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_list_includes_disabled_users(client: httpx.AsyncClient):
+    """GET /v1/users includes disabled users."""
+    # Create a disabled user
+    response = await client.post(
+        "/v1/users",
+        json={"email": "disabled@example.com", "kind": "local"},
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
+    user_id = response.json()["id"]
+
+    # Disable the user
+    await client.patch(
+        f"/v1/users/{user_id}",
+        json={"disabled": True},
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
+
+    # List users and verify disabled user is present
+    list_resp = await client.get(
+        "/v1/users",
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
+    assert list_resp.status_code == 200
+    users = list_resp.json()
+    disabled_user = next((u for u in users if u["id"] == user_id), None)
+    assert disabled_user is not None
+    assert disabled_user["disabled"] is True
+
+
+@pytest.mark.asyncio
+async def test_patch_display_name_only(client: httpx.AsyncClient):
+    """PATCH /v1/users/{id} with only display_name keeps disabled unchanged."""
+    # Create user
+    response = await client.post(
+        "/v1/users",
+        json={"email": "patch@example.com", "kind": "local"},
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
+    user_id = response.json()["id"]
+
+    # PATCH only display_name
+    response = await client.patch(
+        f"/v1/users/{user_id}",
+        json={"display_name": "Updated Name"},
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["display_name"] == "Updated Name"
+    assert data["disabled"] is False
+
+
+@pytest.mark.asyncio
+async def test_user_group_name_unique_409(client: httpx.AsyncClient):
+    """POST /v1/user-groups with duplicate name returns 409."""
+    # Create first group
+    response1 = await client.post(
+        "/v1/user-groups",
+        json={"name": "unique-group"},
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
+    assert response1.status_code == 201
+
+    # Try to create second group with same name
+    response2 = await client.post(
+        "/v1/user-groups",
+        json={"name": "unique-group"},
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
+    assert response2.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_service_account_name_unique_409(client: httpx.AsyncClient):
+    """POST /v1/service-accounts with duplicate name returns 409."""
+    # Create first service account
+    response1 = await client.post(
+        "/v1/service-accounts",
+        json={"name": "unique-sa"},
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
+    assert response1.status_code == 201
+
+    # Try to create second with same name
+    response2 = await client.post(
+        "/v1/service-accounts",
+        json={"name": "unique-sa"},
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
+    assert response2.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_service_account_patch_disabled(client: httpx.AsyncClient):
+    """PATCH /v1/service-accounts/{id} updates disabled flag."""
+    # Create service account
+    create_resp = await client.post(
+        "/v1/service-accounts",
+        json={"name": "patch-sa", "description": "Original"},
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
+    assert create_resp.status_code == 201
+    sa_id = create_resp.json()["id"]
+    assert create_resp.json()["disabled"] is False
+
+    # PATCH disabled flag
+    patch_resp = await client.patch(
+        f"/v1/service-accounts/{sa_id}",
+        json={"disabled": True},
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
+    assert patch_resp.status_code == 200
+    data = patch_resp.json()
+    assert data["disabled"] is True
+    assert data["description"] == "Original"
+
+    # PATCH description only
+    patch_resp2 = await client.patch(
+        f"/v1/service-accounts/{sa_id}",
+        json={"description": "Updated"},
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
+    assert patch_resp2.status_code == 200
+    data2 = patch_resp2.json()
+    assert data2["disabled"] is True
+    assert data2["description"] == "Updated"
+
+
+@pytest.mark.asyncio
+async def test_user_group_add_member_unknown_user_404(client: httpx.AsyncClient):
+    """POST /v1/user-groups/{id}/members with unknown user_id returns 404."""
+    # Create group
+    group_resp = await client.post(
+        "/v1/user-groups",
+        json={"name": "testgroup"},
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
+    group_id = group_resp.json()["id"]
+
+    # Try to add non-existent user
+    response = await client.post(
+        f"/v1/user-groups/{group_id}/members",
+        json={"user_id": "nonexistent"},
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_email_invalid_format_422(client: httpx.AsyncClient):
+    """POST /v1/users with invalid email format returns 422."""
+    response = await client.post(
+        "/v1/users",
+        json={"email": "not-an-email", "kind": "local"},
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
+    assert response.status_code == 422

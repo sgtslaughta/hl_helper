@@ -7,7 +7,7 @@ from typing import Annotated, Literal, Union
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, Discriminator, Tag, field_validator
+from pydantic import BaseModel, Discriminator, EmailStr, Tag, field_validator
 from sqlalchemy import delete, insert, select
 from sqlalchemy.exc import IntegrityError
 
@@ -30,7 +30,7 @@ class UserCreateLocal(BaseModel):
 
     model_config = {"extra": "forbid"}
 
-    email: str
+    email: EmailStr
     kind: Literal["local"] = "local"
     display_name: str | None = None
     password_hash: str | None = None
@@ -41,7 +41,7 @@ class UserCreateOidc(BaseModel):
 
     model_config = {"extra": "forbid"}
 
-    email: str
+    email: EmailStr
     kind: Literal["oidc"]
     oidc_subject: str
     oidc_issuer: str
@@ -125,6 +125,13 @@ class ServiceAccountOut(BaseModel):
     created_at: datetime
 
 
+class ServiceAccountUpdate(BaseModel):
+    """Update a service account."""
+
+    disabled: bool | None = None
+    description: str | None = None
+
+
 # ============================================================================
 # User Endpoints
 # ============================================================================
@@ -161,7 +168,7 @@ async def create_user(req: Request, body: UserCreate) -> UserOut:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Email {body.email} already exists",
-            )
+            ) from None
 
     return UserOut(
         id=user.id,
@@ -269,8 +276,18 @@ async def delete_user(req: Request, user_id: str) -> None:
     """Hard delete a user."""
     sm = req.app.state.sessionmaker
     async with sm() as session:
-        await session.execute(delete(User).where(User.id == user_id))
-        await session.commit()
+        user = await session.scalar(select(User).where(User.id == user_id))
+        if user is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        try:
+            await session.delete(user)
+            await session.commit()
+        except IntegrityError:
+            await session.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot delete user with existing bindings",
+            ) from None
 
 
 # ============================================================================
@@ -297,7 +314,7 @@ async def create_user_group(req: Request, body: UserGroupCreate) -> UserGroupOut
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Group name {body.name} already exists",
-            )
+            ) from None
 
     return UserGroupOut(
         id=group.id,
@@ -366,7 +383,7 @@ async def add_user_to_group(
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="User already in group",
-            )
+            ) from None
 
     return {"status": "added"}
 
@@ -380,6 +397,17 @@ async def remove_user_from_group(req: Request, group_id: str, user_id: str) -> N
     """Remove a user from a user group."""
     sm = req.app.state.sessionmaker
     async with sm() as session:
+        # Check if membership exists
+        membership = await session.scalar(
+            select(user_group_members).where(
+                (user_group_members.c.user_id == user_id)
+                & (user_group_members.c.user_group_id == group_id)
+            )
+        )
+        if membership is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Membership not found"
+            )
         await session.execute(
             delete(user_group_members).where(
                 (user_group_members.c.user_id == user_id)
@@ -413,7 +441,7 @@ async def create_service_account(req: Request, body: ServiceAccountCreate) -> Se
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Service account name {body.name} already exists",
-            )
+            ) from None
 
     return ServiceAccountOut(
         id=sa.id,
@@ -446,6 +474,40 @@ async def list_service_accounts(req: Request) -> list[ServiceAccountOut]:
     ]
 
 
+@router.patch(
+    "/service-accounts/{sa_id}",
+    response_model=ServiceAccountOut,
+    dependencies=[Depends(admin_required)],
+)
+async def patch_service_account(
+    req: Request, sa_id: str, body: ServiceAccountUpdate
+) -> ServiceAccountOut:
+    """Update service account disabled flag and/or description."""
+    sm = req.app.state.sessionmaker
+    async with sm() as session:
+        sa = await session.scalar(
+            select(ServiceAccount).where(ServiceAccount.id == sa_id).with_for_update()
+        )
+        if sa is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Service account not found"
+            )
+        data = body.model_dump(exclude_unset=True)
+        if "disabled" in data:
+            sa.disabled = data["disabled"]
+        if "description" in data:
+            sa.description = data["description"]
+        await session.commit()
+
+    return ServiceAccountOut(
+        id=sa.id,
+        name=sa.name,
+        description=sa.description,
+        disabled=sa.disabled,
+        created_at=sa.created_at,
+    )
+
+
 @router.delete(
     "/service-accounts/{sa_id}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -455,5 +517,17 @@ async def delete_service_account(req: Request, sa_id: str) -> None:
     """Delete a service account."""
     sm = req.app.state.sessionmaker
     async with sm() as session:
-        await session.execute(delete(ServiceAccount).where(ServiceAccount.id == sa_id))
-        await session.commit()
+        sa = await session.scalar(select(ServiceAccount).where(ServiceAccount.id == sa_id))
+        if sa is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Service account not found"
+            )
+        try:
+            await session.delete(sa)
+            await session.commit()
+        except IntegrityError:
+            await session.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot delete service account with existing bindings",
+            ) from None
