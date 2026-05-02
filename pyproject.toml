@@ -42,5 +42,8 @@ ignore_errors = true
 module = "biscuit_auth"
 ignore_missing_imports = true
 
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
 [tool.setuptools]
 packages = ["server", "agent"]
