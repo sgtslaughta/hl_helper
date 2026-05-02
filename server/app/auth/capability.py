@@ -10,7 +10,6 @@ from biscuit_auth import (
     BiscuitBuilder,
     Biscuit,
     AuthorizerBuilder,
-    AuthorizationError,
     Rule,
 )
 
@@ -171,7 +170,11 @@ class CapabilityVerifier:
                     raise CapabilitySignatureError(
                         "Could not extract claims from token"
                     )
-            except AuthorizationError as e:
+            except CapabilitySignatureError:
+                # Re-raise our own errors
+                raise
+            except Exception as e:
+                # Catch any other exception and convert to CapabilitySignatureError
                 raise CapabilitySignatureError(
                     f"Could not extract claims from token: {e}"
                 )

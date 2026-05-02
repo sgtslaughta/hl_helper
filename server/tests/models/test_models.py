@@ -368,3 +368,22 @@ async def test_session_scope_rolls_back_on_exception(sm: async_sessionmaker) -> 
         assert fetched is None
 
 
+@pytest.mark.asyncio
+async def test_host_labels_default_not_shared(sm: async_sessionmaker) -> None:
+    """Two hosts created without explicit labels must not share the same dict instance."""
+    async with session_scope(sm) as s1:
+        h1 = Host(id="h1", hostname="a", agent_pubkey=b"\x01"*32)
+        h2 = Host(id="h2", hostname="b", agent_pubkey=b"\x02"*32)
+        s1.add_all([h1, h2])
+        await s1.flush()
+        # Verify labels are different instances (not shared)
+        assert h1.labels is not h2.labels, "labels must be different dict instances"
+        h1.labels = {"env": "prod"}
+        await s1.commit()
+
+    async with session_scope(sm) as s2:
+        a = await s2.get(Host, "h1")
+        b = await s2.get(Host, "h2")
+        assert a.labels == {"env": "prod"}
+        assert b.labels == {}, f"expected empty, got {b.labels}"
+

@@ -322,3 +322,56 @@ class TestCapabilityTrustAnchors:
             expected_action="pkg.update",
         )
         assert result.host_id == "h1"
+
+
+class TestCapabilityMalformedTokens:
+    """Test rejection of malformed and truncated tokens."""
+
+    def test_verify_rejects_malformed_base64(self):
+        """Reject token that is not valid base64."""
+        issuer = CapabilityIssuer.generate()
+        verifier = CapabilityVerifier([issuer.public_key])
+
+        with pytest.raises(CapabilitySignatureError):
+            verifier.verify(
+                b"!!!not-base64!!!",
+                expected_host="h1",
+                expected_action="pkg.update",
+            )
+
+    def test_verify_rejects_truncated_token(self):
+        """Reject token with last 5 bytes of base64 string removed."""
+        issuer = CapabilityIssuer.generate()
+        now = datetime.now(timezone.utc)
+        claims = CapabilityClaims(
+            host_id="h1",
+            action="pkg.update",
+            resource=None,
+            issued_at=now,
+            expires_at=now + timedelta(minutes=5),
+            issuer="admin",
+        )
+
+        token = issuer.issue(claims)
+        # Truncate by removing last 5 bytes
+        truncated = token[:-5]
+
+        verifier = CapabilityVerifier([issuer.public_key])
+        with pytest.raises(CapabilitySignatureError):
+            verifier.verify(
+                truncated,
+                expected_host="h1",
+                expected_action="pkg.update",
+            )
+
+    def test_verify_rejects_empty_token(self):
+        """Reject empty token."""
+        issuer = CapabilityIssuer.generate()
+        verifier = CapabilityVerifier([issuer.public_key])
+
+        with pytest.raises(CapabilitySignatureError):
+            verifier.verify(
+                b"",
+                expected_host="h1",
+                expected_action="pkg.update",
+            )

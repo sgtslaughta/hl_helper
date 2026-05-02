@@ -7,6 +7,12 @@ from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict, PydanticBaseSettingsSource
 from .scope import SettingScope
 
+# Fields that should be treated as secrets and redacted in effective_config.
+SECRET_FIELDS: frozenset[str] = frozenset({
+    "vault_token",
+    "session_signing_key_ref",  # may carry inline key material in future
+})
+
 # Per-key scope registry. Anything not listed defaults to RUNTIME_MUTABLE.
 SETTING_SCOPES: dict[str, SettingScope] = {
     "data_dir": SettingScope.BOOT_ONLY,
@@ -144,7 +150,10 @@ def load_settings(
 
 
 def effective_config(s: FleetSettings, *, redact_secrets: bool = True) -> dict[str, Any]:
-    """Return current effective config as dict; redacts SecretStr fields when redact_secrets=True.
+    """Return current effective config as dict; redacts fields when redact_secrets=True.
+    Redaction applies to:
+      - Fields whose name is in SECRET_FIELDS, OR
+      - Fields whose value is a SecretStr instance
     Includes per-key 'source' from s.sources_.
     Output shape: {key: {"value": ..., "source": ..., "scope": ...}}.
     """
@@ -152,12 +161,18 @@ def effective_config(s: FleetSettings, *, redact_secrets: bool = True) -> dict[s
     for field_name, field_info in FleetSettings.model_fields.items():
         value = getattr(s, field_name)
 
-        # Handle SecretStr
+        # Check if field should be redacted: in SECRET_FIELDS or is SecretStr
+        should_redact = redact_secrets and (
+            field_name in SECRET_FIELDS or isinstance(value, SecretStr)
+        )
+
         if isinstance(value, SecretStr):
-            if redact_secrets:
+            if should_redact:
                 displayed_value = "***"
             else:
                 displayed_value = value.get_secret_value()
+        elif should_redact:
+            displayed_value = "***"
         else:
             displayed_value = value
 

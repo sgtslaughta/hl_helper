@@ -4,6 +4,7 @@ from server.app.settings.config import (
     load_settings,
     effective_config,
     scope_for,
+    SECRET_FIELDS,
 )
 from server.app.settings.scope import SettingScope
 
@@ -95,6 +96,31 @@ class TestSecretRedaction:
         )
         config_dict = effective_config(s, redact_secrets=False)
         assert config_dict["vault_token"]["value"] == "hunter2"
+
+    def test_redaction_via_secret_field_registry(self) -> None:
+        """Fields in SECRET_FIELDS are redacted even if not SecretStr."""
+        s = load_settings(
+            env={"FLEET_SESSION_SIGNING_KEY_REF": "secret-stuff"},
+            config_file=None,
+        )
+        config_dict = effective_config(s, redact_secrets=True)
+        # session_signing_key_ref is in SECRET_FIELDS, should be redacted
+        assert config_dict["session_signing_key_ref"]["value"] == "***"
+
+    def test_redaction_disabled_passes_secret_through(self) -> None:
+        """With redact_secrets=False, SECRET_FIELDS fields pass through."""
+        s = load_settings(
+            env={"FLEET_SESSION_SIGNING_KEY_REF": "secret-stuff"},
+            config_file=None,
+        )
+        config_dict = effective_config(s, redact_secrets=False)
+        # session_signing_key_ref should not be redacted
+        assert config_dict["session_signing_key_ref"]["value"] == "secret-stuff"
+
+    def test_secret_fields_set_includes_vault_token(self) -> None:
+        """SECRET_FIELDS registry includes vault_token."""
+        assert "vault_token" in SECRET_FIELDS
+        assert "session_signing_key_ref" in SECRET_FIELDS
 
 
 class TestEffectiveConfig:
