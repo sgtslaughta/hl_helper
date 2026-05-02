@@ -3,10 +3,12 @@ module github.com/hlhelper/hl-agent
 go 1.25.0
 
 require (
+	github.com/google/go-tpm v0.9.0
 	github.com/spf13/cobra v1.8.1
 	go.etcd.io/bbolt v1.4.3
 	go.uber.org/goleak v1.3.0
 	golang.org/x/crypto v0.50.0
+	google.golang.org/protobuf v1.34.1
 )
 
 require (
