@@ -13,16 +13,19 @@ from server.app.models.group import Group
 from server.app.models.group_membership import GroupMembership
 from server.app.models.host import Host
 from server.app.models.maintenance_window import MaintenanceWindow
+from server.app.models.notification import Notification
 from server.app.models.result import Result
 from server.app.models.revoked_cert import RevokedCert
 from server.app.models.role import Role
 from server.app.models.schedule import Schedule
 from server.app.models.service_account import ServiceAccount
+from server.app.models.setting import Setting
 from server.app.models.task import Task
 from server.app.models.task_run import TaskRun
 from server.app.models.update_policy import UpdatePolicy
 from server.app.models.user import User
 from server.app.models.user_group import UserGroup
+from server.app.models.webhook import Webhook
 
 __all__ = [
     "Base",
@@ -47,4 +50,7 @@ __all__ = [
     "MaintenanceWindow",
     "UpdatePolicy",
     "Approval",
+    "Notification",
+    "Webhook",
+    "Setting",
 ]
