@@ -28,10 +28,17 @@ from server.app.models.host import Host
 
 @pytest.fixture
 async def async_session(tmp_path: Path):
-    """Create in-memory aiosqlite database with tables."""
-    db_url = f"sqlite+aiosqlite:///{tmp_path / 'test.db'}"
-    engine = create_async_engine(db_url, echo=False)
+    """Create file-based aiosqlite database with WAL for concurrency testing."""
+    # Use file-based DB with WAL mode to enable better concurrency
+    db_url = f"sqlite+aiosqlite:///{tmp_path / 'test.db'}?mode=rwc"
+    engine = create_async_engine(
+        db_url,
+        echo=False,
+        connect_args={"timeout": 10, "isolation_level": "IMMEDIATE"},
+    )
     async with engine.begin() as conn:
+        # Enable WAL mode for better concurrency
+        await conn.exec_driver_sql("PRAGMA journal_mode = WAL")
         await conn.run_sync(Base.metadata.create_all)
     sm = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 

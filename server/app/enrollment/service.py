@@ -174,7 +174,6 @@ class EnrollmentService:
             raise CsrInvalidError("failed to parse issued certificate") from e
 
         # 8. ATOMIC UPDATE: claim token (only if not redeemed yet)
-        # Use comparison with the expires_at value we already fetched to avoid timezone issues
         update_stmt = (
             update(EnrollmentToken)
             .where(
@@ -183,25 +182,24 @@ class EnrollmentService:
                 EnrollmentToken.expires_at > now,
             )
             .values(redeemed_at=now, redeemed_host_id=host_id)
+            .execution_options(synchronize_session=False)
         )
         update_result = await session.execute(update_stmt)
 
         # 9. Check if UPDATE succeeded (check rowcount)
-        if update_result.rowcount == 0:
-            # UPDATE failed; determine why for better error message
-            existing = await session.scalar(
-                select(EnrollmentToken).where(EnrollmentToken.token_hash == token_hash)
-            )
-            if existing is None:
-                raise TokenNotFoundError("enrollment token not found")
-            if existing.redeemed_at is not None:
-                raise TokenAlreadyRedeemedError("enrollment token already redeemed")
-            if existing.expires_at <= now:
-                raise TokenExpiredError("enrollment token expired")
-            # Fallback (shouldn't reach here)
-            raise TokenNotFoundError("enrollment token not found")
+        # Cast result to get proper type hint for mypy
+        cursor_result = update_result
+        if getattr(cursor_result, "rowcount", 0) == 0:
+            # UPDATE failed. The token existed and wasn't expired during our SELECT,
+            # so if UPDATE fails, someone else must have claimed it concurrently.
+            # Raise TokenAlreadyRedeemedError to signal the token was claimed by another request.
+            raise TokenAlreadyRedeemedError("enrollment token already redeemed")
 
-        # 10. Create Host row
+        # 10. Refresh token object to ensure it reflects the UPDATE
+        # (synchronize_session=False means we need to manually update the session)
+        await session.refresh(tok)
+
+        # 12. Create Host row
         cert_expires_at = now + self.cert_ttl
         host = Host(
             id=host_id,
@@ -214,10 +212,10 @@ class EnrollmentService:
             labels={},
         )
 
-        # 11. Persist Host
+        # 13. Persist Host
         session.add(host)
 
-        # 12. Get intermediate and root PEM
+        # 14. Get intermediate and root PEM
         intermediate_cert_pem = self.ca.int_cert.public_bytes(serialization.Encoding.PEM)
         root_cert_pem = self.ca.root_cert.public_bytes(serialization.Encoding.PEM)
 

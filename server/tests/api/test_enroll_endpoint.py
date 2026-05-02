@@ -6,6 +6,7 @@ import base64
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import AsyncIterator
+from unittest import mock
 
 import httpx
 import pytest
@@ -87,11 +88,13 @@ async def client(async_session_maker, enrollment_service: EnrollmentService):
     app.dependency_overrides[get_session] = override_session_dep
     app.dependency_overrides[get_enrollment_service] = override_service_dep
 
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app),
-        base_url="http://testserver",
-    ) as client:
-        yield client
+    # Mock the rate limiter check to always pass
+    with mock.patch("server.app.api.middleware.rate_limit.RateLimiter.check", return_value=None):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://testserver",
+        ) as client:
+            yield client
 
 
 @pytest.mark.asyncio
