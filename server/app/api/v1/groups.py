@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
-from sqlalchemy import select, delete
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from server.app.api.middleware.admin_auth import admin_required
@@ -15,6 +16,34 @@ from server.app.models.group import Group
 from server.app.models.group_membership import GroupMembership
 
 router = APIRouter(prefix="/v1/groups", tags=["groups"])
+
+
+# Helpers
+async def _would_create_cycle(
+    session: object, group_id: str, new_parent_id: str | None
+) -> bool:
+    """Check if assigning new_parent_id to group_id would create a cycle."""
+    if new_parent_id is None:
+        return False
+    if new_parent_id == group_id:
+        return True
+    cur: str | None = new_parent_id
+    seen: set[str] = set()
+    while cur is not None and cur not in seen:
+        seen.add(cur)
+        if cur == group_id:
+            return True
+        try:
+            parent_uuid = UUID(cur)
+        except (ValueError, AttributeError):
+            # Invalid UUID format in chain; skip cycle check
+            return False
+        result = await session.execute(  # type: ignore[attr-defined]
+            select(Group.parent_id).where(Group.id == parent_uuid)
+        )
+        parent: UUID | None = result.scalar()
+        cur = str(parent) if parent else None
+    return False
 
 
 # Pydantic models
@@ -49,7 +78,7 @@ class MemberAdd(BaseModel):
     """Request to add a member to a group."""
 
     host_id: str
-    kind: str = "static"
+    kind: Literal["static", "dynamic"] = "static"
 
 
 @router.post(
@@ -66,10 +95,17 @@ async def create_group(req: Request, body: GroupCreate) -> GroupOut:
     sm = req.app.state.sessionmaker
     async with sm() as session:
         # Validate parent_id if provided
+        parent_uuid: UUID | None = None
         if body.parent_id:
-            parent_id_uuid = UUID(body.parent_id)
+            try:
+                parent_uuid = UUID(body.parent_id)
+            except (ValueError, AttributeError):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"invalid_uuid: {body.parent_id}",
+                )
             result = await session.execute(
-                select(Group).where(Group.id == parent_id_uuid)
+                select(Group).where(Group.id == parent_uuid)
             )
             if result.scalars().first() is None:
                 raise HTTPException(
@@ -78,7 +114,6 @@ async def create_group(req: Request, body: GroupCreate) -> GroupOut:
                 )
 
         # Create new group
-        parent_uuid: UUID | None = UUID(body.parent_id) if body.parent_id else None
         group = Group(
             name=body.name,
             parent_id=parent_uuid,
@@ -145,7 +180,13 @@ async def get_group(req: Request, group_id: str) -> GroupOut:
     """
     sm = req.app.state.sessionmaker
     async with sm() as session:
-        group_uuid = UUID(group_id)
+        try:
+            group_uuid = UUID(group_id)
+        except (ValueError, AttributeError):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"invalid_uuid: {group_id}",
+            )
         result = await session.execute(
             select(Group).where(Group.id == group_uuid)
         )
@@ -181,7 +222,13 @@ async def update_group(
     """
     sm = req.app.state.sessionmaker
     async with sm() as session:
-        group_uuid = UUID(group_id)
+        try:
+            group_uuid = UUID(group_id)
+        except (ValueError, AttributeError):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"invalid_uuid: {group_id}",
+            )
         result = await session.execute(
             select(Group).where(Group.id == group_uuid)
         )
@@ -193,23 +240,47 @@ async def update_group(
                 detail="Group not found",
             )
 
-        # Validate new parent_id if provided
-        if body.parent_id:
-            parent_uuid = UUID(body.parent_id)
-            result = await session.execute(
-                select(Group).where(Group.id == parent_uuid)
-            )
-            if result.scalars().first() is None:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Parent group not found",
-                )
-            group.parent_id = parent_uuid
+        # Handle field updates using model_dump(exclude_unset=True)
+        data = body.model_dump(exclude_unset=True)
 
-        if body.name is not None:
-            group.name = body.name
-        if body.description is not None:
-            group.description = body.description
+        # Validate and apply parent_id if in request
+        if "parent_id" in data:
+            new_parent_id = data["parent_id"]
+            if new_parent_id is not None:
+                # Check for circular reference
+                if await _would_create_cycle(session, group_id, new_parent_id):
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="circular_reference_detected",
+                    )
+                # Validate parent exists
+                try:
+                    parent_uuid = UUID(new_parent_id)
+                except (ValueError, AttributeError):
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"invalid_uuid: {new_parent_id}",
+                    )
+                result = await session.execute(
+                    select(Group).where(Group.id == parent_uuid)
+                )
+                if result.scalars().first() is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail="Parent group not found",
+                    )
+                group.parent_id = parent_uuid
+            else:
+                # Explicit None = clear parent
+                group.parent_id = None
+
+        # Apply name if in request and not None
+        if "name" in data and data["name"] is not None:
+            group.name = data["name"]
+
+        # Apply description if in request (can be None to clear)
+        if "description" in data:
+            group.description = data["description"]
 
         try:
             await session.commit()
@@ -243,7 +314,13 @@ async def delete_group(req: Request, group_id: str) -> None:
     """
     sm = req.app.state.sessionmaker
     async with sm() as session:
-        group_uuid = UUID(group_id)
+        try:
+            group_uuid = UUID(group_id)
+        except (ValueError, AttributeError):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"invalid_uuid: {group_id}",
+            )
         result = await session.execute(
             select(Group).where(Group.id == group_uuid)
         )
@@ -255,8 +332,15 @@ async def delete_group(req: Request, group_id: str) -> None:
                 detail="Group not found",
             )
 
-        await session.delete(group)
-        await session.commit()
+        try:
+            await session.delete(group)
+            await session.commit()
+        except IntegrityError:
+            await session.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="group_has_dependents",
+            )
 
 
 @router.post(
@@ -273,7 +357,13 @@ async def add_member(
     """
     sm = req.app.state.sessionmaker
     async with sm() as session:
-        group_uuid = UUID(group_id)
+        try:
+            group_uuid = UUID(group_id)
+        except (ValueError, AttributeError):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"invalid_uuid: {group_id}",
+            )
 
         # Verify group exists
         result = await session.execute(
@@ -292,7 +382,20 @@ async def add_member(
             kind=body.kind,
         )
         session.add(membership)
-        await session.commit()
+        try:
+            await session.commit()
+        except IntegrityError as e:
+            await session.rollback()
+            msg = str(e.orig) if hasattr(e, "orig") else str(e)
+            if "FOREIGN KEY" in msg or "foreign key" in msg.lower():
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="host_not_found",
+                )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="already_member",
+            )
 
 
 @router.delete(
@@ -307,12 +410,26 @@ async def remove_member(req: Request, group_id: str, host_id: str) -> None:
     """
     sm = req.app.state.sessionmaker
     async with sm() as session:
-        group_uuid = UUID(group_id)
+        try:
+            group_uuid = UUID(group_id)
+        except (ValueError, AttributeError):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"invalid_uuid: {group_id}",
+            )
 
-        await session.execute(
-            delete(GroupMembership).where(
+        # Query first to check existence
+        existing = await session.scalar(
+            select(GroupMembership).where(
                 (GroupMembership.group_id == group_uuid)
                 & (GroupMembership.host_id == host_id)
             )
         )
+        if existing is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="membership_not_found",
+            )
+
+        await session.delete(existing)
         await session.commit()
