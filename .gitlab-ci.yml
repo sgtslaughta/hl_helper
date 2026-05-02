@@ -18,19 +18,19 @@ packaging-test:
 
 go-leakcheck:
   stage: test
-  image: golang:1.23
+  image: golang:1.25
   script:
     - cd agent && go test -count=1 ./...
 
 go-race:
   stage: test
-  image: golang:1.23
+  image: golang:1.25
   script:
     - cd agent && go test -race -count=1 ./...
 
 agent-tpm:
   stage: test
-  image: golang:1.23
+  image: golang:1.25
   before_script:
     - apt-get update && apt-get install -y swtpm
   script:

@@ -84,3 +84,12 @@ async def test_forged_result_wrong_host_key_rejected(
     # Pass through handler with wrong signature
     with pytest.raises(BadSignatureError):
         await handler.handle(env, expected_host_id=host_id)
+
+    # Verify audit entry was emitted
+    async with session_scope(sm) as session:
+        from server.app.models import AuditEntry  # type: ignore
+        from sqlalchemy import select
+        rows = (await session.execute(select(AuditEntry))).scalars().all()
+        actions = [r.action for r in rows]
+        assert any("bad_signature" in a or "BadSignature" in a or "reject" in a.lower() for a in actions), \
+            f"expected audit entry for forged result; got {actions}"

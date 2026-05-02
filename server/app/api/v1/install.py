@@ -17,6 +17,7 @@ async def get_install_script(
     request: Request,
     token: str = "",
     server: str = "",
+    grpc_endpoint: str = "",
 ) -> Response:
     """Get install.sh script, rendered with query params and signed.
 
@@ -39,7 +40,9 @@ async def get_install_script(
     template_dir = Path(__file__).parent.parent.parent.parent / "templates"
     env = Environment(loader=FileSystemLoader(template_dir))
     template = env.get_template("install.sh.j2")
-    rendered = template.render(token=token, server=server, SERVER=server)
+    rendered = template.render(
+        token=token, server=server, SERVER=server, grpc_endpoint=grpc_endpoint
+    )
 
     # Sign the rendered script
     rendered_bytes = rendered.encode("utf-8")

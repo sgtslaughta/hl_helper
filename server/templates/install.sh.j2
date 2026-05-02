@@ -15,6 +15,20 @@ esac
 
 echo "Detected architecture: $agent_arch"
 
+# Diagnostic: gRPC port reachability. hl-agent requires HTTP/2 end-to-end;
+# reverse proxies that terminate TLS without h2 forwarding break enrollment.
+grpc_endpoint="{{ grpc_endpoint | default('') }}"
+if [ -n "$grpc_endpoint" ] && command -v nc >/dev/null 2>&1; then
+  grpc_host=$(echo "$grpc_endpoint" | sed -E 's|^[^:]+://||; s|/.*$||; s|:.*$||')
+  grpc_port=$(echo "$grpc_endpoint" | sed -E 's|.*:([0-9]+).*|\1|')
+  if [ -n "$grpc_port" ] && ! nc -z "$grpc_host" "$grpc_port" 2>/dev/null; then
+    echo "ERROR: gRPC port ${grpc_host}:${grpc_port} unreachable." >&2
+    echo "Hint: hl-agent requires HTTP/2 end-to-end. If a reverse proxy" >&2
+    echo "terminates TLS, ensure it forwards h2 (not HTTP/1.1)." >&2
+    exit 1
+  fi
+fi
+
 # Download agent binary
 echo "Downloading hl-agent for $agent_arch..."
 agent_url="https://${SERVER}/agent/${agent_arch}/hl-agent"
