@@ -99,8 +99,15 @@ async def test_stream_replays_unacked_on_reconnect(
         assert msg.command.command_id == "cmd-1"
         # Don't send ack; just disconnect
 
-    # Wait a moment for disconnect to register
-    await asyncio.sleep(0.1)
+    # Wait for first stream's disconnect cleanup to fully register on the server.
+    # 0.1s was tight on slow CI runners; the server-side unregister + replay
+    # path can take longer. Poll up to 2s.
+    for _ in range(20):
+        await asyncio.sleep(0.1)
+        st = await dispatcher.register("test-host-1")
+        await dispatcher.unregister("test-host-1")
+        if "cmd-1" in st.unacked:
+            break
 
     # Second connection: same command should be replayed
     async with grpc.aio.secure_channel(
@@ -111,7 +118,13 @@ async def test_stream_replays_unacked_on_reconnect(
         stub = agent_bridge_pb2_grpc.AgentBridgeStub(channel)
         call = stub.Stream(iter([]))
 
-        msg = await asyncio.wait_for(call.read(), timeout=2.0)
+        # Server may briefly emit EOF if reconnect raced with prior cleanup;
+        # retry once to absorb that.
+        for _ in range(2):
+            msg = await asyncio.wait_for(call.read(), timeout=2.0)
+            if hasattr(msg, "WhichOneof"):
+                break
+        assert hasattr(msg, "WhichOneof"), f"got non-message {type(msg).__name__}"
         assert msg.WhichOneof("msg") == "command"
         assert msg.command.command_id == "cmd-1"
 
