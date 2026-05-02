@@ -23,21 +23,30 @@ const (
 )
 
 var (
+	// ErrChainBroken is returned when hash chain verification fails during decrypt.
 	ErrChainBroken = errors.New("outbox: chain broken")
-	ErrBadKey      = errors.New("outbox: bad master key")
+	// ErrBadKey is returned when the master key length is not 32 bytes.
+	ErrBadKey = errors.New("outbox: bad master key")
 )
 
+// Entry represents a single encrypted message in the outbox with its sequence ID.
 type Entry struct {
 	ID      uint64
 	Payload []byte
 }
 
+// Options holds configuration for Outbox initialization.
 type Options struct {
-	MasterKey  []byte
-	MaxBytes   int64
+	// MasterKey is the 32-byte key for AES-256-GCM encryption.
+	MasterKey []byte
+	// MaxBytes is the maximum total size in bytes; oldest entries are evicted when exceeded.
+	MaxBytes int64
+	// MaxEntries is the maximum number of entries; oldest are evicted when exceeded.
 	MaxEntries int
 }
 
+// Outbox stores encrypted messages with hash-chain integrity verification.
+// All entries are encrypted at rest with AES-256-GCM and verified on read.
 type Outbox struct {
 	mu     sync.Mutex
 	db     *bolt.DB
@@ -46,6 +55,8 @@ type Outbox struct {
 	nextID uint64
 }
 
+// Open creates or opens an Outbox at the given BoltDB file path.
+// The master key in opts must be exactly 32 bytes. Returns ErrBadKey if not.
 func Open(path string, opts Options) (*Outbox, error) {
 	if len(opts.MasterKey) != 32 {
 		return nil, ErrBadKey
@@ -97,6 +108,8 @@ func (o *Outbox) init() error {
 	})
 }
 
+// Append adds a message to the outbox, encrypts it, and returns its sequence ID.
+// Returns an error if encryption fails.
 func (o *Outbox) Append(payload []byte) (uint64, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -150,6 +163,8 @@ func (o *Outbox) Append(payload []byte) (uint64, error) {
 	return id, nil
 }
 
+// Peek returns up to n entries from the outbox without removing them.
+// Entries are decrypted and verified; returns an error if chain is broken.
 func (o *Outbox) Peek(n int) ([]Entry, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -185,6 +200,7 @@ func (o *Outbox) Peek(n int) ([]Entry, error) {
 	return entries, err
 }
 
+// Ack removes an entry from the outbox by ID after it has been processed.
 func (o *Outbox) Ack(id uint64) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -202,6 +218,7 @@ func (o *Outbox) Ack(id uint64) error {
 	})
 }
 
+// Len returns the current number of entries in the outbox.
 func (o *Outbox) Len() (int, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -218,6 +235,8 @@ func (o *Outbox) Len() (int, error) {
 	return count, err
 }
 
+// Verify decrypts and verifies all entries in the outbox against the hash chain.
+// Returns ErrChainBroken if any entry fails verification.
 func (o *Outbox) Verify() error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -248,6 +267,7 @@ func (o *Outbox) Verify() error {
 	})
 }
 
+// Close closes the underlying BoltDB and releases resources.
 func (o *Outbox) Close() error {
 	return o.db.Close()
 }

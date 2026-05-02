@@ -14,14 +14,22 @@ import (
 )
 
 const (
-	SigningKeyFile   = "signing.key"
-	SigningPubFile   = "signing.pub"
-	TLSKeyFile       = "tls.key"
-	TLSCertFile      = "tls.crt"
+	// SigningKeyFile is the filename for the Ed25519 signing private key (PKCS8 PEM).
+	SigningKeyFile = "signing.key"
+	// SigningPubFile is the filename for the Ed25519 signing public key (PKIX PEM).
+	SigningPubFile = "signing.pub"
+	// TLSKeyFile is the filename for the ECDSA P-256 TLS private key (PKCS8 PEM).
+	TLSKeyFile = "tls.key"
+	// TLSCertFile is the filename for the TLS certificate (PEM).
+	TLSCertFile = "tls.crt"
+	// IntermediateFile is the filename for the intermediate CA certificate (PEM).
 	IntermediateFile = "intermediate.crt"
-	RootFile         = "root.crt"
+	// RootFile is the filename for the root CA certificate (PEM).
+	RootFile = "root.crt"
 )
 
+// FileKeystore stores agent keys on local disk under a single directory
+// with strict file-mode enforcement (0600 for private keys, 0644 for public/certs).
 type FileKeystore struct {
 	dir        string
 	signingKey ed25519.PrivateKey

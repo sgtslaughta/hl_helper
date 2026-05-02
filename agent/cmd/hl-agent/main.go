@@ -1,3 +1,4 @@
+// Package main provides the hl-agent command-line application.
 package main
 
 import (
@@ -14,6 +15,7 @@ var (
 	date    = "unknown"
 )
 
+// configPath holds the path to the agent configuration file, set via the --config flag.
 var configPath string
 
 func main() {
