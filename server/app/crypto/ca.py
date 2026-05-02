@@ -103,8 +103,19 @@ class InternalCA:
         *,
         host_id: str,
         ttl: timedelta,
+        dns_names: list[str] | None = None,
     ) -> bytes:
-        """Sign a host CSR, returning the leaf cert as PEM bytes."""
+        """Sign a host CSR, returning the leaf cert as PEM bytes.
+
+        Args:
+            csr_pem: PEM-encoded certificate signing request.
+            host_id: Identifier for the host (used in SPIFFE URI and CN).
+            ttl: Certificate time-to-live.
+            dns_names: Optional list of DNS names to add to SAN (in addition to SPIFFE URI).
+
+        Returns:
+            PEM-encoded leaf certificate.
+        """
         if ttl <= timedelta(0):
             raise ValueError("ttl must be positive")
         csr = x509.load_pem_x509_csr(csr_pem)
@@ -113,6 +124,11 @@ class InternalCA:
 
         now = datetime.now(timezone.utc)
         spiffe_id = f"spiffe://{SPIFFE_AUTHORITY}/host/{host_id}"
+
+        # Build SAN with SPIFFE URI + optional DNS names
+        san_list = [x509.UniformResourceIdentifier(spiffe_id)]
+        if dns_names:
+            san_list.extend(x509.DNSName(name) for name in dns_names)
 
         builder = (
             x509.CertificateBuilder()
@@ -125,13 +141,84 @@ class InternalCA:
             .not_valid_before(now - BACKDATE)
             .not_valid_after(now + ttl)
             .add_extension(
-                x509.SubjectAlternativeName(
-                    [x509.UniformResourceIdentifier(spiffe_id)]
-                ),
+                x509.SubjectAlternativeName(san_list),
                 critical=True,
             )
             .add_extension(
                 x509.ExtendedKeyUsage([ExtendedKeyUsageOID.CLIENT_AUTH]),
+                critical=True,
+            )
+            .add_extension(
+                x509.BasicConstraints(ca=False, path_length=None),
+                critical=True,
+            )
+            .add_extension(
+                x509.KeyUsage(
+                    digital_signature=True,
+                    content_commitment=False,
+                    key_encipherment=False,
+                    data_encipherment=False,
+                    key_agreement=False,
+                    key_cert_sign=False,
+                    crl_sign=False,
+                    encipher_only=False,
+                    decipher_only=False,
+                ),
+                critical=True,
+            )
+        )
+        cert = builder.sign(private_key=self.int_key, algorithm=None)
+        return cert.public_bytes(serialization.Encoding.PEM)
+
+    def issue_server_cert(
+        self,
+        csr_pem: bytes,
+        *,
+        server_id: str,
+        ttl: timedelta,
+        dns_names: list[str] | None = None,
+    ) -> bytes:
+        """Sign a server CSR with spiffe://fleet/server URI, returning the leaf cert as PEM bytes.
+
+        Args:
+            csr_pem: PEM-encoded certificate signing request.
+            server_id: Identifier for the server (used in CN).
+            ttl: Certificate time-to-live.
+            dns_names: Optional list of DNS names to add to SAN (in addition to SPIFFE URI).
+
+        Returns:
+            PEM-encoded leaf certificate.
+        """
+        if ttl <= timedelta(0):
+            raise ValueError("ttl must be positive")
+        csr = x509.load_pem_x509_csr(csr_pem)
+        if not csr.is_signature_valid:
+            raise ValueError("invalid csr signature")
+
+        now = datetime.now(timezone.utc)
+        spiffe_id = f"spiffe://{SPIFFE_AUTHORITY}/server"
+
+        # Build SAN with SPIFFE URI + optional DNS names
+        san_list = [x509.UniformResourceIdentifier(spiffe_id)]
+        if dns_names:
+            san_list.extend(x509.DNSName(name) for name in dns_names)
+
+        builder = (
+            x509.CertificateBuilder()
+            .subject_name(
+                x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, server_id)])
+            )
+            .issuer_name(self.int_cert.subject)
+            .public_key(csr.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now - BACKDATE)
+            .not_valid_after(now + ttl)
+            .add_extension(
+                x509.SubjectAlternativeName(san_list),
+                critical=True,
+            )
+            .add_extension(
+                x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]),
                 critical=True,
             )
             .add_extension(
