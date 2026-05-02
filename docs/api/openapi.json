@@ -1,0 +1,288 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "hl_helper",
+    "version": "0.0.1"
+  },
+  "paths": {
+    "/v1/enroll": {
+      "post": {
+        "tags": [
+          "enrollment"
+        ],
+        "summary": "Enroll",
+        "description": "Enroll an agent with a one-time token.",
+        "operationId": "enroll_v1_enroll_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnrollRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnrollResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/hosts/{host_id}": {
+      "delete": {
+        "tags": [
+          "hosts"
+        ],
+        "summary": "Revoke Host",
+        "description": "Revoke a host (admin-only).",
+        "operationId": "revoke_host_v1_hosts__host_id__delete",
+        "parameters": [
+          {
+            "name": "host_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Host Id"
+            }
+          },
+          {
+            "name": "reason",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Reason"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/install.sh": {
+      "get": {
+        "tags": [
+          "install"
+        ],
+        "summary": "Get Install Script",
+        "description": "Get install.sh script, rendered with query params and signed.\n\nArgs:\n    token: Enrollment token (optional)\n    server: Server hostname (optional, defaults to request host)\n\nReturns:\n    Shell script with X-Install-Signature header containing base64 signature",
+        "operationId": "get_install_script_v1_install_sh_get",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Token"
+            }
+          },
+          {
+            "name": "server",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Server"
+            }
+          },
+          {
+            "name": "grpc_endpoint",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Grpc Endpoint"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "EnrollRequest": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "minLength": 20,
+            "title": "Token"
+          },
+          "hostname": {
+            "type": "string",
+            "maxLength": 253,
+            "minLength": 1,
+            "title": "Hostname"
+          },
+          "csr_pem": {
+            "type": "string",
+            "title": "Csr Pem"
+          },
+          "agent_pubkey_b64": {
+            "type": "string",
+            "title": "Agent Pubkey B64"
+          }
+        },
+        "type": "object",
+        "required": [
+          "token",
+          "hostname",
+          "csr_pem",
+          "agent_pubkey_b64"
+        ],
+        "title": "EnrollRequest",
+        "description": "Enrollment request."
+      },
+      "EnrollResponse": {
+        "properties": {
+          "host_id": {
+            "type": "string",
+            "title": "Host Id"
+          },
+          "leaf_cert_pem": {
+            "type": "string",
+            "title": "Leaf Cert Pem"
+          },
+          "intermediate_cert_pem": {
+            "type": "string",
+            "title": "Intermediate Cert Pem"
+          },
+          "root_cert_pem": {
+            "type": "string",
+            "title": "Root Cert Pem"
+          },
+          "server_signing_pubkey_b64": {
+            "type": "string",
+            "title": "Server Signing Pubkey B64"
+          },
+          "grpc_endpoint": {
+            "type": "string",
+            "title": "Grpc Endpoint"
+          }
+        },
+        "type": "object",
+        "required": [
+          "host_id",
+          "leaf_cert_pem",
+          "intermediate_cert_pem",
+          "root_cert_pem",
+          "server_signing_pubkey_b64",
+          "grpc_endpoint"
+        ],
+        "title": "EnrollResponse",
+        "description": "Enrollment response."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}
