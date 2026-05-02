@@ -114,9 +114,13 @@ async def test_insert_enrollment_token(sm: async_sessionmaker) -> None:
 @pytest.mark.asyncio
 async def test_insert_command_and_result(sm: async_sessionmaker) -> None:
     """Insert Command, then Result referencing it; query both."""
+    from server.app.models import Task, TaskRun
+
     host_id = str(uuid4())
     command_id = str(uuid4())
     result_id = str(uuid4())
+    task_id = str(uuid4())
+    task_run_id = str(uuid4())
     now = datetime.now(timezone.utc)
 
     # Insert host first
@@ -129,21 +133,41 @@ async def test_insert_command_and_result(sm: async_sessionmaker) -> None:
         session.add(host)
         await session.commit()
 
+    # Insert task
+    async with session_scope(sm) as session:
+        task = Task(
+            id=task_id,
+            kind="pkg_update",
+            risk="low",
+            payload={},
+            target_selector={},
+        )
+        session.add(task)
+        await session.commit()
+
+    # Insert task run
+    async with session_scope(sm) as session:
+        task_run = TaskRun(
+            id=task_run_id,
+            task_id=task_id,
+            host_id=host_id,
+            status="pending",
+        )
+        session.add(task_run)
+        await session.commit()
+
     # Insert command
     async with session_scope(sm) as session:
         cmd = Command(
             id=command_id,
+            task_run_id=task_run_id,
             host_id=host_id,
             sequence=1,
-            nonce=b"nonce" * 4,  # 20 bytes
+            envelope_bytes=b"envelope",
             issued_at=now,
             expires_at=now,
-            issued_by="user1",
             risk="low",
-            payload_kind="pkg_update",
-            signature=b"sig" * 11,  # 33 bytes
-            envelope_blob=b"envelope",
-            status="pending",
+            status="queued",
         )
         session.add(cmd)
         await session.commit()
@@ -177,8 +201,12 @@ async def test_insert_command_and_result(sm: async_sessionmaker) -> None:
 
 @pytest.mark.asyncio
 async def test_command_unique_host_sequence(sm: async_sessionmaker) -> None:
-    """Composite index on (host_id, sequence); verify index exists."""
+    """Unique constraint on (host_id, sequence); verify constraint is enforced."""
+    from server.app.models import Task, TaskRun
+
     host_id = str(uuid4())
+    task_id_1 = str(uuid4())
+    task_id_2 = str(uuid4())
     now = datetime.now(timezone.utc)
 
     # Insert host
@@ -191,55 +219,86 @@ async def test_command_unique_host_sequence(sm: async_sessionmaker) -> None:
         session.add(host)
         await session.commit()
 
-    # Insert two commands with same host_id and sequence (no unique constraint,
-    # just index for query optimization)
+    # Insert two tasks
+    async with session_scope(sm) as session:
+        task1 = Task(
+            id=task_id_1,
+            kind="shell_exec",
+            risk="low",
+            payload={},
+            target_selector={},
+        )
+        task2 = Task(
+            id=task_id_2,
+            kind="shell_exec",
+            risk="low",
+            payload={},
+            target_selector={},
+        )
+        session.add_all([task1, task2])
+        await session.commit()
+
+    # Insert first task run
+    task_run_id_1 = str(uuid4())
+    async with session_scope(sm) as session:
+        task_run = TaskRun(
+            id=task_run_id_1,
+            task_id=task_id_1,
+            host_id=host_id,
+            status="pending",
+        )
+        session.add(task_run)
+        await session.commit()
+
+    # Insert first command with host_id and sequence=1
     async with session_scope(sm) as session:
         cmd1 = Command(
             id=str(uuid4()),
+            task_run_id=task_run_id_1,
             host_id=host_id,
             sequence=1,
-            nonce=b"nonce" * 4,
+            envelope_bytes=b"envelope",
             issued_at=now,
             expires_at=now,
-            issued_by="user1",
             risk="low",
-            payload_kind="pkg_update",
-            signature=b"sig" * 11,
-            envelope_blob=b"envelope",
-            status="pending",
+            status="queued",
         )
         session.add(cmd1)
         await session.commit()
 
-    # Second command with same sequence succeeds (no unique constraint)
+    # Insert second task run (different task, same host)
+    task_run_id_2 = str(uuid4())
     async with session_scope(sm) as session:
-        cmd2 = Command(
-            id=str(uuid4()),
+        task_run = TaskRun(
+            id=task_run_id_2,
+            task_id=task_id_2,
             host_id=host_id,
-            sequence=1,
-            nonce=b"nonce" * 4,
-            issued_at=now,
-            expires_at=now,
-            issued_by="user1",
-            risk="low",
-            payload_kind="pkg_update",
-            signature=b"sig" * 11,
-            envelope_blob=b"envelope",
             status="pending",
         )
-        session.add(cmd2)
+        session.add(task_run)
         await session.commit()
 
-    # Verify index exists by querying sqlite_master
-    async with session_scope(sm) as session:
-        result = await session.execute(
-            text(
-                "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='commands'"
+    # Second command with same host_id and sequence=1 must fail (unique constraint)
+    try:
+        async with session_scope(sm) as session:
+            cmd2 = Command(
+                id=str(uuid4()),
+                task_run_id=task_run_id_2,
+                host_id=host_id,
+                sequence=1,
+                envelope_bytes=b"envelope",
+                issued_at=now,
+                expires_at=now,
+                risk="low",
+                status="queued",
             )
-        )
-        index_names = [row[0] for row in result.fetchall()]
-        # At minimum, check that host sequence index exists
-        assert any("host" in name and "sequence" in name for name in index_names)
+            session.add(cmd2)
+            await session.commit()
+        # Should not reach here
+        assert False, "Expected IntegrityError"
+    except IntegrityError:
+        # Expected
+        pass
 
 
 @pytest.mark.asyncio
