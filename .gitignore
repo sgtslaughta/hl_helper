@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+
+# Node
+node_modules/
+.next/
+out/
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.local
+
+# Coverage
+coverage/
+htmlcov/
+.coverage
+
+# Go
+*.test
+*.out
+vendor/
+
+# IDE
+.idea/
+.vscode/
+.DS_Store
+
+# Data
+data/
+/data/
