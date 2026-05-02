@@ -64,7 +64,8 @@ async def test_list_bindings_admin_gated_401(sm: async_sessionmaker) -> None:  #
 async def test_create_global_binding_201(client: httpx.AsyncClient) -> None:
     """POST /v1/bindings with global scope → 201."""
     # Get a role ID from the seeded roles that were created in the fixture's app.state.sessionmaker
-    session_maker = client._transport.app.state.sessionmaker
+    app = client._transport.app
+    session_maker = app.state.sessionmaker
     async with session_maker() as session:
         role = await session.scalar(
             select(Role).where(Role.name == "viewer")
@@ -92,7 +93,8 @@ async def test_create_global_binding_201(client: httpx.AsyncClient) -> None:
 @pytest.mark.asyncio
 async def test_create_group_binding_with_value_validates(client: httpx.AsyncClient) -> None:
     """POST /v1/bindings with group scope validates shape."""
-    session_maker = client._transport.app.state.sessionmaker
+    app = client._transport.app
+    session_maker = app.state.sessionmaker
     async with session_maker() as session:
         role = await session.scalar(
             select(Role).where(Role.name == "viewer")
@@ -117,7 +119,8 @@ async def test_create_group_binding_with_value_validates(client: httpx.AsyncClie
 @pytest.mark.asyncio
 async def test_create_invalid_scope_value_shape_422(client: httpx.AsyncClient) -> None:
     """POST /v1/bindings with invalid scope_value shape → 422."""
-    session_maker = client._transport.app.state.sessionmaker
+    app = client._transport.app
+    session_maker = app.state.sessionmaker
     async with session_maker() as session:
         role = await session.scalar(
             select(Role).where(Role.name == "viewer")
@@ -140,7 +143,8 @@ async def test_create_invalid_scope_value_shape_422(client: httpx.AsyncClient) -
 @pytest.mark.asyncio
 async def test_create_unknown_scope_kind_422(client: httpx.AsyncClient) -> None:
     """POST /v1/bindings with invalid scope_kind → 422."""
-    session_maker = client._transport.app.state.sessionmaker
+    app = client._transport.app
+    session_maker = app.state.sessionmaker
     async with session_maker() as session:
         role = await session.scalar(
             select(Role).where(Role.name == "viewer")
@@ -163,7 +167,8 @@ async def test_create_unknown_scope_kind_422(client: httpx.AsyncClient) -> None:
 @pytest.mark.asyncio
 async def test_duplicate_binding_409(client: httpx.AsyncClient) -> None:
     """POST same binding twice → second is 409."""
-    session_maker = client._transport.app.state.sessionmaker
+    app = client._transport.app
+    session_maker = app.state.sessionmaker
     async with session_maker() as session:
         role = await session.scalar(
             select(Role).where(Role.name == "viewer")
@@ -190,7 +195,8 @@ async def test_duplicate_binding_409(client: httpx.AsyncClient) -> None:
 @pytest.mark.asyncio
 async def test_filter_by_principal_id(client: httpx.AsyncClient) -> None:
     """GET /v1/bindings?principal_id=u-1 filters correctly."""
-    session_maker = client._transport.app.state.sessionmaker
+    app = client._transport.app
+    session_maker = app.state.sessionmaker
     async with session_maker() as session:
         role = await session.scalar(
             select(Role).where(Role.name == "viewer")
@@ -232,7 +238,8 @@ async def test_filter_by_principal_id(client: httpx.AsyncClient) -> None:
 @pytest.mark.asyncio
 async def test_delete_binding_204_then_404(client: httpx.AsyncClient) -> None:
     """DELETE /v1/bindings/{id} returns 204, then 404 on second attempt."""
-    session_maker = client._transport.app.state.sessionmaker
+    app = client._transport.app
+    session_maker = app.state.sessionmaker
     async with session_maker() as session:
         role = await session.scalar(
             select(Role).where(Role.name == "viewer")
@@ -259,6 +266,218 @@ async def test_delete_binding_204_then_404(client: httpx.AsyncClient) -> None:
     # Get after delete
     get_resp = await client.get(f"/v1/bindings/{binding_id}")
     assert get_resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_scope_hash_deterministic_for_value_key_order(client: httpx.AsyncClient) -> None:
+    """POST two bindings with same scope_value but different key order → 409."""
+    app = client._transport.app
+    session_maker = app.state.sessionmaker
+    async with session_maker() as session:
+        role = await session.scalar(
+            select(Role).where(Role.name == "viewer")
+        )
+        role_id = role.id
+
+    # First POST with one key order
+    resp1 = await client.post(
+        "/v1/bindings",
+        json={
+            "principal_type": "user",
+            "principal_id": "u-hash-test",
+            "role_id": role_id,
+            "scope_kind": "tag",
+            "scope_value": {"key": "env", "value": "prod"},
+        },
+    )
+    assert resp1.status_code == 201
+
+    # Second POST with different key order (value before key)
+    resp2 = await client.post(
+        "/v1/bindings",
+        json={
+            "principal_type": "user",
+            "principal_id": "u-hash-test",
+            "role_id": role_id,
+            "scope_kind": "tag",
+            "scope_value": {"value": "prod", "key": "env"},
+        },
+    )
+    assert resp2.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_host_list_with_non_string_element_422(client: httpx.AsyncClient) -> None:
+    """POST with host_ids containing non-string → 422."""
+    app = client._transport.app
+    session_maker = app.state.sessionmaker
+    async with session_maker() as session:
+        role = await session.scalar(
+            select(Role).where(Role.name == "viewer")
+        )
+        role_id = role.id
+
+    resp = await client.post(
+        "/v1/bindings",
+        json={
+            "principal_type": "user",
+            "principal_id": "u-1",
+            "role_id": role_id,
+            "scope_kind": "host_list",
+            "scope_value": {"host_ids": [1, 2]},
+        },
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_host_list_with_empty_string_element_422(client: httpx.AsyncClient) -> None:
+    """POST with host_ids containing empty string → 422."""
+    app = client._transport.app
+    session_maker = app.state.sessionmaker
+    async with session_maker() as session:
+        role = await session.scalar(
+            select(Role).where(Role.name == "viewer")
+        )
+        role_id = role.id
+
+    resp = await client.post(
+        "/v1/bindings",
+        json={
+            "principal_type": "user",
+            "principal_id": "u-1",
+            "role_id": role_id,
+            "scope_kind": "host_list",
+            "scope_value": {"host_ids": [""]},
+        },
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_self_with_empty_principal_id_422(client: httpx.AsyncClient) -> None:
+    """POST with self scope and empty principal_id → 422."""
+    app = client._transport.app
+    session_maker = app.state.sessionmaker
+    async with session_maker() as session:
+        role = await session.scalar(
+            select(Role).where(Role.name == "viewer")
+        )
+        role_id = role.id
+
+    resp = await client.post(
+        "/v1/bindings",
+        json={
+            "principal_type": "user",
+            "principal_id": "u-1",
+            "role_id": role_id,
+            "scope_kind": "self",
+            "scope_value": {"principal_id": ""},
+        },
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_tag_with_empty_key_or_value_422(client: httpx.AsyncClient) -> None:
+    """POST with tag scope and empty key/value → 422."""
+    app = client._transport.app
+    session_maker = app.state.sessionmaker
+    async with session_maker() as session:
+        role = await session.scalar(
+            select(Role).where(Role.name == "viewer")
+        )
+        role_id = role.id
+
+    resp = await client.post(
+        "/v1/bindings",
+        json={
+            "principal_type": "user",
+            "principal_id": "u-1",
+            "role_id": role_id,
+            "scope_kind": "tag",
+            "scope_value": {"key": "", "value": "prod"},
+        },
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_filter_combined_principal_and_role(client: httpx.AsyncClient) -> None:
+    """GET /v1/bindings with both principal_id and role_id filters."""
+    app = client._transport.app
+    session_maker = app.state.sessionmaker
+    async with session_maker() as session:
+        role = await session.scalar(
+            select(Role).where(Role.name == "viewer")
+        )
+        role_id = role.id
+
+    # Create two bindings: different principals, same role
+    await client.post(
+        "/v1/bindings",
+        json={
+            "principal_type": "user",
+            "principal_id": "u-combined-1",
+            "role_id": role_id,
+            "scope_kind": "global",
+            "scope_value": {},
+        },
+    )
+
+    await client.post(
+        "/v1/bindings",
+        json={
+            "principal_type": "user",
+            "principal_id": "u-combined-2",
+            "role_id": role_id,
+            "scope_kind": "global",
+            "scope_value": {},
+        },
+    )
+
+    # Filter by both principal_id and role_id
+    resp = await client.get(
+        f"/v1/bindings?principal_id=u-combined-1&role_id={role_id}"
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 1
+    assert data[0]["principal_id"] == "u-combined-1"
+    assert data[0]["role_id"] == role_id
+
+
+@pytest.mark.asyncio
+async def test_delete_then_recreate_succeeds(client: httpx.AsyncClient) -> None:
+    """DELETE a binding then POST same tuple → 201 (no ghost duplicate)."""
+    app = client._transport.app
+    session_maker = app.state.sessionmaker
+    async with session_maker() as session:
+        role = await session.scalar(
+            select(Role).where(Role.name == "viewer")
+        )
+        role_id = role.id
+
+    payload = {
+        "principal_type": "user",
+        "principal_id": "u-recreate",
+        "role_id": role_id,
+        "scope_kind": "global",
+        "scope_value": {},
+    }
+
+    # Create binding
+    create_resp = await client.post("/v1/bindings", json=payload)
+    assert create_resp.status_code == 201
+    binding_id = create_resp.json()["id"]
+
+    # Delete binding
+    del_resp = await client.delete(f"/v1/bindings/{binding_id}")
+    assert del_resp.status_code == 204
+
+    # Recreate same binding → should succeed with 201
+    recreate_resp = await client.post("/v1/bindings", json=payload)
+    assert recreate_resp.status_code == 201
 
 
 @pytest.mark.asyncio

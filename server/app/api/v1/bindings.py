@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
@@ -34,55 +34,68 @@ def _validate_scope_value(kind: str, value: dict[str, object]) -> None:
         if value != {}:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="global scope must have empty value",
+                detail="global_scope_takes_no_value",
             )
-    elif kind == "group":
-        if "group_id" not in value or not isinstance(value.get("group_id"), str):
+        return
+    if kind == "group":
+        gid = value.get("group_id")
+        if not isinstance(gid, str) or not gid:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="group scope must have group_id: str",
+                detail="group_scope_requires_nonempty_group_id",
             )
-    elif kind == "tag":
-        if "key" not in value or "value" not in value:
+        return
+    if kind == "tag":
+        k = value.get("key")
+        v = value.get("value")
+        if not isinstance(k, str) or not k or not isinstance(v, str) or not v:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="tag scope must have key: str and value: str",
+                detail="tag_scope_requires_nonempty_key_and_value",
             )
-        if not isinstance(value.get("key"), str) or not isinstance(value.get("value"), str):
+        return
+    if kind == "host_list":
+        ids = value.get("host_ids")
+        if not isinstance(ids, list) or not ids:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="tag scope must have key: str and value: str",
+                detail="host_list_requires_nonempty_array",
             )
-    elif kind == "host_list":
-        if "host_ids" not in value:
+        if not all(isinstance(x, str) and x for x in ids):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="host_list scope must have host_ids: [str]",
+                detail="host_list_ids_must_be_nonempty_strings",
             )
-        if not isinstance(value.get("host_ids"), list):
+        return
+    if kind == "self":
+        pid = value.get("principal_id", "")
+        if not isinstance(pid, str) or not pid:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="host_list scope must have host_ids: [str]",
+                detail="self_scope_requires_nonempty_principal_id",
             )
-    elif kind == "self":
-        # self can have {"principal_id": str} or {}
-        if value and "principal_id" in value:
-            if not isinstance(value.get("principal_id"), str):
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail="self scope principal_id must be str",
-                )
+        return
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail=f"unknown_scope_kind: {kind}",
+    )
 
 
 # Pydantic models
 class BindingCreate(BaseModel):
     """Request to create a binding."""
 
-    principal_type: Literal["user", "user_group", "service_account"]
-    principal_id: str
-    role_id: str
-    scope_kind: Literal["global", "group", "tag", "host_list", "self"]
-    scope_value: dict[str, object]
+    principal_type: Literal["user", "user_group", "service_account"] = Field(
+        ..., description="user | user_group | service_account"
+    )
+    principal_id: str = Field(..., description="ID of the principal subject")
+    role_id: str = Field(..., description="UUID of the Role being bound")
+    scope_kind: Literal["global", "group", "tag", "host_list", "self"] = Field(
+        ..., description="global | group | tag | host_list | self"
+    )
+    scope_value: dict[str, object] = Field(
+        ..., description="Shape per scope_kind; see /docs"
+    )
 
 
 class BindingOut(BaseModel):
@@ -222,8 +235,8 @@ async def create_binding(req: Request, body: BindingCreate) -> BindingOut:
             await session.rollback()
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="Binding with this principal, role, and scope already exists",
-            )
+                detail="duplicate_binding",
+            ) from None
 
         await session.refresh(binding)
 
