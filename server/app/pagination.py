@@ -22,6 +22,12 @@ class Cursor:
     last_id: str
 
     def encode(self) -> str:
+        """Encode cursor to base64-url-safe string.
+
+        Serializes sort_value and last_id as JSON, then encodes to base64
+        (url-safe variant, stripped of padding). Datetime/date objects are
+        converted to isoformat strings.
+        """
         # Default-encode datetime / date by isoformat
         sv = self.sort_value
         if hasattr(sv, "isoformat"):
@@ -31,6 +37,12 @@ class Cursor:
 
     @classmethod
     def decode(cls, raw: str) -> "Cursor":
+        """Decode base64-url-safe string back to Cursor.
+
+        Reverses encode(): restores padding, decodes base64, parses JSON.
+        Note: sort_value is always a string (datetime objects are stored as
+        isoformat strings). Caller must re-parse to datetime if needed.
+        """
         pad = "=" * ((4 - len(raw) % 4) % 4)
         data = base64.urlsafe_b64decode(raw + pad).decode("utf-8")
         d = json.loads(data)

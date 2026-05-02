@@ -80,3 +80,93 @@ def test_build_page_no_next_when_under_limit():
     p = build_page(rows, limit=5, sort_attr="sort", id_attr="id")
     assert p.next_cursor is None
     assert len(p.items) == 2
+
+
+@pytest.mark.asyncio
+async def test_cursor_no_skip_when_row_inserted_before_cursor_boundary(sm):
+    """Critical race: insert a row that sorts BEFORE the cursor boundary
+    AFTER page1 was fetched. The cursor still points at page1's last id,
+    so page2 must NOT skip the new row IF it sorts after the cursor key,
+    AND must NOT include rows that sort before the cursor (already shown
+    on page1).
+    """
+    async with sm() as session:
+        for i in range(4):
+            session.add(Host(id=f"a-{i:02d}", hostname=f"a-{i}", agent_pubkey=b"\x00"*32))
+        await session.commit()
+
+        stmt = select(Host).where(Host.id.like("a-%"))
+        # Page 1: cursor=None → ["a-00", "a-01"]
+        s1 = apply_cursor(stmt, sort_column=Host.id, id_column=Host.id,
+                          cursor=None, limit=2)
+        rows = (await session.execute(s1)).scalars().all()
+        p1 = build_page(rows, limit=2, sort_attr="id", id_attr="id")
+        assert [r.id for r in p1.items] == ["a-00", "a-01"]
+
+        # Insert row that sorts BEFORE page1's last id (a-01) — would naively cause
+        # offset paging to dupe a-01. Cursor predicate uses (id) > "a-01" so this
+        # new "a-005" must NOT appear in page2.
+        session.add(Host(id="a-005", hostname="late", agent_pubkey=b"\x00"*32))
+        await session.commit()
+
+        s2 = apply_cursor(stmt, sort_column=Host.id, id_column=Host.id,
+                          cursor=p1.next_cursor, limit=2)
+        rows = (await session.execute(s2)).scalars().all()
+        p2 = build_page(rows, limit=2, sort_attr="id", id_attr="id")
+        ids = [r.id for r in p2.items]
+        assert "a-005" not in ids, "row inserted before cursor boundary should be skipped"
+        assert ids == ["a-02", "a-03"]
+
+
+@pytest.mark.asyncio
+async def test_cursor_first_page_no_predicate(sm):
+    """cursor=None: only ORDER BY + LIMIT, no WHERE."""
+    async with sm() as session:
+        for i in range(3):
+            session.add(Host(id=f"f-{i:02d}", hostname=f"f-{i}", agent_pubkey=b"\x00"*32))
+        await session.commit()
+        stmt = select(Host).where(Host.id.like("f-%"))
+        s = apply_cursor(stmt, sort_column=Host.id, id_column=Host.id,
+                         cursor=None, limit=10)
+        rows = (await session.execute(s)).scalars().all()
+        assert len(rows) == 3
+        assert [r.id for r in rows] == ["f-00", "f-01", "f-02"]
+
+
+@pytest.mark.asyncio
+async def test_cursor_exactly_limit_rows_no_next_cursor(sm):
+    """Boundary: exactly `limit` rows fit → next_cursor must be None."""
+    async with sm() as session:
+        for i in range(2):
+            session.add(Host(id=f"e-{i:02d}", hostname=f"e-{i}", agent_pubkey=b"\x00"*32))
+        await session.commit()
+        stmt = select(Host).where(Host.id.like("e-%"))
+        s = apply_cursor(stmt, sort_column=Host.id, id_column=Host.id,
+                         cursor=None, limit=2)
+        rows = (await session.execute(s)).scalars().all()
+        p = build_page(rows, limit=2, sort_attr="id", id_attr="id")
+        assert len(p.items) == 2
+        assert p.next_cursor is None
+
+
+@pytest.mark.asyncio
+async def test_cursor_with_distinct_sort_and_id_columns(sm):
+    """Tiebreaker path: rows share sort_value but differ in id; ordering deterministic."""
+    async with sm() as session:
+        # All same hostname, different ids — sort by hostname (collision), tiebreak by id
+        for i in range(3):
+            session.add(Host(id=f"t-{i:02d}", hostname="same", agent_pubkey=b"\x00"*32))
+        await session.commit()
+        stmt = select(Host).where(Host.id.like("t-%"))
+        # Sort by hostname (all "same"), tiebreak by id
+        s1 = apply_cursor(stmt, sort_column=Host.hostname, id_column=Host.id,
+                          cursor=None, limit=2)
+        rows = (await session.execute(s1)).scalars().all()
+        p1 = build_page(rows, limit=2, sort_attr="hostname", id_attr="id")
+        assert [r.id for r in p1.items] == ["t-00", "t-01"]
+        # Page 2 picks up "t-02"
+        s2 = apply_cursor(stmt, sort_column=Host.hostname, id_column=Host.id,
+                          cursor=p1.next_cursor, limit=2)
+        rows = (await session.execute(s2)).scalars().all()
+        p2 = build_page(rows, limit=2, sort_attr="hostname", id_attr="id")
+        assert [r.id for r in p2.items] == ["t-02"]
