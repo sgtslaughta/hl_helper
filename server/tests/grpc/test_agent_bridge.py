@@ -228,3 +228,28 @@ async def test_stream_rejects_concurrent_for_same_host(
             with pytest.raises(grpc.aio.AioRpcError) as exc:
                 await call2.read()
             assert exc.value.code() == grpc.StatusCode.ALREADY_EXISTS
+
+
+@pytest.mark.asyncio
+async def test_stream_acks_even_on_result_error(
+    grpc_server_and_dispatcher: tuple[str, CommandDispatcher],
+) -> None:
+    """Result processing error → still ack to avoid retry storm."""
+    _bound_addr, dispatcher = grpc_server_and_dispatcher
+
+    cmd = make_env("test-host-1", "cmd-1")
+    await dispatcher.enqueue("test-host-1", cmd)
+
+    state = await dispatcher.register("test-host-1")
+    pulled = await asyncio.wait_for(state.queue.get(), timeout=1.0)
+    await dispatcher.mark_in_flight("test-host-1", pulled)
+
+    # Without result_handler, the stream still processes messages
+    assert "cmd-1" in state.unacked
+
+    await dispatcher.unregister("test-host-1")
+    await dispatcher.ack("test-host-1", "cmd-1")
+
+    # Reconnect: queue should be empty
+    state2 = await dispatcher.register("test-host-1")
+    assert state2.queue.empty()

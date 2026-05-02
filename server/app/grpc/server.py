@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from grpc.aio import server as aio_server
 from grpc.aio import Server
 
@@ -13,6 +15,9 @@ from .agent_bridge import AgentBridgeService
 from .dispatcher import CommandDispatcher
 from .tls import make_server_credentials
 
+if TYPE_CHECKING:
+    from .result_handler import ResultHandler
+
 
 def make_grpc_server(
     *,
@@ -21,6 +26,7 @@ def make_grpc_server(
     client_ca_pem: bytes,
     bind_address: str = "0.0.0.0:8444",
     dispatcher: CommandDispatcher | None = None,
+    result_handler: ResultHandler | None = None,
 ) -> tuple[Server, str, CommandDispatcher]:
     """Build configured async gRPC server with mTLS + servicer wired.
 
@@ -30,6 +36,7 @@ def make_grpc_server(
         client_ca_pem: trust roots used to verify client certs (CA chain PEM).
         bind_address: Address to bind to (e.g., "0.0.0.0:8444" or "127.0.0.1:0").
         dispatcher: CommandDispatcher instance; created if None.
+        result_handler: ResultHandler instance; optional for tests.
 
     Returns:
         (server, bound_address, dispatcher) tuple. Caller must `await server.start()`.
@@ -38,7 +45,7 @@ def make_grpc_server(
     dispatcher = dispatcher or CommandDispatcher()
     server = aio_server()
     agent_bridge_pb2_grpc.add_AgentBridgeServicer_to_server(
-        AgentBridgeService(dispatcher), server  # type: ignore[no-untyped-call]
+        AgentBridgeService(dispatcher, result_handler=result_handler), server  # type: ignore[no-untyped-call]
     )
     creds = make_server_credentials(server_cert_chain_pem, server_key_pem, client_ca_pem)
     bound_port = server.add_secure_port(bind_address, creds)

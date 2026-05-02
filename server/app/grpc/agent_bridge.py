@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterable, AsyncIterator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import grpc
 import structlog
@@ -19,14 +19,22 @@ from server.app.grpc._pb.fleet.v1 import (
 from .dispatcher import CommandDispatcher
 from .peer_context import peer_context
 
+if TYPE_CHECKING:
+    from .result_handler import ResultHandler
+
 log = structlog.get_logger(__name__)
 
 
 class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
     """Bidirectional stream handler for agent-server communication."""
 
-    def __init__(self, dispatcher: CommandDispatcher) -> None:
+    def __init__(
+        self,
+        dispatcher: CommandDispatcher,
+        result_handler: ResultHandler | None = None,
+    ) -> None:
         self._dispatcher = dispatcher
+        self._result_handler = result_handler
 
     async def Stream(
         self,
@@ -93,7 +101,7 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
         """Receive and process messages from agent.
 
         Handles:
-          - result: extract command_id and ack it (signature verification deferred to Task 5.3).
+          - result: verify signature, persist, audit, then ack.
           - heartbeat: log/track (detailed handling deferred).
           - other messages: log as unknown.
 
@@ -103,9 +111,24 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
         async for msg in request_iterator:
             kind = msg.WhichOneof("msg")
             if kind == "result":
-                # Result handling: ack the command so it leaves un-acked set.
-                # Actual result processing (signature verification, persistence)
-                # is deferred to Task 5.3.
+                # Result handling: verify signature, persist, audit.
+                # Always ack (both accepted and rejected) to avoid retry storm.
+                if self._result_handler is not None:
+                    from .result_handler import ResultRejectedError
+
+                    try:
+                        await self._result_handler.handle(
+                            msg.result, expected_host_id=host_id
+                        )
+                    except ResultRejectedError as e:
+                        log.warning(
+                            "result.rejected",
+                            host_id=host_id,
+                            command_id=msg.result.command_id,
+                            error=str(e),
+                        )
+                # Ack regardless of verification result to avoid retry storms.
+                # The agent should fix signature issues on its side.
                 await self._dispatcher.ack(host_id, msg.result.command_id)
             elif kind == "heartbeat":
                 # Heartbeat handling deferred; for now, just no-op.
