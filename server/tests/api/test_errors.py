@@ -100,3 +100,47 @@ async def test_404_returns_problem_json(client: httpx.AsyncClient):
     assert body["type"].startswith("/errors/")
     assert body["instance"] == "/nonexistent"
     assert "trace_id" in body
+
+
+@pytest.mark.asyncio
+async def test_problem_drops_null_trace_id_when_middleware_absent():
+    """Verify None values aren't serialized as 'null' in problem+JSON."""
+    from server.app.errors import problem
+    resp = problem(404, "not_found", title="Not Found")
+    body = resp.body.decode()
+    import json
+    parsed = json.loads(body)
+    assert "trace_id" not in parsed
+    assert "instance" not in parsed
+    assert parsed["status"] == 404
+
+
+@pytest.mark.asyncio
+async def test_http_exception_uses_status_phrase_as_title(client: httpx.AsyncClient):
+    """404 → title='Not Found' (HTTPStatus phrase), detail separate."""
+    r = await client.get("/definitely-not-a-route")
+    assert r.status_code == 404
+    body = r.json()
+    assert body["title"] == "Not Found"
+
+
+@pytest.mark.asyncio
+async def test_http_exception_with_string_detail():
+    """Custom raise HTTPException(403, 'banned'): title='Forbidden', detail='banned'."""
+    from fastapi import FastAPI, HTTPException
+    from fastapi.testclient import TestClient
+    from server.app.errors import http_exception_handler
+    from starlette.exceptions import HTTPException as StarletteHTTPException
+    app = FastAPI()
+    app.add_exception_handler(StarletteHTTPException, http_exception_handler)
+
+    @app.get("/teapot")
+    async def teapot():
+        raise HTTPException(status_code=403, detail="banned")
+
+    with TestClient(app) as c:
+        r = c.get("/teapot")
+        assert r.status_code == 403
+        body = r.json()
+        assert body["title"] == "Forbidden"
+        assert body["detail"] == "banned"

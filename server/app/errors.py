@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import http
 from typing import Any
 
 from fastapi import Request
@@ -37,6 +38,8 @@ def problem(
     if detail:
         body["detail"] = detail
     body.update(extra)
+    # Drop None values (except status which is always present)
+    body = {k: v for k, v in body.items() if v is not None or k == "status"}
     return JSONResponse(body, status_code=status, media_type="application/problem+json")
 
 
@@ -50,14 +53,18 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> Respon
     Returns:
         Response in problem+JSON format.
     """
-    trace_id = getattr(request.state, "trace_id", None)
+    try:
+        title = http.HTTPStatus(exc.status_code).phrase
+    except ValueError:
+        title = "HTTP error"
+    detail = exc.detail if isinstance(exc.detail, str) else None
     return problem(
         exc.status_code,
         type_slug=str(exc.status_code),
-        title=exc.detail if isinstance(exc.detail, str) else "HTTP error",
-        detail=str(exc.detail) if not isinstance(exc.detail, str) else None,
+        title=title,
+        detail=detail,
         instance=str(request.url.path),
-        trace_id=trace_id,
+        trace_id=getattr(request.state, "trace_id", None),
     )
 
 
