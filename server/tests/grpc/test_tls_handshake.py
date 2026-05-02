@@ -9,8 +9,8 @@ import grpc
 import grpc.aio
 import pytest
 from cryptography import x509
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import ed25519
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec, ed25519
 
 from server.app.crypto.ca import InternalCA
 from server.app.grpc.tls import (
@@ -22,8 +22,8 @@ from server.app.grpc._pb.fleet.v1 import agent_bridge_pb2_grpc
 
 
 def make_csr() -> tuple[bytes, bytes]:
-    """Build a fresh Ed25519 keypair + CSR. Returns (csr_pem, key_pem)."""
-    sk = ed25519.Ed25519PrivateKey.generate()
+    """Build a fresh ECDSA P-256 keypair + CSR. Returns (csr_pem, key_pem)."""
+    sk = ec.generate_private_key(ec.SECP256R1())
     key_pem = sk.private_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PrivateFormat.PKCS8,
@@ -32,7 +32,7 @@ def make_csr() -> tuple[bytes, bytes]:
     csr = (
         x509.CertificateSigningRequestBuilder()
         .subject_name(x509.Name([x509.NameAttribute(x509.NameOID.COMMON_NAME, "agent")]))
-        .sign(sk, None)
+        .sign(sk, hashes.SHA256())
     )
     return csr.public_bytes(serialization.Encoding.PEM), key_pem
 

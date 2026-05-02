@@ -126,7 +126,7 @@ class InternalCA:
         spiffe_id = f"spiffe://{SPIFFE_AUTHORITY}/host/{host_id}"
 
         # Build SAN with SPIFFE URI + optional DNS names
-        san_list = [x509.UniformResourceIdentifier(spiffe_id)]
+        san_list: list[x509.GeneralName] = [x509.UniformResourceIdentifier(spiffe_id)]
         if dns_names:
             san_list.extend(x509.DNSName(name) for name in dns_names)
 
@@ -199,7 +199,7 @@ class InternalCA:
         spiffe_id = f"spiffe://{SPIFFE_AUTHORITY}/server"
 
         # Build SAN with SPIFFE URI + optional DNS names
-        san_list = [x509.UniformResourceIdentifier(spiffe_id)]
+        san_list: list[x509.GeneralName] = [x509.UniformResourceIdentifier(spiffe_id)]
         if dns_names:
             san_list.extend(x509.DNSName(name) for name in dns_names)
 
