@@ -33,7 +33,7 @@ def _validate_scope_value(kind: str, value: dict[str, object]) -> None:
     if kind == "global":
         if value != {}:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="global_scope_takes_no_value",
             )
         return
@@ -41,7 +41,7 @@ def _validate_scope_value(kind: str, value: dict[str, object]) -> None:
         gid = value.get("group_id")
         if not isinstance(gid, str) or not gid:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="group_scope_requires_nonempty_group_id",
             )
         return
@@ -50,7 +50,7 @@ def _validate_scope_value(kind: str, value: dict[str, object]) -> None:
         v = value.get("value")
         if not isinstance(k, str) or not k or not isinstance(v, str) or not v:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="tag_scope_requires_nonempty_key_and_value",
             )
         return
@@ -58,12 +58,12 @@ def _validate_scope_value(kind: str, value: dict[str, object]) -> None:
         ids = value.get("host_ids")
         if not isinstance(ids, list) or not ids:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="host_list_requires_nonempty_array",
             )
         if not all(isinstance(x, str) and x for x in ids):
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="host_list_ids_must_be_nonempty_strings",
             )
         return
@@ -71,12 +71,12 @@ def _validate_scope_value(kind: str, value: dict[str, object]) -> None:
         pid = value.get("principal_id", "")
         if not isinstance(pid, str) or not pid:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="self_scope_requires_nonempty_principal_id",
             )
         return
     raise HTTPException(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         detail=f"unknown_scope_kind: {kind}",
     )
 
@@ -214,7 +214,7 @@ async def create_binding(req: Request, body: BindingCreate) -> BindingOut:
         role = await session.scalar(select(Role).where(Role.id == body.role_id))
         if not role:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Role not found",
             )
 
