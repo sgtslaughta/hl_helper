@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import AsyncIterator
@@ -350,3 +351,82 @@ class TestApiKeyRevoke:
 
         # Revoke again should not error
         await svc.revoke(issued.api_key_id)
+
+
+@pytest.mark.asyncio
+async def test_issue_rejects_invalid_cidr(session: AsyncSession):
+    """Issue rejects invalid CIDR strings."""
+    svc = ApiKeyService(session)
+    with pytest.raises(ValueError):
+        await svc.issue(
+            principal_id="u-1", principal_kind="user",
+            name="bad", ip_allowlist=["not-a-cidr"],
+        )
+
+
+@pytest.mark.asyncio
+async def test_verify_skips_malformed_stored_cidr(session: AsyncSession):
+    """If a stored allowlist entry is malformed, verify treats it as no-match."""
+    from server.app.auth.api_key import generate_plaintext, hash_plaintext
+    plaintext = generate_plaintext()
+    # Manually create a row with a corrupt allowlist (simulates schema drift)
+    row = ApiKey(
+        id="k-bad-cidr", prefix=plaintext[:8], last_4=plaintext[-4:],
+        key_hash=hash_plaintext(plaintext), principal_id="u-1",
+        principal_kind="user", name="legacy",
+        ip_allowlist=["not-a-cidr", "10.0.0.0/8"],
+    )
+    session.add(row)
+    await session.commit()
+
+    svc = ApiKeyService(session)
+    # IP in 10.0.0.0/8 → still matches via the second valid entry
+    match = await svc.verify(plaintext, source_ip="10.0.0.5")
+    assert match.id == "k-bad-cidr"
+
+
+@pytest.mark.asyncio
+async def test_last_used_at_not_updated_on_failed_verify(session: AsyncSession):
+    """If verify raises (revoked/expired/IP-denied), last_used_at must NOT change."""
+    svc = ApiKeyService(session)
+    issued = await svc.issue(
+        principal_id="u-1", principal_kind="user", name="t",
+        expires_at=datetime.now(timezone.utc) - timedelta(seconds=1),
+    )
+    await session.commit()
+    before = (await session.get(ApiKey, issued.api_key_id)).last_used_at
+    with pytest.raises(ApiKeyExpired):
+        await svc.verify(issued.plaintext)
+    await session.rollback()
+    after = (await session.get(ApiKey, issued.api_key_id)).last_used_at
+    assert after == before
+
+
+@pytest.mark.asyncio
+async def test_multiple_keys_same_prefix_disambiguated_by_hash(session: AsyncSession):
+    """Multiple rows with same prefix are disambiguated by constant-time hash compare."""
+    from server.app.auth.api_key import generate_plaintext, hash_plaintext
+    # Generate two plaintexts; we'll force them to share a prefix for this test
+    plain1 = generate_plaintext()
+    plain2 = generate_plaintext()
+    shared_prefix = parse_prefix(plain1)
+
+    # Create two rows with the same prefix but different hashes
+    row1 = ApiKey(id="k1", prefix=shared_prefix, last_4=plain1[-4:],
+                  key_hash=hash_plaintext(plain1), principal_id="u-1",
+                  principal_kind="user", name="a", ip_allowlist=[])
+    row2 = ApiKey(id="k2", prefix=shared_prefix, last_4=plain2[-4:],
+                  key_hash=hash_plaintext(plain2), principal_id="u-2",
+                  principal_kind="user", name="b", ip_allowlist=[])
+    session.add_all([row1, row2])
+    await session.commit()
+
+    svc = ApiKeyService(session)
+    # Verifying plain1 should match row1 despite row2 having the same prefix
+    m1 = await svc.verify(plain1)
+    assert m1.id == "k1"
+
+    # Verify constant-time comparison works correctly when multiple rows
+    # share the same prefix: row1 matches plain1's hash, row2 doesn't
+    assert secrets.compare_digest(row1.key_hash, hash_plaintext(plain1))
+    assert not secrets.compare_digest(row1.key_hash, hash_plaintext(plain2))

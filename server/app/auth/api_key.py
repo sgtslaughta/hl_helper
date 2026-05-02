@@ -53,6 +53,22 @@ def parse_prefix(plaintext: str) -> str:
     return plaintext[:8]
 
 
+def _ip_in_allowlist(source_ip: str, allowlist: list[str]) -> bool:
+    """Return True iff source_ip falls inside any CIDR. Invalid CIDRs are skipped."""
+    try:
+        addr = ip_address(source_ip)
+    except ValueError:
+        return False
+    for entry in allowlist:
+        try:
+            net = ip_network(entry, strict=False)
+        except ValueError:
+            continue  # skip malformed stored CIDR
+        if addr in net:
+            return True
+    return False
+
+
 class ApiKeyError(Exception):
     """Base exception for API key errors."""
 
@@ -104,7 +120,18 @@ class ApiKeyService:
 
         Returns:
             IssuedKey with plaintext and api_key_id
+
+        Raises:
+            ValueError: If any entry in ip_allowlist is not a valid CIDR string
         """
+        # Validate CIDR strings before creating the row
+        if ip_allowlist:
+            for cidr in ip_allowlist:
+                try:
+                    ip_network(cidr, strict=False)
+                except ValueError as e:
+                    raise ValueError(f"invalid_cidr: {cidr}") from e
+
         plaintext = generate_plaintext()
         key = ApiKey(
             id=str(uuid.uuid4()),
@@ -174,7 +201,7 @@ class ApiKeyService:
         if match.ip_allowlist:
             if source_ip is None:
                 raise ApiKeyIPDenied("ip_required")
-            if not any(ip_address(source_ip) in ip_network(c, strict=False) for c in match.ip_allowlist):
+            if not _ip_in_allowlist(source_ip, match.ip_allowlist):
                 raise ApiKeyIPDenied("ip_not_allowed")
 
         match.last_used_at = now
@@ -187,6 +214,10 @@ class ApiKeyService:
         Args:
             api_key_id: The ID of the key to revoke
             now: Optional time of revocation (defaults to now in UTC)
+
+        Note:
+            This method is idempotent: revoking a nonexistent or already-revoked
+            key silently succeeds with no error.
         """
         now = now or datetime.now(timezone.utc)
         row = await self._s.scalar(select(ApiKey).where(ApiKey.id == api_key_id))
