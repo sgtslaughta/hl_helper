@@ -60,17 +60,17 @@ func TestRejectsBadSignature(t *testing.T) {
 	fut := now.Add(5 * time.Minute)
 
 	env := &pb.CommandEnvelope{
-		CommandID:   "cmd-123",
-		HostID:      "host-1",
-		Sequence:    1,
-		Nonce:       []byte("nonce-001"),
-		IssuedAt:    &now,
-		ExpiresAt:   &fut,
-		IssuedBy:    "server",
-		Risk:        pb.RISK_LOW,
-		Capability:  &pb.CapabilityToken{},
-		ShellExec:   &pb.ShellExec{Command: "ls"},
-		Signature:   []byte("bad-signature-data"),
+		CommandId: "cmd-123",
+		HostId:    "host-1",
+		Sequence:  1,
+		Nonce:     []byte("nonce-001"),
+		IssuedAt:  timestamppb.New(now),
+		ExpiresAt: timestamppb.New(fut),
+		IssuedBy:  "server",
+		Risk:      pb.RiskLevel_RISK_LOW,
+		Capability: &pb.CapabilityToken{},
+		Payload:   &pb.CommandEnvelope_ShellExec{ShellExec: &pb.ShellExec{Command: "ls"}},
+		Signature: []byte("bad-signature-data"),
 	}
 
 	v := New(pub, []string{"shell.exec"}, "high")
@@ -91,16 +91,16 @@ func TestRejectsDisallowedAction(t *testing.T) {
 
 	// ShellExec is NOT in allowed list
 	env := &pb.CommandEnvelope{
-		CommandID:   "cmd-123",
-		HostID:      "host-1",
-		Sequence:    1,
-		Nonce:       []byte("nonce-001"),
-		IssuedAt:    &now,
-		ExpiresAt:   &fut,
-		IssuedBy:    "server",
-		Risk:        pb.RISK_LOW,
-		Capability:  &pb.CapabilityToken{},
-		ShellExec:   &pb.ShellExec{Command: "ls"},
+		CommandId: "cmd-123",
+		HostId:    "host-1",
+		Sequence:  1,
+		Nonce:     []byte("nonce-001"),
+		IssuedAt:  timestamppb.New(now),
+		ExpiresAt: timestamppb.New(fut),
+		IssuedBy:  "server",
+		Risk:      pb.RiskLevel_RISK_LOW,
+		Capability: &pb.CapabilityToken{},
+		Payload:   &pb.CommandEnvelope_ShellExec{ShellExec: &pb.ShellExec{Command: "ls"}},
 	}
 
 	canonBytes := canonicalBytesFn(env)
@@ -124,22 +124,19 @@ func TestRejectsHighRiskAboveLimit(t *testing.T) {
 	now := time.Now()
 	fut := now.Add(5 * time.Minute)
 
-	// Risk is CRITICAL, max allowed is MEDIUM
+	// Risk is HIGH, max allowed is MEDIUM
 	env := &pb.CommandEnvelope{
-		CommandID:   "cmd-123",
-		HostID:      "host-1",
-		Sequence:    1,
-		Nonce:       []byte("nonce-001"),
-		IssuedAt:    &now,
-		ExpiresAt:   &fut,
-		IssuedBy:    "server",
-		Risk:        pb.RISK_HIGH, // Will use high, but test with critical
-		Capability:  &pb.CapabilityToken{},
-		ShellExec:   &pb.ShellExec{Command: "ls"},
+		CommandId: "cmd-123",
+		HostId:    "host-1",
+		Sequence:  1,
+		Nonce:     []byte("nonce-001"),
+		IssuedAt:  timestamppb.New(now),
+		ExpiresAt: timestamppb.New(fut),
+		IssuedBy:  "server",
+		Risk:      pb.RiskLevel_RISK_HIGH,
+		Capability: &pb.CapabilityToken{},
+		Payload:   &pb.CommandEnvelope_ShellExec{ShellExec: &pb.ShellExec{Command: "ls"}},
 	}
-
-	// Manually set to 3 (critical) since our pb shim doesn't have it
-	env.Risk = 3
 
 	canonBytes := canonicalBytesFn(env)
 	sig := ed25519.Sign(priv, canonBytes)
@@ -163,16 +160,16 @@ func TestRejectsExpired(t *testing.T) {
 	past := now.Add(-1 * time.Minute) // Expired 1 minute ago
 
 	env := &pb.CommandEnvelope{
-		CommandID:   "cmd-123",
-		HostID:      "host-1",
-		Sequence:    1,
-		Nonce:       []byte("nonce-001"),
-		IssuedAt:    &past,
-		ExpiresAt:   &past,
-		IssuedBy:    "server",
-		Risk:        pb.RISK_LOW,
-		Capability:  &pb.CapabilityToken{},
-		ShellExec:   &pb.ShellExec{Command: "ls"},
+		CommandId: "cmd-123",
+		HostId:    "host-1",
+		Sequence:  1,
+		Nonce:     []byte("nonce-001"),
+		IssuedAt:  timestamppb.New(past),
+		ExpiresAt: timestamppb.New(past),
+		IssuedBy:  "server",
+		Risk:      pb.RiskLevel_RISK_LOW,
+		Capability: &pb.CapabilityToken{},
+		Payload:   &pb.CommandEnvelope_ShellExec{ShellExec: &pb.ShellExec{Command: "ls"}},
 	}
 
 	canonBytes := canonicalBytesFn(env)
@@ -197,16 +194,16 @@ func TestRejectsClockSkew(t *testing.T) {
 	exp := future.Add(5 * time.Minute)
 
 	env := &pb.CommandEnvelope{
-		CommandID:   "cmd-123",
-		HostID:      "host-1",
-		Sequence:    1,
-		Nonce:       []byte("nonce-001"),
-		IssuedAt:    &future,
-		ExpiresAt:   &exp,
-		IssuedBy:    "server",
-		Risk:        pb.RISK_LOW,
-		Capability:  &pb.CapabilityToken{},
-		ShellExec:   &pb.ShellExec{Command: "ls"},
+		CommandId: "cmd-123",
+		HostId:    "host-1",
+		Sequence:  1,
+		Nonce:     []byte("nonce-001"),
+		IssuedAt:  timestamppb.New(future),
+		ExpiresAt: timestamppb.New(exp),
+		IssuedBy:  "server",
+		Risk:      pb.RiskLevel_RISK_LOW,
+		Capability: &pb.CapabilityToken{},
+		Payload:   &pb.CommandEnvelope_ShellExec{ShellExec: &pb.ShellExec{Command: "ls"}},
 	}
 
 	canonBytes := canonicalBytesFn(env)
@@ -232,16 +229,16 @@ func TestRejectsReplayedSequence(t *testing.T) {
 
 	// First envelope with sequence 5
 	env1 := &pb.CommandEnvelope{
-		CommandID:   "cmd-1",
-		HostID:      "host-1",
-		Sequence:    5,
-		Nonce:       []byte("nonce-001"),
-		IssuedAt:    &now,
-		ExpiresAt:   &fut,
-		IssuedBy:    "server",
-		Risk:        pb.RISK_LOW,
-		Capability:  &pb.CapabilityToken{},
-		ShellExec:   &pb.ShellExec{Command: "ls"},
+		CommandId: "cmd-1",
+		HostId:    "host-1",
+		Sequence:  5,
+		Nonce:     []byte("nonce-001"),
+		IssuedAt:  timestamppb.New(now),
+		ExpiresAt: timestamppb.New(fut),
+		IssuedBy:  "server",
+		Risk:      pb.RiskLevel_RISK_LOW,
+		Capability: &pb.CapabilityToken{},
+		Payload:   &pb.CommandEnvelope_ShellExec{ShellExec: &pb.ShellExec{Command: "ls"}},
 	}
 
 	canonBytes1 := canonicalBytesFn(env1)
@@ -257,16 +254,16 @@ func TestRejectsReplayedSequence(t *testing.T) {
 
 	// Second envelope with same or lower sequence
 	env2 := &pb.CommandEnvelope{
-		CommandID:   "cmd-2",
-		HostID:      "host-1",
-		Sequence:    5, // Same sequence
-		Nonce:       []byte("nonce-002"),
-		IssuedAt:    &now,
-		ExpiresAt:   &fut,
-		IssuedBy:    "server",
-		Risk:        pb.RISK_LOW,
-		Capability:  &pb.CapabilityToken{},
-		ShellExec:   &pb.ShellExec{Command: "ls"},
+		CommandId: "cmd-2",
+		HostId:    "host-1",
+		Sequence:  5, // Same sequence
+		Nonce:     []byte("nonce-002"),
+		IssuedAt:  timestamppb.New(now),
+		ExpiresAt: timestamppb.New(fut),
+		IssuedBy:  "server",
+		Risk:      pb.RiskLevel_RISK_LOW,
+		Capability: &pb.CapabilityToken{},
+		Payload:   &pb.CommandEnvelope_ShellExec{ShellExec: &pb.ShellExec{Command: "ls"}},
 	}
 
 	canonBytes2 := canonicalBytesFn(env2)
@@ -290,16 +287,16 @@ func TestRejectsReplayedNonce(t *testing.T) {
 
 	// First envelope
 	env1 := &pb.CommandEnvelope{
-		CommandID:   "cmd-1",
-		HostID:      "host-1",
-		Sequence:    1,
-		Nonce:       []byte("nonce-001"),
-		IssuedAt:    &now,
-		ExpiresAt:   &fut,
-		IssuedBy:    "server",
-		Risk:        pb.RISK_LOW,
-		Capability:  &pb.CapabilityToken{},
-		ShellExec:   &pb.ShellExec{Command: "ls"},
+		CommandId: "cmd-1",
+		HostId:    "host-1",
+		Sequence:  1,
+		Nonce:     []byte("nonce-001"),
+		IssuedAt:  timestamppb.New(now),
+		ExpiresAt: timestamppb.New(fut),
+		IssuedBy:  "server",
+		Risk:      pb.RiskLevel_RISK_LOW,
+		Capability: &pb.CapabilityToken{},
+		Payload:   &pb.CommandEnvelope_ShellExec{ShellExec: &pb.ShellExec{Command: "ls"}},
 	}
 
 	canonBytes1 := canonicalBytesFn(env1)
@@ -314,16 +311,16 @@ func TestRejectsReplayedNonce(t *testing.T) {
 
 	// Second envelope with same nonce, different sequence
 	env2 := &pb.CommandEnvelope{
-		CommandID:   "cmd-2",
-		HostID:      "host-1",
-		Sequence:    2,
-		Nonce:       []byte("nonce-001"), // Same nonce!
-		IssuedAt:    &now,
-		ExpiresAt:   &fut,
-		IssuedBy:    "server",
-		Risk:        pb.RISK_LOW,
-		Capability:  &pb.CapabilityToken{},
-		ShellExec:   &pb.ShellExec{Command: "ls"},
+		CommandId: "cmd-2",
+		HostId:    "host-1",
+		Sequence:  2,
+		Nonce:     []byte("nonce-001"), // Same nonce!
+		IssuedAt:  timestamppb.New(now),
+		ExpiresAt: timestamppb.New(fut),
+		IssuedBy:  "server",
+		Risk:      pb.RiskLevel_RISK_LOW,
+		Capability: &pb.CapabilityToken{},
+		Payload:   &pb.CommandEnvelope_ShellExec{ShellExec: &pb.ShellExec{Command: "ls"}},
 	}
 
 	canonBytes2 := canonicalBytesFn(env2)
@@ -353,16 +350,16 @@ func TestNonceLRUEviction(t *testing.T) {
 	for i := 1; i <= 5; i++ {
 		numStr := fmt.Sprintf("%d", i)
 		env := &pb.CommandEnvelope{
-			CommandID:   "cmd-" + numStr,
-			HostID:      "host-1",
-			Sequence:    uint64(i),
-			Nonce:       []byte("nonce-" + numStr),
-			IssuedAt:    &now,
-			ExpiresAt:   &fut,
-			IssuedBy:    "server",
-			Risk:        pb.RISK_LOW,
-			Capability:  &pb.CapabilityToken{},
-			ShellExec:   &pb.ShellExec{Command: "ls"},
+			CommandId: "cmd-" + numStr,
+			HostId:    "host-1",
+			Sequence:  uint64(i),
+			Nonce:     []byte("nonce-" + numStr),
+			IssuedAt:  timestamppb.New(now),
+			ExpiresAt: timestamppb.New(fut),
+			IssuedBy:  "server",
+			Risk:      pb.RiskLevel_RISK_LOW,
+			Capability: &pb.CapabilityToken{},
+			Payload:   &pb.CommandEnvelope_ShellExec{ShellExec: &pb.ShellExec{Command: "ls"}},
 		}
 
 		canonBytes := canonicalBytesFn(env)
@@ -377,16 +374,16 @@ func TestNonceLRUEviction(t *testing.T) {
 	// Now nonces 1 and 2 should be evicted; 3, 4, 5 remain
 	// Try to replay nonce 1 (oldest, should be allowed as it was evicted)
 	env1Replay := &pb.CommandEnvelope{
-		CommandID:   "cmd-replay-1",
-		HostID:      "host-1",
-		Sequence:    6,
-		Nonce:       []byte("nonce-1"),
-		IssuedAt:    &now,
-		ExpiresAt:   &fut,
-		IssuedBy:    "server",
-		Risk:        pb.RISK_LOW,
-		Capability:  &pb.CapabilityToken{},
-		ShellExec:   &pb.ShellExec{Command: "ls"},
+		CommandId: "cmd-replay-1",
+		HostId:    "host-1",
+		Sequence:  6,
+		Nonce:     []byte("nonce-1"),
+		IssuedAt:  timestamppb.New(now),
+		ExpiresAt: timestamppb.New(fut),
+		IssuedBy:  "server",
+		Risk:      pb.RiskLevel_RISK_LOW,
+		Capability: &pb.CapabilityToken{},
+		Payload:   &pb.CommandEnvelope_ShellExec{ShellExec: &pb.ShellExec{Command: "ls"}},
 	}
 
 	canonBytes := canonicalBytesFn(env1Replay)
@@ -400,16 +397,16 @@ func TestNonceLRUEviction(t *testing.T) {
 
 	// Try to replay nonce 3 (should still be in map)
 	env3Replay := &pb.CommandEnvelope{
-		CommandID:   "cmd-replay-3",
-		HostID:      "host-1",
-		Sequence:    7,
-		Nonce:       []byte("nonce-3"),
-		IssuedAt:    &now,
-		ExpiresAt:   &fut,
-		IssuedBy:    "server",
-		Risk:        pb.RISK_LOW,
-		Capability:  &pb.CapabilityToken{},
-		ShellExec:   &pb.ShellExec{Command: "ls"},
+		CommandId: "cmd-replay-3",
+		HostId:    "host-1",
+		Sequence:  7,
+		Nonce:     []byte("nonce-3"),
+		IssuedAt:  timestamppb.New(now),
+		ExpiresAt: timestamppb.New(fut),
+		IssuedBy:  "server",
+		Risk:      pb.RiskLevel_RISK_LOW,
+		Capability: &pb.CapabilityToken{},
+		Payload:   &pb.CommandEnvelope_ShellExec{ShellExec: &pb.ShellExec{Command: "ls"}},
 	}
 
 	canonBytes = canonicalBytesFn(env3Replay)

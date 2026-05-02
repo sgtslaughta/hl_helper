@@ -5,8 +5,10 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	"github.com/hlhelper/hl-agent/internal/manifest"
-	pb "github.com/hlhelper/hl-agent/internal/transport/pb"
+	pb "github.com/hlhelper/hl-agent/proto/fleet/v1"
 )
 
 // TestIntegrationManifestAndVerify tests manifest loading with verifier.
@@ -29,16 +31,16 @@ func TestIntegrationManifestAndVerify(t *testing.T) {
 	fut := now.Add(5 * time.Minute)
 
 	env := &pb.CommandEnvelope{
-		CommandID:   "cmd-int-1",
-		HostID:      m.HostID,
-		Sequence:    1,
-		Nonce:       []byte("nonce-int-1"),
-		IssuedAt:    &now,
-		ExpiresAt:   &fut,
-		IssuedBy:    "server",
-		Risk:        pb.RISK_LOW,
-		Capability:  &pb.CapabilityToken{},
-		PkgUpdate:   &pb.PkgUpdate{DryRun: true},
+		CommandId: "cmd-int-1",
+		HostId:    m.HostID,
+		Sequence:  1,
+		Nonce:     []byte("nonce-int-1"),
+		IssuedAt:  timestamppb.New(now),
+		ExpiresAt: timestamppb.New(fut),
+		IssuedBy:  "server",
+		Risk:      pb.RiskLevel_RISK_LOW,
+		Capability: &pb.CapabilityToken{},
+		Payload:   &pb.CommandEnvelope_PkgUpdate{PkgUpdate: &pb.PkgUpdate{}},
 	}
 
 	canonicalBytes := canonicalMsg(env)
