@@ -1,0 +1,324 @@
+"""Tests for biscuit capability token issuance and verification."""
+import pytest
+from datetime import datetime, timezone, timedelta
+from server.app.auth.capability import (
+    CapabilityIssuer,
+    CapabilityVerifier,
+    CapabilityClaims,
+    CapabilityExpiredError,
+    CapabilityScopeError,
+    CapabilitySignatureError,
+)
+
+
+class TestCapabilityRoundtrip:
+    """Test issuance and verification roundtrip."""
+
+    def test_issue_then_verify_roundtrip(self):
+        """Issue a token and verify it with correct scope."""
+        issuer = CapabilityIssuer.generate()
+        now = datetime.now(timezone.utc)
+        claims = CapabilityClaims(
+            host_id="h1",
+            action="pkg.update",
+            resource=None,
+            issued_at=now,
+            expires_at=now + timedelta(minutes=5),
+            issuer="admin",
+        )
+
+        token = issuer.issue(claims)
+        verifier = CapabilityVerifier([issuer.public_key])
+
+        result = verifier.verify(
+            token,
+            expected_host="h1",
+            expected_action="pkg.update",
+        )
+
+        assert result.host_id == "h1"
+        assert result.action == "pkg.update"
+        assert result.issuer == "admin"
+
+    def test_verify_returns_correct_claims(self):
+        """Verify returns all claim fields correctly."""
+        issuer = CapabilityIssuer.generate()
+        now = datetime.now(timezone.utc)
+        expires = now + timedelta(minutes=10)
+        claims = CapabilityClaims(
+            host_id="host-abc",
+            action="shell.exec",
+            resource="script-123",
+            issued_at=now,
+            expires_at=expires,
+            issuer="system",
+        )
+
+        token = issuer.issue(claims)
+        verifier = CapabilityVerifier([issuer.public_key])
+
+        result = verifier.verify(
+            token,
+            expected_host="host-abc",
+            expected_action="shell.exec",
+            expected_resource="script-123",
+        )
+
+        assert result.host_id == "host-abc"
+        assert result.action == "shell.exec"
+        assert result.resource == "script-123"
+        assert result.issuer == "system"
+        # Check expiry is approximately correct (within 1 second)
+        assert abs((result.expires_at - expires).total_seconds()) < 1
+
+
+class TestCapabilitySignatureVerification:
+    """Test signature verification."""
+
+    def test_verify_rejects_wrong_anchor(self):
+        """Reject token signed with different key."""
+        issuer_a = CapabilityIssuer.generate()
+        issuer_b = CapabilityIssuer.generate()
+
+        now = datetime.now(timezone.utc)
+        claims = CapabilityClaims(
+            host_id="h1",
+            action="reboot",
+            resource=None,
+            issued_at=now,
+            expires_at=now + timedelta(minutes=5),
+            issuer="admin",
+        )
+
+        token = issuer_a.issue(claims)
+        # Verifier has only issuer_b's key
+        verifier = CapabilityVerifier([issuer_b.public_key])
+
+        with pytest.raises(CapabilitySignatureError):
+            verifier.verify(
+                token,
+                expected_host="h1",
+                expected_action="reboot",
+            )
+
+    def test_verify_rejects_tampered_token(self):
+        """Reject a token that has been tampered with."""
+        issuer = CapabilityIssuer.generate()
+        now = datetime.now(timezone.utc)
+        claims = CapabilityClaims(
+            host_id="h1",
+            action="pkg.update",
+            resource=None,
+            issued_at=now,
+            expires_at=now + timedelta(minutes=5),
+            issuer="admin",
+        )
+
+        token = issuer.issue(claims)
+        # Tamper: flip a byte in the middle
+        token_list = bytearray(token)
+        token_list[len(token_list) // 2] ^= 0xFF
+        tampered = bytes(token_list)
+
+        verifier = CapabilityVerifier([issuer.public_key])
+        with pytest.raises(CapabilitySignatureError):
+            verifier.verify(
+                tampered,
+                expected_host="h1",
+                expected_action="pkg.update",
+            )
+
+
+class TestCapabilityExpiry:
+    """Test expiry validation."""
+
+    def test_verify_rejects_expired(self):
+        """Reject a token that has expired."""
+        issuer = CapabilityIssuer.generate()
+        now = datetime.now(timezone.utc)
+        # Token expired 1 second ago
+        claims = CapabilityClaims(
+            host_id="h1",
+            action="pkg.update",
+            resource=None,
+            issued_at=now - timedelta(minutes=5),
+            expires_at=now - timedelta(seconds=1),
+            issuer="admin",
+        )
+
+        token = issuer.issue(claims)
+        verifier = CapabilityVerifier([issuer.public_key])
+
+        with pytest.raises(CapabilityExpiredError):
+            verifier.verify(
+                token,
+                expected_host="h1",
+                expected_action="pkg.update",
+                now=now,
+            )
+
+
+class TestCapabilityScopeVerification:
+    """Test scope validation."""
+
+    def test_verify_rejects_wrong_host(self):
+        """Reject when host doesn't match."""
+        issuer = CapabilityIssuer.generate()
+        now = datetime.now(timezone.utc)
+        claims = CapabilityClaims(
+            host_id="h1",
+            action="pkg.update",
+            resource=None,
+            issued_at=now,
+            expires_at=now + timedelta(minutes=5),
+            issuer="admin",
+        )
+
+        token = issuer.issue(claims)
+        verifier = CapabilityVerifier([issuer.public_key])
+
+        with pytest.raises(CapabilityScopeError):
+            verifier.verify(
+                token,
+                expected_host="h2",
+                expected_action="pkg.update",
+            )
+
+    def test_verify_rejects_wrong_action(self):
+        """Reject when action doesn't match."""
+        issuer = CapabilityIssuer.generate()
+        now = datetime.now(timezone.utc)
+        claims = CapabilityClaims(
+            host_id="h1",
+            action="pkg.update",
+            resource=None,
+            issued_at=now,
+            expires_at=now + timedelta(minutes=5),
+            issuer="admin",
+        )
+
+        token = issuer.issue(claims)
+        verifier = CapabilityVerifier([issuer.public_key])
+
+        with pytest.raises(CapabilityScopeError):
+            verifier.verify(
+                token,
+                expected_host="h1",
+                expected_action="reboot",
+            )
+
+    def test_verify_resource_match(self):
+        """Accept/reject based on resource match."""
+        issuer = CapabilityIssuer.generate()
+        now = datetime.now(timezone.utc)
+        claims = CapabilityClaims(
+            host_id="h1",
+            action="update",
+            resource="pkg:openssh-server",
+            issued_at=now,
+            expires_at=now + timedelta(minutes=5),
+            issuer="admin",
+        )
+
+        token = issuer.issue(claims)
+        verifier = CapabilityVerifier([issuer.public_key])
+
+        # Accept with matching resource
+        result = verifier.verify(
+            token,
+            expected_host="h1",
+            expected_action="update",
+            expected_resource="pkg:openssh-server",
+        )
+        assert result.resource == "pkg:openssh-server"
+
+        # Reject with different resource
+        with pytest.raises(CapabilityScopeError):
+            verifier.verify(
+                token,
+                expected_host="h1",
+                expected_action="update",
+                expected_resource="pkg:curl",
+            )
+
+    def test_verify_no_resource_when_none(self):
+        """Accept resource=None when token has no resource."""
+        issuer = CapabilityIssuer.generate()
+        now = datetime.now(timezone.utc)
+        claims = CapabilityClaims(
+            host_id="h1",
+            action="reboot",
+            resource=None,
+            issued_at=now,
+            expires_at=now + timedelta(minutes=5),
+            issuer="admin",
+        )
+
+        token = issuer.issue(claims)
+        verifier = CapabilityVerifier([issuer.public_key])
+
+        result = verifier.verify(
+            token,
+            expected_host="h1",
+            expected_action="reboot",
+            expected_resource=None,
+        )
+        assert result.resource is None
+
+    def test_verify_rejects_when_resource_expected_but_token_lacks_it(self):
+        """Reject when resource is expected but token has none."""
+        issuer = CapabilityIssuer.generate()
+        now = datetime.now(timezone.utc)
+        claims = CapabilityClaims(
+            host_id="h1",
+            action="update",
+            resource=None,
+            issued_at=now,
+            expires_at=now + timedelta(minutes=5),
+            issuer="admin",
+        )
+
+        token = issuer.issue(claims)
+        verifier = CapabilityVerifier([issuer.public_key])
+
+        with pytest.raises(CapabilityScopeError):
+            verifier.verify(
+                token,
+                expected_host="h1",
+                expected_action="update",
+                expected_resource="pkg:x",
+            )
+
+
+class TestCapabilityTrustAnchors:
+    """Test multiple trust anchors (key rotation scenario)."""
+
+    def test_verify_accepts_with_multiple_anchors(self):
+        """Accept token from any trusted anchor."""
+        issuer_a = CapabilityIssuer.generate()
+        issuer_b = CapabilityIssuer.generate()
+        issuer_c = CapabilityIssuer.generate()
+
+        now = datetime.now(timezone.utc)
+        claims = CapabilityClaims(
+            host_id="h1",
+            action="pkg.update",
+            resource=None,
+            issued_at=now,
+            expires_at=now + timedelta(minutes=5),
+            issuer="admin",
+        )
+
+        token = issuer_b.issue(claims)
+
+        # Verifier has anchors for A, B, C
+        verifier = CapabilityVerifier(
+            [issuer_a.public_key, issuer_b.public_key, issuer_c.public_key]
+        )
+
+        result = verifier.verify(
+            token,
+            expected_host="h1",
+            expected_action="pkg.update",
+        )
+        assert result.host_id == "h1"
