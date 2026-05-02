@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, Index, JSON, String, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from server.app.models.base import Base
+
+if TYPE_CHECKING:
+    from server.app.models.group_membership import GroupMembership
 
 
 class Host(Base):
@@ -37,6 +41,12 @@ class Host(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
+    )
+
+    memberships: Mapped[list[GroupMembership]] = relationship(
+        "GroupMembership",
+        foreign_keys="GroupMembership.host_id",
+        back_populates=None,
     )
 
     __table_args__ = (
