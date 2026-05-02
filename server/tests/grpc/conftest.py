@@ -17,6 +17,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from server.app.crypto.ca import InternalCA
+from server.app.crypto.signing import FileBackend
 from server.app.db.session import make_engine, make_sessionmaker
 from server.app.grpc.dispatcher import CommandDispatcher
 from server.app.grpc.server import make_grpc_server
@@ -150,3 +151,9 @@ async def engine() -> AsyncGenerator[AsyncEngine, None]:
 async def sm(engine: AsyncEngine) -> async_sessionmaker:
     """Create a sessionmaker for the test engine."""
     return make_sessionmaker(engine)
+
+
+@pytest.fixture
+def signing_backend(tmp_path: Path) -> FileBackend:
+    """Create a signing backend for audit chain."""
+    return FileBackend.bootstrap(tmp_path / "signing")

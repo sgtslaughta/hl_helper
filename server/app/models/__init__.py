@@ -8,6 +8,7 @@ from server.app.models.command import Command
 from server.app.models.enrollment_token import EnrollmentToken
 from server.app.models.host import Host
 from server.app.models.result import Result
+from server.app.models.revoked_cert import RevokedCert
 
 __all__ = [
     "Base",
@@ -17,4 +18,5 @@ __all__ = [
     "Result",
     "AuditEntry",
     "AuditCheckpoint",
+    "RevokedCert",
 ]

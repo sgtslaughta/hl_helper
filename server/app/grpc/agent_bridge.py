@@ -17,9 +17,10 @@ from server.app.grpc._pb.fleet.v1 import (
 )
 
 from .dispatcher import CommandDispatcher
-from .peer_context import peer_context
+from .peer_context import peer_context, peer_serial
 
 if TYPE_CHECKING:
+    from server.app.revocation.service import RevocationService
     from .result_handler import ResultHandler
 
 log = structlog.get_logger(__name__)
@@ -32,9 +33,11 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
         self,
         dispatcher: CommandDispatcher,
         result_handler: ResultHandler | None = None,
+        revocation: RevocationService | None = None,
     ) -> None:
         self._dispatcher = dispatcher
         self._result_handler = result_handler
+        self._revocation = revocation
 
     async def Stream(
         self,
@@ -45,12 +48,14 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
 
         Flow:
           1. Authenticate using SPIFFE peer identity (from client cert).
-          2. Register host with dispatcher; replay unacked commands.
-          3. Main loop:
+          2. Check CRL: if cert serial is revoked, abort PERMISSION_DENIED.
+          3. Register host with dispatcher; replay unacked commands.
+          4. Main loop:
              - Pull command from queue (or recv from agent).
              - When sending command: mark_in_flight.
              - When receiving ack/result: call ack().
-          4. On disconnect: unregister host.
+             - Watch termination event; abort if set.
+          5. On disconnect: unregister host.
         """
         with peer_context(context) as (host_id, spiffe_uri):
             if host_id is None:
@@ -59,6 +64,12 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
                     "peer cert lacks SPIFFE host URI",
                 )
                 return  # unreachable, satisfies type checker
+
+            # Check CRL before registration
+            serial = peer_serial(context)
+            if serial and self._revocation and await self._revocation.is_revoked(serial):
+                await context.abort(grpc.StatusCode.PERMISSION_DENIED, "host revoked")
+                return
 
             try:
                 state = await self._dispatcher.register(host_id)
@@ -73,19 +84,29 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
             )
             try:
                 while True:
-                    # Pull next command from queue.
+                    # Pull next command from queue + watch for termination.
                     pull_task = asyncio.create_task(state.queue.get())
+                    term_task = asyncio.create_task(state.terminate_event.wait())
                     done, _pending = await asyncio.wait(
-                        {pull_task, recv_task},
+                        {pull_task, recv_task, term_task},
                         return_when=asyncio.FIRST_COMPLETED,
                     )
+
+                    if term_task in done:
+                        # Host was revoked; terminate stream.
+                        pull_task.cancel()
+                        recv_task.cancel()
+                        await context.abort(grpc.StatusCode.PERMISSION_DENIED, "host revoked")
+                        return
 
                     if recv_task in done:
                         # Agent closed sending side. Cancel pending pull.
                         pull_task.cancel()
+                        term_task.cancel()
                         break
 
                     cmd: envelope_pb2.CommandEnvelope = pull_task.result()
+                    term_task.cancel()
                     await self._dispatcher.mark_in_flight(host_id, cmd)
                     yield agent_bridge_pb2.ServerToAgent(command=cmd)
             finally:

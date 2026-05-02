@@ -34,6 +34,7 @@ class _HostState:
         default_factory=OrderedDict
     )
     connected: bool = False
+    terminate_event: asyncio.Event = field(default_factory=asyncio.Event)
 
 
 class CommandDispatcher:
@@ -142,3 +143,19 @@ class CommandDispatcher:
         """
         state = self._hosts.get(host_id)
         return bool(state and state.connected)
+
+    async def terminate(self, host_id: str) -> bool:
+        """Signal termination of active stream for host.
+
+        Args:
+            host_id: Host identifier.
+
+        Returns:
+            True if terminated, False if no active stream.
+        """
+        async with self._lock:
+            state = self._hosts.get(host_id)
+            if state is None or not state.connected:
+                return False
+            state.terminate_event.set()
+            return True

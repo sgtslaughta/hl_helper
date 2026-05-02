@@ -7,6 +7,8 @@ from contextlib import contextmanager
 from collections.abc import Iterator
 from typing import Any
 
+from cryptography import x509
+
 from .tls import extract_spiffe_id, host_id_from_spiffe
 
 _peer_host_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
@@ -53,6 +55,25 @@ def _peer_cert_pem_from_context(context: Any) -> bytes | None:
     else:
         pem_bytes = pem
     return pem_bytes
+
+
+def peer_serial(context: Any) -> str | None:
+    """Extract certificate serial from peer cert.
+
+    Args:
+        context: grpc.aio.ServicerContext from an RPC handler.
+
+    Returns:
+        Hex-formatted serial number, or None if not present.
+    """
+    pem = _peer_cert_pem_from_context(context)
+    if not pem:
+        return None
+    try:
+        cert = x509.load_pem_x509_certificate(pem)
+        return format(cert.serial_number, "x")
+    except Exception:
+        return None
 
 
 @contextmanager
