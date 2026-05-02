@@ -1,0 +1,89 @@
+syntax = "proto3";
+package fleet.v1;
+
+import "google/protobuf/timestamp.proto";
+
+import "fleet/v1/envelope.proto";
+import "fleet/v1/results.proto";
+
+message HostMetrics {
+  float load_1 = 1;
+  float load_5 = 2;
+  float load_15 = 3;
+  float mem_used_pct = 4;
+  float disk_used_pct = 5;
+  uint64 uptime_seconds = 6;
+}
+
+message Heartbeat {
+  string host_id = 1;
+  google.protobuf.Timestamp at = 2;
+  uint64 last_acked_seq = 3;
+  HostMetrics metrics = 4;
+  string agent_version = 5;
+  bytes signature = 200;
+}
+
+message HeartbeatAck {
+  google.protobuf.Timestamp server_at = 1;
+  uint64 next_expected_seq = 2;
+}
+
+message ResumeRequest {
+  string host_id = 1;
+  string stream_session_id = 2;
+  uint64 last_seq = 3;
+}
+
+message CapabilityRequest {
+  string host_id = 1;
+  string scope = 2;
+}
+
+message CertRotateRequest {
+  string host_id = 1;
+  bytes csr_pem = 2;
+}
+
+message CertIssueResponse {
+  bytes cert_chain_pem = 1;
+  google.protobuf.Timestamp not_after = 2;
+}
+
+message ManifestUpdate {
+  bytes manifest_signed = 1;
+}
+
+message Decommission {
+  string reason = 1;
+  string requested_by = 2;
+}
+
+message DecommissionAck {
+  google.protobuf.Timestamp at = 1;
+}
+
+message AgentToServer {
+  oneof msg {
+    Heartbeat heartbeat = 1;
+    ResultEnvelope result = 2;
+    ResumeRequest resume = 3;
+    CapabilityRequest cap_req = 4;
+    CertRotateRequest cert_rotate = 5;
+    DecommissionAck decom_ack = 6;
+  }
+}
+
+message ServerToAgent {
+  oneof msg {
+    CommandEnvelope command = 1;
+    HeartbeatAck hb_ack = 2;
+    CertIssueResponse cert_issue = 3;
+    ManifestUpdate manifest = 4;
+    Decommission decom = 5;
+  }
+}
+
+service AgentBridge {
+  rpc Stream(stream AgentToServer) returns (stream ServerToAgent);
+}

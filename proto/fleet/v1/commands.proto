@@ -1,0 +1,48 @@
+syntax = "proto3";
+package fleet.v1;
+
+message PkgUpdate {
+  repeated string classes = 1;
+  bool dry_run = 2;
+}
+
+message Reboot {
+  uint32 delay_seconds = 1;
+  string reason = 2;
+}
+
+message ShellExec {
+  string command = 1;
+  repeated string args = 2;
+  uint32 timeout_seconds = 3;
+}
+
+message TerminalOpen {
+  string session_id = 1;
+  uint32 cols = 2;
+  uint32 rows = 3;
+}
+
+message FileTransfer {
+  enum Dir {
+    UPLOAD = 0;
+    DOWNLOAD = 1;
+  }
+  Dir dir = 1;
+  string remote_path = 2;
+  uint64 size_bytes = 3;
+}
+
+message DockerOp {
+  string op = 1;
+  string container = 2;
+}
+
+message GetFacts {
+  repeated string keys = 1;
+}
+
+message PluginInvoke {
+  string plugin_id = 1;
+  bytes payload = 2;
+}

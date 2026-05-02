@@ -1,0 +1,42 @@
+syntax = "proto3";
+package fleet.v1;
+
+import "google/protobuf/timestamp.proto";
+
+import "fleet/v1/commands.proto";
+
+enum RiskLevel {
+  RISK_LOW = 0;
+  RISK_MED = 1;
+  RISK_HIGH = 2;
+}
+
+message CapabilityToken {
+  bytes biscuit = 1;
+  repeated string declared_scopes = 2;
+}
+
+message CommandEnvelope {
+  string command_id = 1;
+  string host_id = 2;
+  uint64 sequence = 3;
+  bytes nonce = 4;
+  google.protobuf.Timestamp issued_at = 5;
+  google.protobuf.Timestamp expires_at = 6;
+  string issued_by = 7;
+  RiskLevel risk = 8;
+  CapabilityToken capability = 9;
+
+  oneof payload {
+    PkgUpdate     pkg_update     = 100;
+    Reboot        reboot         = 101;
+    ShellExec     shell_exec     = 102;
+    TerminalOpen  terminal_open  = 103;
+    FileTransfer  file_transfer  = 104;
+    DockerOp      docker_op      = 105;
+    GetFacts      get_facts      = 106;
+    PluginInvoke  plugin_invoke  = 107;
+  }
+
+  bytes signature = 200;
+}

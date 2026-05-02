@@ -1,0 +1,28 @@
+syntax = "proto3";
+package fleet.v1;
+
+import "google/protobuf/timestamp.proto";
+
+enum ResultStatus {
+  RESULT_OK = 0;
+  RESULT_FAIL = 1;
+  RESULT_REJECTED = 2;
+  RESULT_TIMEOUT = 3;
+  RESULT_CAPABILITY_DENIED = 4;
+}
+
+message ResultEnvelope {
+  string command_id = 1;
+  string host_id = 2;
+  uint64 sequence = 3;
+  google.protobuf.Timestamp started_at = 4;
+  google.protobuf.Timestamp completed_at = 5;
+  int32 exit_code = 6;
+  bytes stdout_chunk = 7;
+  bytes stderr_chunk = 8;
+  bool final = 9;
+  ResultStatus status = 10;
+  string rejection_reason = 11;
+  bytes prev_result_hash = 12;
+  bytes signature = 200;
+}
