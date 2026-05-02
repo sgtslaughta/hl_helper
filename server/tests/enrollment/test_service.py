@@ -289,3 +289,48 @@ async def test_redeem_invalid_csr_raises_and_no_side_effects(
         assert token
         assert token.redeemed_at is None
         assert token.redeemed_host_id is None
+
+
+@pytest.mark.asyncio
+async def test_redeem_concurrent_calls_only_one_wins(
+    service: EnrollmentService, async_session
+) -> None:
+    """Two concurrent redeem() calls on same token: exactly one succeeds, other raises TokenAlreadyRedeemedError."""
+    import asyncio
+
+    csr_pem1, agent_pubkey1 = make_csr()
+    csr_pem2, agent_pubkey2 = make_csr()
+
+    async with async_session() as session:
+        plaintext, _ = await service.issue_token(
+            session, issued_by="admin@test", ttl=timedelta(minutes=15)
+        )
+        await session.commit()
+
+    # Run two concurrent redeem calls using separate sessions
+    async def redeem_task(csr_pem: bytes, agent_pubkey: bytes):
+        async with async_session() as session:
+            try:
+                result = await service.redeem(
+                    session,
+                    token_plaintext=plaintext,
+                    csr_pem=csr_pem,
+                    hostname="test-host",
+                    agent_pubkey=agent_pubkey,
+                )
+                await session.commit()
+                return ("success", result)
+            except TokenAlreadyRedeemedError:
+                return ("already_redeemed", None)
+            except Exception as e:
+                return ("error", str(e))
+
+    results = await asyncio.gather(
+        redeem_task(csr_pem1, agent_pubkey1),
+        redeem_task(csr_pem2, agent_pubkey2),
+    )
+
+    # Exactly one should succeed, one should fail with TokenAlreadyRedeemedError
+    outcomes = [r[0] for r in results]
+    assert outcomes.count("success") == 1
+    assert outcomes.count("already_redeemed") == 1

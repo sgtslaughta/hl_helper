@@ -16,8 +16,12 @@ from server.app.enrollment.service import (
     TokenExpiredError,
     TokenNotFoundError,
 )
+from server.app.api.middleware.rate_limit import RateLimiter, rate_limit_dependency
 
 router = APIRouter(prefix="/v1", tags=["enrollment"])
+
+# Rate limiter: 0.5 requests per second (one every 2 seconds), burst of 5
+_limiter = RateLimiter(rate_per_sec=0.5, burst=5)
 
 
 class EnrollRequest(BaseModel):
@@ -51,7 +55,7 @@ def get_enrollment_service() -> EnrollmentService:
     raise NotImplementedError("get_enrollment_service must be provided by app startup")
 
 
-@router.post("/enroll", response_model=EnrollResponse)
+@router.post("/enroll", response_model=EnrollResponse, dependencies=[Depends(rate_limit_dependency(_limiter))])
 async def enroll(
     body: EnrollRequest,
     service: EnrollmentService = Depends(get_enrollment_service),

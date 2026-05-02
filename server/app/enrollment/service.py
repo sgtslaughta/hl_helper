@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.app.crypto.ca import InternalCA
@@ -124,17 +124,19 @@ class EnrollmentService:
         agent_pubkey: bytes,  # raw 32B Ed25519
         now: datetime | None = None,
     ) -> EnrollmentResult:
-        """Validate token, sign CSR, persist Host row, mark token redeemed.
+        """Validate token, sign CSR, persist Host row, mark token redeemed atomically.
 
-        Atomic-ish: all writes happen within caller's session; caller commits.
+        Order: hash → SELECT (fail fast) → sign CSR → atomic UPDATE-WHERE-NULL → insert Host.
         """
         if now is None:
             now = datetime.now(timezone.utc)
         elif now.tzinfo is None:
             now = now.replace(tzinfo=timezone.utc)
 
-        # 1. Hash plaintext token. Query EnrollmentToken WHERE token_hash = hash.
+        # 1. Hash plaintext token
         token_hash = hash_token(token_plaintext)
+
+        # 2. SELECT token to fail fast with nice errors (non-atomic, but UPDATE catches races)
         stmt = select(EnrollmentToken).where(EnrollmentToken.token_hash == token_hash)
         result = await session.execute(stmt)
         tok = result.scalar_one_or_none()
@@ -142,7 +144,7 @@ class EnrollmentService:
         if tok is None:
             raise TokenNotFoundError("enrollment token not found")
 
-        # 2. Check expiry
+        # 3. Check expiry (fail fast)
         if tok.expires_at.tzinfo is None:
             expires_at = tok.expires_at.replace(tzinfo=timezone.utc)
         else:
@@ -151,27 +153,55 @@ class EnrollmentService:
         if expires_at <= now:
             raise TokenExpiredError("enrollment token expired")
 
-        # 3. Check not redeemed
+        # 4. Check not redeemed (fail fast)
         if tok.redeemed_at is not None:
             raise TokenAlreadyRedeemedError("enrollment token already redeemed")
 
-        # 4. Generate host_id
+        # 5. Generate host_id (before CSR signing)
         host_id = str(uuid.uuid4())
 
-        # 5. Sign CSR
+        # 6. Sign CSR (before claiming token)
         try:
             leaf_pem = self.ca.issue_host_cert(csr_pem, host_id=host_id, ttl=self.cert_ttl)
         except Exception as e:
             raise CsrInvalidError("invalid CSR") from e
 
-        # 6. Extract cert serial from leaf
+        # 7. Extract cert serial from leaf
         try:
             leaf_cert = x509.load_pem_x509_certificate(leaf_pem)
             cert_serial = hex(leaf_cert.serial_number)[2:]  # Remove '0x' prefix
         except Exception as e:
             raise CsrInvalidError("failed to parse issued certificate") from e
 
-        # 7. Create Host row
+        # 8. ATOMIC UPDATE: claim token (only if not redeemed yet)
+        # Use comparison with the expires_at value we already fetched to avoid timezone issues
+        update_stmt = (
+            update(EnrollmentToken)
+            .where(
+                EnrollmentToken.token_hash == token_hash,
+                EnrollmentToken.redeemed_at.is_(None),
+                EnrollmentToken.expires_at > now,
+            )
+            .values(redeemed_at=now, redeemed_host_id=host_id)
+        )
+        update_result = await session.execute(update_stmt)
+
+        # 9. Check if UPDATE succeeded (check rowcount)
+        if update_result.rowcount == 0:
+            # UPDATE failed; determine why for better error message
+            existing = await session.scalar(
+                select(EnrollmentToken).where(EnrollmentToken.token_hash == token_hash)
+            )
+            if existing is None:
+                raise TokenNotFoundError("enrollment token not found")
+            if existing.redeemed_at is not None:
+                raise TokenAlreadyRedeemedError("enrollment token already redeemed")
+            if existing.expires_at <= now:
+                raise TokenExpiredError("enrollment token expired")
+            # Fallback (shouldn't reach here)
+            raise TokenNotFoundError("enrollment token not found")
+
+        # 10. Create Host row
         cert_expires_at = now + self.cert_ttl
         host = Host(
             id=host_id,
@@ -184,15 +214,10 @@ class EnrollmentService:
             labels={},
         )
 
-        # 8. Update token row
-        tok.redeemed_at = now
-        tok.redeemed_host_id = host_id
-
-        # 9. Persist both
+        # 11. Persist Host
         session.add(host)
-        session.add(tok)
 
-        # 10. Get intermediate and root PEM
+        # 12. Get intermediate and root PEM
         intermediate_cert_pem = self.ca.int_cert.public_bytes(serialization.Encoding.PEM)
         root_cert_pem = self.ca.root_cert.public_bytes(serialization.Encoding.PEM)
 

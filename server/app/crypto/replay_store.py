@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from server.app.crypto.envelope import (
@@ -14,6 +14,15 @@ from server.app.crypto.envelope import (
 )
 from server.app.grpc._pb import fleet  # noqa: F401
 from server.app.grpc._pb.fleet.v1 import envelope_pb2
+
+
+DEFAULT_SKEW_TOLERANCE_S = 60
+
+
+class ClockSkewError(Exception):
+    """Raised when issued_at or expires_at indicates excessive clock skew."""
+
+    pass
 
 
 class PersistentReplayStore:
@@ -26,14 +35,22 @@ class PersistentReplayStore:
       INDEX on seen_nonce(host_id, seen_at) for trimming.
     """
 
-    def __init__(self, db_path: str | Path, *, nonce_window: int = 1024) -> None:
+    def __init__(
+        self,
+        db_path: str | Path,
+        *,
+        nonce_window: int = 1024,
+        skew_tolerance_s: int = DEFAULT_SKEW_TOLERANCE_S,
+    ) -> None:
         """Initialize store with SQLite backend.
 
         Args:
             db_path: Path to SQLite database file, or ":memory:" for in-memory.
             nonce_window: Maximum number of nonces to track per host.
+            skew_tolerance_s: Tolerance window in seconds for issued_at/expires_at clock skew.
         """
         self.nonce_window = nonce_window
+        self.skew_tolerance_s = skew_tolerance_s
         self._lock = threading.Lock()
         self._db_path = str(db_path)
         self._conn = sqlite3.connect(
@@ -97,23 +114,26 @@ class PersistentReplayStore:
         *,
         now: datetime | None = None,
     ) -> None:
-        """Validate envelope under monotonic-seq + nonce-LRU + expiry rules.
+        """Validate envelope under monotonic-seq + nonce-LRU + expiry + clock-skew rules.
 
-        Atomic in a single transaction:
-          1. SELECT last_sequence for host. If env.sequence <= last_sequence: SequenceRegressionError.
-          2. SELECT 1 FROM seen_nonce WHERE host=? AND nonce=?. If exists: DuplicateNonceError.
-          3. Check env.expires_at against now (UTC). If expires_at <= now: ExpiredCommandError.
-          4. UPSERT host_sequence to env.sequence. INSERT seen_nonce.
-          5. Trim seen_nonce for host beyond nonce_window oldest rows.
+        Checks applied (before any state changes):
+          1. Check env.issued_at (if set) is not too far in the future (clock-skew check).
+          2. Check env.expires_at is not in the past.
+        Then atomically in a single transaction:
+          3. SELECT last_sequence for host. If env.sequence <= last_sequence: SequenceRegressionError.
+          4. SELECT 1 FROM seen_nonce WHERE host=? AND nonce=?. If exists: DuplicateNonceError.
+          5. UPSERT host_sequence to env.sequence. INSERT seen_nonce.
+          6. Trim seen_nonce for host beyond nonce_window oldest rows.
 
         Args:
             env: CommandEnvelope to validate and store.
             now: Current time (defaults to now(timezone.utc)).
 
         Raises:
+            ClockSkewError: If issued_at is too far in the future.
+            ExpiredCommandError: If expires_at <= now.
             SequenceRegressionError: If sequence <= last_seen[host_id].
             DuplicateNonceError: If nonce seen within window.
-            ExpiredCommandError: If expires_at <= now.
         """
         if now is None:
             now = datetime.now(timezone.utc)
@@ -123,7 +143,16 @@ class PersistentReplayStore:
         sequence = env.sequence
         expires_at = env.expires_at.ToDatetime(tzinfo=timezone.utc)
 
-        # Check expiration first (before any state changes)
+        # Check clock skew on issued_at (before any state changes)
+        if env.HasField("issued_at"):
+            issued_at = env.issued_at.ToDatetime(tzinfo=timezone.utc)
+            max_future = now + timedelta(seconds=self.skew_tolerance_s)
+            if issued_at > max_future:
+                raise ClockSkewError(
+                    f"issued_at {issued_at} too far in future (tolerance: {self.skew_tolerance_s}s)"
+                )
+
+        # Check expiration (before any state changes)
         if expires_at <= now:
             raise ExpiredCommandError(f"Command expired at {expires_at}")
 
@@ -192,7 +221,7 @@ class PersistentReplayStore:
                 )
 
                 cursor.execute("COMMIT")
-            except (SequenceRegressionError, DuplicateNonceError, ExpiredCommandError):
+            except (ClockSkewError, SequenceRegressionError, DuplicateNonceError, ExpiredCommandError):
                 raise
             except Exception:
                 cursor.execute("ROLLBACK")

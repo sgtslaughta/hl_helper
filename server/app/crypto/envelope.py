@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from server.app.grpc._pb import fleet  # noqa: F401  triggers sys.path injection
@@ -99,73 +98,3 @@ def verify_command(
             continue
 
     return False
-
-
-class SequenceTracker:
-    """Per-host monotonic sequence + nonce dedup with bounded LRU.
-
-    Tracks:
-    - Last seen sequence per host (for monotonicity)
-    - Recent nonces per host (LRU window for replay detection)
-    """
-
-    def __init__(self, nonce_window: int = 1024) -> None:
-        """Initialize tracker.
-
-        Args:
-            nonce_window: Maximum number of nonces to track per host.
-        """
-        self.nonce_window = nonce_window
-        self._last_seq: dict[str, int] = {}  # host_id -> last sequence
-        self._nonces: dict[str, list[bytes]] = {}  # host_id -> [nonces] (FIFO queue)
-
-    def accept(
-        self,
-        env: envelope_pb2.CommandEnvelope,
-        *,
-        now: datetime | None = None,
-    ) -> None:
-        """Accept an envelope if it passes all checks.
-
-        Args:
-            env: CommandEnvelope to validate.
-            now: Current time (defaults to now(timezone.utc)).
-
-        Raises:
-            ExpiredCommandError: If expires_at <= now.
-            SequenceRegressionError: If sequence <= last_seen[host_id].
-            DuplicateNonceError: If nonce seen within window.
-        """
-        if now is None:
-            now = datetime.now(timezone.utc)
-
-        # Check expiration
-        expires_at = env.expires_at.ToDatetime(tzinfo=timezone.utc)
-        if expires_at <= now:
-            raise ExpiredCommandError(f"Command expired at {expires_at}")
-
-        host_id = env.host_id
-        nonce = env.nonce
-
-        # Check sequence monotonicity
-        last_seq = self._last_seq.get(host_id, 0)
-        if env.sequence <= last_seq:
-            raise SequenceRegressionError(
-                f"Host {host_id}: sequence {env.sequence} <= last {last_seq}"
-            )
-
-        # Check nonce dedup
-        if host_id in self._nonces and nonce in self._nonces[host_id]:
-            raise DuplicateNonceError(
-                f"Host {host_id}: nonce {nonce!r} already seen"
-            )
-
-        # Update state
-        self._last_seq[host_id] = env.sequence
-        if host_id not in self._nonces:
-            self._nonces[host_id] = []
-        self._nonces[host_id].append(nonce)
-
-        # Trim LRU window
-        if len(self._nonces[host_id]) > self.nonce_window:
-            self._nonces[host_id].pop(0)

@@ -14,7 +14,7 @@ from server.app.crypto.envelope import (
     ExpiredCommandError,
     SequenceRegressionError,
 )
-from server.app.crypto.replay_store import PersistentReplayStore
+from server.app.crypto.replay_store import ClockSkewError, PersistentReplayStore
 from server.app.grpc._pb import fleet  # noqa: F401  triggers sys.path injection
 from server.app.grpc._pb.fleet.v1 import envelope_pb2
 
@@ -249,4 +249,54 @@ class TestPersistentReplayStore:
         env = make_env("host1", 1, b"nonce1", now=now)
         store.accept(env, now=now)
         assert store.last_sequence("host1") == 1
+        store.close()
+
+    def test_rejects_command_issued_too_far_in_future(self, tmp_path: Path) -> None:
+        """Env with issued_at = now + 5min, store with default 60s tolerance → ClockSkewError."""
+        db_path = tmp_path / "test.db"
+        now = datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+        issued_time = now + timedelta(seconds=300)  # 5 minutes in future
+
+        store = PersistentReplayStore(db_path)
+        env = make_env("host1", 1, b"nonce1", ttl_s=600, now=issued_time)
+        env.issued_at.FromDatetime(issued_time)
+
+        with pytest.raises(ClockSkewError, match="too far in future"):
+            store.accept(env, now=now)
+        store.close()
+
+    def test_accepts_command_within_skew_tolerance(self, tmp_path: Path) -> None:
+        """Env with issued_at = now + 30s, default 60s tolerance → ok."""
+        db_path = tmp_path / "test.db"
+        now = datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+        issued_time = now + timedelta(seconds=30)  # 30 seconds in future
+
+        store = PersistentReplayStore(db_path)
+        env = make_env("host1", 1, b"nonce1", ttl_s=600, now=issued_time)
+        env.issued_at.FromDatetime(issued_time)
+
+        store.accept(env, now=now)  # Should not raise
+        assert store.last_sequence("host1") == 1
+        store.close()
+
+    def test_skew_tolerance_configurable(self, tmp_path: Path) -> None:
+        """Store with skew_tolerance_s=300; issued_at = now+200s → ok; now+400s → ClockSkewError."""
+        db_path = tmp_path / "test.db"
+        now = datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+
+        store = PersistentReplayStore(db_path, skew_tolerance_s=300)
+
+        # Test 1: issued_at = now + 200s (within 300s tolerance)
+        issued_time_ok = now + timedelta(seconds=200)
+        env_ok = make_env("host1", 1, b"nonce1", ttl_s=600, now=issued_time_ok)
+        env_ok.issued_at.FromDatetime(issued_time_ok)
+        store.accept(env_ok, now=now)  # Should not raise
+        assert store.last_sequence("host1") == 1
+
+        # Test 2: issued_at = now + 400s (exceeds 300s tolerance)
+        issued_time_bad = now + timedelta(seconds=400)
+        env_bad = make_env("host1", 2, b"nonce2", ttl_s=600, now=issued_time_bad)
+        env_bad.issued_at.FromDatetime(issued_time_bad)
+        with pytest.raises(ClockSkewError, match="too far in future"):
+            store.accept(env_bad, now=now)
         store.close()

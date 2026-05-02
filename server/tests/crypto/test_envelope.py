@@ -5,8 +5,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import pytest
-
 from server.app.crypto import envelope
 from server.app.crypto.signing import FileBackend
 from server.app.grpc._pb import fleet  # noqa: F401  triggers sys.path injection
@@ -112,79 +110,3 @@ class TestVerifyCommand:
         envelope.sign_command(env, backend)
 
         assert envelope.verify_command(env, backend.trust_anchors()) is True
-
-
-class TestSequenceTracker:
-    """Tests for SequenceTracker class."""
-
-    def test_sequence_tracker_accepts_increasing(self) -> None:
-        """Accepting sequences 1, 2, 3 for same host should succeed."""
-        tracker = envelope.SequenceTracker()
-        now = datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-
-        for seq in [1, 2, 3]:
-            env = _make_envelope("host1", seq, f"nonce{seq}".encode(), now=now)
-            tracker.accept(env, now=now)  # Should not raise
-
-    def test_sequence_tracker_rejects_replay_same_seq(self) -> None:
-        """Sequence 5 then sequence 5 should raise SequenceRegressionError."""
-        tracker = envelope.SequenceTracker()
-        now = datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-
-        env1 = _make_envelope("host1", 5, b"nonce1", now=now)
-        tracker.accept(env1, now=now)
-
-        env2 = _make_envelope("host1", 5, b"nonce2", now=now)
-        with pytest.raises(envelope.SequenceRegressionError):
-            tracker.accept(env2, now=now)
-
-    def test_sequence_tracker_rejects_backwards(self) -> None:
-        """Sequence 10 then sequence 9 should raise SequenceRegressionError."""
-        tracker = envelope.SequenceTracker()
-        now = datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-
-        env1 = _make_envelope("host1", 10, b"nonce1", now=now)
-        tracker.accept(env1, now=now)
-
-        env2 = _make_envelope("host1", 9, b"nonce2", now=now)
-        with pytest.raises(envelope.SequenceRegressionError):
-            tracker.accept(env2, now=now)
-
-    def test_sequence_tracker_rejects_duplicate_nonce(self) -> None:
-        """Reusing same nonce with higher seq should raise DuplicateNonceError."""
-        tracker = envelope.SequenceTracker()
-        now = datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-
-        env1 = _make_envelope("host1", 5, b"nonce1", now=now)
-        tracker.accept(env1, now=now)
-
-        env2 = _make_envelope("host1", 6, b"nonce1", now=now)  # Same nonce, higher seq
-        with pytest.raises(envelope.DuplicateNonceError):
-            tracker.accept(env2, now=now)
-
-    def test_sequence_tracker_rejects_expired(self) -> None:
-        """Envelope with expires_at in the past should raise ExpiredCommandError."""
-        tracker = envelope.SequenceTracker()
-
-        # Create envelope that expired in the past
-        creation_time = datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-        env = _make_envelope("host1", 1, b"nonce1", ttl_seconds=-100, now=creation_time)
-        # Accept it at a later time
-        check_time = creation_time + timedelta(seconds=200)
-
-        with pytest.raises(envelope.ExpiredCommandError):
-            tracker.accept(env, now=check_time)
-
-    def test_sequence_tracker_isolates_hosts(self) -> None:
-        """Sequence counters should be isolated per host."""
-        tracker = envelope.SequenceTracker()
-        now = datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-
-        env_a1 = _make_envelope("hostA", 5, b"nonceA1", now=now)
-        tracker.accept(env_a1, now=now)
-
-        env_b1 = _make_envelope("hostB", 1, b"nonceB1", now=now)
-        tracker.accept(env_b1, now=now)  # Should not raise; different host
-
-        env_a2 = _make_envelope("hostA", 6, b"nonceA2", now=now)
-        tracker.accept(env_a2, now=now)  # Should not raise; higher seq for hostA
