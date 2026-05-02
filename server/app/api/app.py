@@ -9,6 +9,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from server.app.api.v1.enroll import router as enroll_router
 from server.app.api.v1.hosts import router as hosts_router
 from server.app.api.v1.install import router as install_router
+from server.app.api.v1.settings import router as settings_router
 from server.app.api.v1.tokens import router as tokens_router
 from server.app.errors import http_exception_handler, validation_exception_handler
 from server.app.lifespan import AppState, app_lifespan
@@ -24,6 +25,7 @@ def create_app() -> FastAPI:
     app.include_router(enroll_router)
     app.include_router(hosts_router)
     app.include_router(install_router)
+    app.include_router(settings_router)
     app.include_router(tokens_router)
     return app
 
