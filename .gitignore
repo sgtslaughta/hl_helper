@@ -40,3 +40,6 @@ vendor/
 # Data
 data/
 /data/
+
+# Internal design docs (kept locally, out of VCS)
+docs/superpowers/
