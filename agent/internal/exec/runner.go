@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os/exec"
 	"sync"
 	"time"
@@ -155,9 +156,12 @@ func (r *Runner) Run(ctx context.Context, binary string, args []string, out chan
 	go readStream(&wg, stdout, "stdout", out)
 	go readStream(&wg, stderr, "stderr", out)
 
-	// Wait for command and goroutines
-	cmdErr := cmd.Wait()
+	// Drain pipes before cmd.Wait() to avoid race where Wait closes the parent
+	// end of the pipe while a reader goroutine is mid-read (yields ErrClosed
+	// or lost data). Goroutines exit on EOF after child process closes its
+	// end, which happens before cmd.Wait() returns.
 	wg.Wait()
+	cmdErr := cmd.Wait()
 	close(out)
 
 	// Determine exit code and error
@@ -196,7 +200,9 @@ func readStream(wg *sync.WaitGroup, r io.Reader, streamName string, out chan<- C
 			out <- Chunk{Stream: streamName, Data: data[:n]}
 		}
 		if err != nil {
-			if err != io.EOF {
+			// Suppress io.EOF and pipe-closed-after-Wait noise (race with cmd.Wait
+			// closing pipes before goroutine drains EOF).
+			if err != io.EOF && !errors.Is(err, fs.ErrClosed) {
 				out <- Chunk{Stream: streamName, Data: []byte(fmt.Sprintf("error: %v", err))}
 			}
 			break

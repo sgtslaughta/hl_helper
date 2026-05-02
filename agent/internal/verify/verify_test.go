@@ -342,9 +342,12 @@ func TestNonceLRUEviction(t *testing.T) {
 	now := time.Now()
 	fut := now.Add(5 * time.Minute)
 
-	// Create verifier with nonce cap of 3
+	// Create verifier with nonce cap of 4. After inserting 5 nonces, the FIFO
+	// eviction drops nonce-1 (oldest) leaving {2,3,4,5}. Replaying nonce-1
+	// re-inserts it, evicting nonce-2 → {3,4,5,1}. nonce-3 remains, so its
+	// replay is rejected.
 	v := New(pub, []string{"shell.exec"}, "high",
-		WithNonceCap(3))
+		WithNonceCap(4))
 
 	// Add 5 envelopes with different nonces
 	for i := 1; i <= 5; i++ {

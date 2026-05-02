@@ -28,10 +28,11 @@ type Verifier struct {
 	allowed    map[string]bool
 	maxRisk    int
 	skewS      int
-	mu         sync.Mutex
-	lastSeq    uint64
-	seenNonces map[string]struct{}
-	nonceCap   int
+	mu          sync.Mutex
+	lastSeq     uint64
+	seenNonces  map[string]struct{}
+	nonceOrder  []string // FIFO insertion order for eviction
+	nonceCap    int
 }
 
 // Option configures a Verifier.
@@ -126,14 +127,13 @@ func (v *Verifier) Accept(env *pb.CommandEnvelope, now time.Time) error {
 		return ErrReplay
 	}
 
-	// Add nonce, evict if necessary
+	// Add nonce, evict oldest if over cap (FIFO; matches LRU for append-only path).
 	v.seenNonces[nonceHex] = struct{}{}
-	if len(v.seenNonces) > v.nonceCap {
-		// Simple eviction: remove first entry found
-		for k := range v.seenNonces {
-			delete(v.seenNonces, k)
-			break
-		}
+	v.nonceOrder = append(v.nonceOrder, nonceHex)
+	for len(v.nonceOrder) > v.nonceCap {
+		oldest := v.nonceOrder[0]
+		v.nonceOrder = v.nonceOrder[1:]
+		delete(v.seenNonces, oldest)
 	}
 
 	return nil
