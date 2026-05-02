@@ -1,4 +1,4 @@
-from server.app.rbac.catalog import Catalog, CATALOG, Permission
+from server.app.rbac.catalog import Catalog, CATALOG
 
 
 def test_catalog_is_canonical():

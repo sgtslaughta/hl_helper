@@ -15,7 +15,38 @@ jobs:
       - run: pip install -e .[dev]
       - run: ruff check .
       - run: mypy server/app/
-      - run: pytest server/tests/ -q
+      - run: pytest server/tests/ --cov=server/app --cov-report=term-missing --cov-fail-under=70 -q
+  migrations:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .[dev]
+      - name: Alembic upgrade head + downgrade base + upgrade head (chain integrity)
+        run: |
+          alembic upgrade head
+          alembic downgrade base
+          alembic upgrade head
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  bandit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install bandit
+      - run: bandit -r server/app/ -ll
   py-memcheck:
     runs-on: ubuntu-latest
     steps:

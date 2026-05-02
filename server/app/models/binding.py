@@ -46,7 +46,7 @@ class Binding(Base):
     principal_id: Mapped[str] = mapped_column(String(36))
     role_id: Mapped[str] = mapped_column(String(36))
     scope_kind: Mapped[ScopeKind] = mapped_column(SQLEnum(ScopeKind))
-    scope_value: Mapped[dict] = mapped_column(JSON)
+    scope_value: Mapped[dict[str, object]] = mapped_column(JSON)
     scope_hash: Mapped[str] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

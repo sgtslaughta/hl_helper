@@ -37,7 +37,7 @@ class Notification(Base):
     provider: Mapped[NotificationProvider] = mapped_column(
         SQLEnum(NotificationProvider), nullable=False
     )
-    config: Mapped[dict] = mapped_column(JSON, nullable=False)
+    config: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
     enabled: Mapped[bool] = mapped_column(
         default=True, server_default=sa.true()
     )

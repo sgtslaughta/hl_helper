@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import pytest
-from datetime import datetime, timezone, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 

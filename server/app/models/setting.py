@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 
-import sqlalchemy as sa
 from sqlalchemy import DateTime, Enum as SQLEnum, JSON, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -35,7 +34,7 @@ class Setting(Base):
     __tablename__ = "settings"
 
     key: Mapped[str] = mapped_column(String, primary_key=True)
-    value: Mapped[dict] = mapped_column(JSON, nullable=False)
+    value: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
     source: Mapped[SettingSource] = mapped_column(
         SQLEnum(SettingSource), nullable=False
     )

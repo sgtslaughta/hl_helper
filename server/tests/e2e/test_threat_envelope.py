@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
 from server.app.crypto import envelope
-from server.app.crypto.envelope import DuplicateNonceError, SequenceRegressionError
+from server.app.crypto.envelope import DuplicateNonceError
 from server.app.crypto.replay_store import PersistentReplayStore
 from server.app.crypto.signing import FileBackend
 from server.app.grpc._pb import fleet  # noqa: F401  triggers sys.path injection
-from server.app.grpc._pb.fleet.v1 import envelope_pb2
 from server.tests.e2e.conftest import make_envelope
 
 

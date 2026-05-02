@@ -1,4 +1,3 @@
-import pytest
 from server.app.rbac.scope import Scope, Resource
 
 

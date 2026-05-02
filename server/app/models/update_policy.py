@@ -36,7 +36,7 @@ class UpdatePolicy(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     name: Mapped[str] = mapped_column(String)
     description: Mapped[str | None] = mapped_column(String, nullable=True)
-    target_selector: Mapped[dict] = mapped_column(JSON)
+    target_selector: Mapped[dict[str, object]] = mapped_column(JSON)
     auto_apply_classes: Mapped[list[str]] = mapped_column(JSON)
     reboot_policy: Mapped[RebootPolicy] = mapped_column(SQLEnum(RebootPolicy))
     breaking_change_policy: Mapped[BreakingChangePolicy] = mapped_column(

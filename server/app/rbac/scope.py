@@ -5,7 +5,7 @@ returns True iff r falls inside the scope.
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Awaitable, Callable, Literal
+from typing import Callable, Literal
 
 
 ScopeKind = Literal["global", "group", "tag", "host_list", "self"]
@@ -28,7 +28,7 @@ class Resource:
 @dataclass(frozen=True)
 class Scope:
     kind: ScopeKind
-    value: dict  # opaque shape per kind
+    value: dict[str, object]  # opaque shape per kind
 
     def covers(
         self,
@@ -48,7 +48,7 @@ class Scope:
             target = self.value.get("group_id")
             if target is None or descendants_of is None:
                 return False
-            allowed = descendants_of(target)
+            allowed = descendants_of(str(target))
             return bool(resource.group_ids & allowed)
         if self.kind == "tag":
             key = self.value.get("key")
@@ -57,7 +57,8 @@ class Scope:
                 return False
             return (key, val) in resource.tags
         if self.kind == "host_list":
-            ids = set(self.value.get("host_ids", []))
+            raw_ids = self.value.get("host_ids", [])
+            ids: set[str] = set(raw_ids) if isinstance(raw_ids, list) else set()
             return resource.id in ids if resource.id else False
         if self.kind == "self":
             principal_id = self.value.get("principal_id")

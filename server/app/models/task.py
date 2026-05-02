@@ -65,8 +65,8 @@ class Task(Base):
     status: Mapped[TaskStatus] = mapped_column(
         SQLEnum(TaskStatus), default=TaskStatus.PENDING, server_default=TaskStatus.PENDING
     )
-    payload: Mapped[dict] = mapped_column(JSON)
-    target_selector: Mapped[dict] = mapped_column(JSON)
+    payload: Mapped[dict[str, object]] = mapped_column(JSON)
+    target_selector: Mapped[dict[str, object]] = mapped_column(JSON)
     idempotency_key: Mapped[str | None] = mapped_column(String, nullable=True)
     risk: Mapped[TaskRisk] = mapped_column(SQLEnum(TaskRisk))
     requires_approval: Mapped[bool] = mapped_column(

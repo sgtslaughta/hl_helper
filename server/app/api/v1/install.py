@@ -38,7 +38,9 @@ async def get_install_script(
 
     # Load and render template
     template_dir = Path(__file__).parent.parent.parent.parent / "templates"
-    env = Environment(loader=FileSystemLoader(template_dir))
+    # autoescape disabled: template renders POSIX shell, not HTML/XML.
+    # Body is signed via Ed25519 (X-Install-Signature header) for tamper detection.
+    env = Environment(loader=FileSystemLoader(template_dir), autoescape=False)  # nosec B701
     template = env.get_template("install.sh.j2")
     rendered = template.render(
         token=token, server=server, SERVER=server, grpc_endpoint=grpc_endpoint

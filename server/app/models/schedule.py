@@ -33,9 +33,9 @@ class Schedule(Base):
     enabled: Mapped[bool] = mapped_column(
         default=True, server_default=sa.true()
     )
-    target_selector: Mapped[dict] = mapped_column(JSON)
+    target_selector: Mapped[dict[str, object]] = mapped_column(JSON)
     payload_kind: Mapped[str] = mapped_column(String)
-    payload: Mapped[dict] = mapped_column(JSON)
+    payload: Mapped[dict[str, object]] = mapped_column(JSON)
     missed_runs_policy: Mapped[MissedRunsPolicy] = mapped_column(
         SQLEnum(MissedRunsPolicy), default=MissedRunsPolicy.SKIP, server_default=MissedRunsPolicy.SKIP
     )

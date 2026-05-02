@@ -33,7 +33,7 @@ class MaintenanceWindow(Base):
     start_cron: Mapped[str] = mapped_column(String)
     duration_minutes: Mapped[int] = mapped_column(sa.Integer)
     timezone: Mapped[str] = mapped_column(String, default="UTC", server_default="UTC")
-    target_selector: Mapped[dict] = mapped_column(JSON)
+    target_selector: Mapped[dict[str, object]] = mapped_column(JSON)
     kind: Mapped[MaintenanceWindowKind] = mapped_column(
         SQLEnum(MaintenanceWindowKind)
     )

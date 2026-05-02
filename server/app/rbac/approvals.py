@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.app.models import Approval
+from server.app.models.approval import ApprovalState
 
 
 DEFAULT_TTL = timedelta(minutes=10)
@@ -78,12 +79,12 @@ class ApprovalEngine:
         if expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
         if now >= expires_at:
-            a.state = "expired"
+            a.state = ApprovalState.EXPIRED
             await self._s.flush()
             return DecisionResult(approved=False, state="expired", rejected_reason="expired")
 
         if decision == "reject":
-            a.state = "rejected"
+            a.state = ApprovalState.REJECTED
             a.decided_by_id = decider_id
             a.decided_at = now
             a.rejected_reason = reason or "rejected"
@@ -92,7 +93,7 @@ class ApprovalEngine:
 
         # decision == "approve"
         if a.policy == "two_person" and decider_id == a.requester_id:
-            a.state = "rejected"
+            a.state = ApprovalState.REJECTED
             a.decided_by_id = decider_id
             a.decided_at = now
             a.rejected_reason = "same_principal"
@@ -102,7 +103,7 @@ class ApprovalEngine:
         if a.policy == "single_second_factor" and not mfa_proof:
             return DecisionResult(approved=False, state="pending", rejected_reason="mfa_required")
 
-        a.state = "approved"
+        a.state = ApprovalState.APPROVED
         a.decided_by_id = decider_id
         a.decided_at = now
         a.mfa_proof = mfa_proof
@@ -118,7 +119,7 @@ class ApprovalEngine:
         if expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
         if a.state == "pending" and now >= expires_at:
-            a.state = "expired"
+            a.state = ApprovalState.EXPIRED
             await self._s.flush()
             return "expired"
         return a.state

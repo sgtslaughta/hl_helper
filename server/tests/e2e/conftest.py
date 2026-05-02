@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
-from server.app.crypto.signing import FileBackend
 from server.app.grpc._pb import fleet  # noqa: F401  triggers sys.path injection
 from server.app.grpc._pb.fleet.v1 import envelope_pb2
 
