@@ -46,13 +46,17 @@ async def test_inspector_returns_flat_rows(sm) -> None:
 
         rows = await inspector.effective(principal, resource)
         assert len(rows) > 0
-        # Each row should have action, source_binding_id, role_name
+        # Each row should have action, source_binding_id, role_name, scope_kind, scope_value
         for row in rows:
             assert hasattr(row, "action")
             assert hasattr(row, "source_binding_id")
             assert hasattr(row, "role_name")
+            assert hasattr(row, "scope_kind")
+            assert hasattr(row, "scope_value")
             assert row.source_binding_id == binding.id
             assert row.role_name == "viewer"
+            assert row.scope_kind == "global"
+            assert row.scope_value == {}
 
 
 @pytest.mark.asyncio

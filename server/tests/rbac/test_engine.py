@@ -192,3 +192,104 @@ async def test_engine_decision_includes_binding_id_and_reason_role_name(sm) -> N
         assert decision.allow
         assert decision.binding_id == binding.id
         assert decision.reason == "role:admin"
+
+
+@pytest.mark.asyncio
+async def test_engine_grants_via_tag_scope(sm) -> None:
+    """Binding scope_kind=tag covers resource with matching tag."""
+    async with sm() as session:
+        from sqlalchemy import select
+        viewer_role = (await session.execute(
+            select(Role).where(Role.name == "viewer")
+        )).scalar_one()
+
+        scope_value = {"key": "env", "value": "prod"}
+        binding = Binding(
+            id=str(uuid4()),
+            principal_type="user",
+            principal_id="u-1",
+            role_id=viewer_role.id,
+            scope_kind="tag",
+            scope_value=scope_value,
+            scope_hash=compute_scope_hash("tag", scope_value),
+        )
+        session.add(binding)
+        await session.commit()
+
+        engine = BuiltinEngine(session)
+        principal = Principal(user_id="u-1")
+        resource = Resource(tags=frozenset({("env", "prod")}))
+        ctx = AuthContext()
+
+        decision = await engine.is_authorized(principal, "host:read", resource, ctx)
+        assert decision.allow
+        assert decision.binding_id == binding.id
+
+
+@pytest.mark.asyncio
+async def test_engine_grants_via_group_scope(sm) -> None:
+    """Binding scope_kind=group covers resource in that group."""
+    async with sm() as session:
+        from sqlalchemy import select
+        operator_role = (await session.execute(
+            select(Role).where(Role.name == "operator")
+        )).scalar_one()
+
+        scope_value = {"group_id": "g-1"}
+        binding = Binding(
+            id=str(uuid4()),
+            principal_type="user",
+            principal_id="u-1",
+            role_id=operator_role.id,
+            scope_kind="group",
+            scope_value=scope_value,
+            scope_hash=compute_scope_hash("group", scope_value),
+        )
+        session.add(binding)
+        await session.commit()
+
+        engine = BuiltinEngine(session)
+        principal = Principal(user_id="u-1")
+        resource = Resource(group_ids=frozenset({"g-1"}))
+        ctx = AuthContext()
+
+        decision = await engine.is_authorized(principal, "task:create", resource, ctx)
+        assert decision.allow
+        assert decision.binding_id == binding.id
+
+
+@pytest.mark.asyncio
+async def test_engine_grants_via_self_scope(sm) -> None:
+    """Binding scope_kind=self covers resource owned by principal."""
+    async with sm() as session:
+        from sqlalchemy import select
+        viewer_role = (await session.execute(
+            select(Role).where(Role.name == "viewer")
+        )).scalar_one()
+
+        scope_value = {"principal_id": "u-1"}
+        binding = Binding(
+            id=str(uuid4()),
+            principal_type="user",
+            principal_id="u-1",
+            role_id=viewer_role.id,
+            scope_kind="self",
+            scope_value=scope_value,
+            scope_hash=compute_scope_hash("self", scope_value),
+        )
+        session.add(binding)
+        await session.commit()
+
+        engine = BuiltinEngine(session)
+        principal = Principal(user_id="u-1")
+        resource = Resource(owner_user_id="u-1")
+        ctx = AuthContext()
+
+        decision = await engine.is_authorized(principal, "host:read", resource, ctx)
+        assert decision.allow
+        assert decision.binding_id == binding.id
+
+        # Different owner should be denied
+        resource_other = Resource(owner_user_id="u-2")
+        decision_other = await engine.is_authorized(principal, "host:read", resource_other, ctx)
+        assert not decision_other.allow

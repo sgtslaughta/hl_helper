@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from server.app.models import Binding, Role
 from server.app.rbac.provider import Principal
 from server.app.rbac.scope import Resource, Scope
+from server.app.rbac.engine import _principal_filters
 
 
 @dataclass(frozen=True)
@@ -16,6 +17,8 @@ class EffectivePermissionRow:
     action: str
     source_binding_id: str
     role_name: str
+    scope_kind: str
+    scope_value: dict[str, object]
 
 
 class Inspector:
@@ -23,13 +26,7 @@ class Inspector:
         self._s = session
 
     async def effective(self, principal: Principal, resource: Resource) -> list[EffectivePermissionRow]:
-        principal_filters = []
-        if principal.user_id:
-            principal_filters.append((Binding.principal_type == "user") & (Binding.principal_id == principal.user_id))
-        if principal.service_account_id:
-            principal_filters.append((Binding.principal_type == "service_account") & (Binding.principal_id == principal.service_account_id))
-        for gid in principal.user_group_ids:
-            principal_filters.append((Binding.principal_type == "user_group") & (Binding.principal_id == gid))
+        principal_filters = _principal_filters(principal)
         if not principal_filters:
             return []
 
@@ -45,6 +42,10 @@ class Inspector:
                 continue
             for action in (role.permissions or []):
                 out.append(EffectivePermissionRow(
-                    action=action, source_binding_id=binding.id, role_name=role.name,
+                    action=action,
+                    source_binding_id=binding.id,
+                    role_name=role.name,
+                    scope_kind=binding.scope_kind,
+                    scope_value=binding.scope_value or {},
                 ))
         return out

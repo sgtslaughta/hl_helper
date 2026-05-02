@@ -1,12 +1,26 @@
 """Built-in PolicyDecisionProvider implementation backed by Bindings + Roles."""
 from __future__ import annotations
 
-from sqlalchemy import or_, select
+from typing import Any
+
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.app.models import Binding, Role
 from server.app.rbac.provider import Principal, AuthContext, Decision
 from server.app.rbac.scope import Resource, Scope
+
+
+def _principal_filters(principal: Principal) -> list[Any]:
+    """Build list of SQLAlchemy filters for the given principal's identities."""
+    out: list[Any] = []
+    if principal.user_id:
+        out.append(and_(Binding.principal_type == "user", Binding.principal_id == principal.user_id))
+    if principal.service_account_id:
+        out.append(and_(Binding.principal_type == "service_account", Binding.principal_id == principal.service_account_id))
+    for gid in principal.user_group_ids:
+        out.append(and_(Binding.principal_type == "user_group", Binding.principal_id == gid))
+    return out
 
 
 class BuiltinEngine:
@@ -24,13 +38,7 @@ class BuiltinEngine:
         /,
     ) -> Decision:
         # Collect candidate principal identities (user_id and user_group_ids).
-        principal_filters = []
-        if principal.user_id:
-            principal_filters.append((Binding.principal_type == "user") & (Binding.principal_id == principal.user_id))
-        if principal.service_account_id:
-            principal_filters.append((Binding.principal_type == "service_account") & (Binding.principal_id == principal.service_account_id))
-        for gid in principal.user_group_ids:
-            principal_filters.append((Binding.principal_type == "user_group") & (Binding.principal_id == gid))
+        principal_filters = _principal_filters(principal)
         if not principal_filters:
             return Decision(allow=False, reason="no_principal_identity")
 
@@ -41,6 +49,7 @@ class BuiltinEngine:
         )
         rows = (await self._s.execute(bindings_q)).all()
 
+        # TODO: check ctx.mfa_satisfied for step-up enforcement on high-risk actions (Phase 6)
         for binding, role in rows:
             perms = set(role.permissions or [])
             if action not in perms:
