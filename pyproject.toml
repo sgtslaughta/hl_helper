@@ -33,6 +33,7 @@ target-version = "py312"
 [tool.mypy]
 strict = true
 python_version = "3.12"
+exclude = ["server/app/migrations/"]
 
 [[tool.mypy.overrides]]
 module = "server.app.grpc._pb.*"
