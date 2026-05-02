@@ -1,6 +1,16 @@
 """Search-expression parser → SQLAlchemy WHERE clause.
 
 Bounded depth (default 4), limited operators, per-collection field allowlist.
+
+Example:
+    clause = parse(
+        {"and": [
+            {"contains": {"hostname": "prod"}},
+            {"since": {"enrolled_at": "2026-01-01T00:00:00"}}
+        ]},
+        SearchSchema(fields={"hostname": Host.hostname, "enrolled_at": Host.enrolled_at})
+    )
+    rows = await session.execute(select(Host).where(clause))
 """
 
 from __future__ import annotations
@@ -20,6 +30,11 @@ class SearchError(ValueError):
 
 _BOOL_OPS = {"and", "or", "not"}
 _LEAF_OPS = {"eq", "in", "contains", "since", "before"}
+
+
+def _escape_like(s: str) -> str:
+    """Escape SQL LIKE wildcards (% and _) so they match literally."""
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 @dataclass(frozen=True)
@@ -45,8 +60,8 @@ def parse(expr: Mapping[str, Any], schema: SearchSchema) -> ColumnElement[Any]:
 def _parse_node(
     node: Any, schema: SearchSchema, *, depth: int
 ) -> ColumnElement[Any]:
-    if depth > schema.max_depth:
-        raise SearchError(f"depth_exceeded: {depth} > {schema.max_depth}")
+    if depth >= schema.max_depth:
+        raise SearchError(f"depth_exceeded: {depth} >= {schema.max_depth}")
     if not isinstance(node, dict) or len(node) != 1:
         raise SearchError(f"malformed_node: {node!r}")
     (op, body) = next(iter(node.items()))
@@ -86,7 +101,8 @@ def _parse_leaf(op: str, body: Any, schema: SearchSchema) -> ColumnElement[Any]:
     if op == "contains":
         if not isinstance(value, str):
             raise SearchError("contains_requires_string")
-        return cast(ColumnElement[Any], func.lower(col).like(f"%{value.lower()}%"))
+        safe = _escape_like(value.lower())
+        return cast(ColumnElement[Any], func.lower(col).like(f"%{safe}%", escape="\\"))
     if op == "since":
         return cast(ColumnElement[Any], col >= _parse_dt(value))
     if op == "before":
