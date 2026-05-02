@@ -5,11 +5,25 @@ The middleware looks up `(principal_id, route, key)` in an in-memory store
 with 24h TTL. On hit, returns the cached response without invoking the
 downstream handler. On miss, invokes the handler and caches the response.
 
-In-process only for now (single-replica deployments). C2 follow-up will
-replace with DB-backed table for multi-replica safety.
+Caching policy:
+- Only 2xx/3xx responses are cached. 4xx/5xx are returned but not stored,
+  on the assumption that the client may retry with intent to succeed.
+- Requests without an authenticated principal (principal_id == "anonymous")
+  are NOT cached (fail-closed; prevents cross-request response leakage).
+- Concurrent requests with the same (principal, route, key) serialize:
+  the first acquires the slot and invokes the handler; subsequent requests
+  wait for completion and use the cached result.
+
+Limitations:
+- Caches buffer the entire response body in memory. StreamingResponse
+  and FileResponse are not safe; routes returning these should not use
+  Idempotency-Key (or should be excluded from this middleware).
+- In-process only for now (single-replica deployments). C2 follow-up will
+  replace with DB-backed table for multi-replica safety.
 """
 from __future__ import annotations
 import asyncio
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Mapping, cast
@@ -21,6 +35,7 @@ from starlette.responses import Response
 DEFAULT_TTL = timedelta(hours=24)
 HEADER = "Idempotency-Key"
 WRITE_METHODS = frozenset({"POST", "PATCH", "DELETE"})
+ANONYMOUS = "anonymous"
 
 
 @dataclass
@@ -35,10 +50,12 @@ class _Entry:
 class IdempotencyStore:
     """Async-safe in-memory cache for idempotency entries."""
 
-    def __init__(self, ttl: timedelta = DEFAULT_TTL) -> None:
+    def __init__(self, ttl: timedelta = DEFAULT_TTL, *, max_entries: int = 10000) -> None:
         self._ttl = ttl
+        self._max = max_entries
         self._lock = asyncio.Lock()
-        self._items: dict[tuple[str, str, str], _Entry] = {}
+        self._items: OrderedDict[tuple[str, str, str], _Entry] = OrderedDict()
+        self._inflight: dict[tuple[str, str, str], asyncio.Event] = {}
 
     async def get(self, principal_id: str, route: str, key: str,
                   now: datetime | None = None) -> _Entry | None:
@@ -50,6 +67,8 @@ class IdempotencyStore:
             if now >= entry.expires_at:
                 self._items.pop((principal_id, route, key), None)
                 return None
+            # Move to end to maintain LRU order
+            self._items.move_to_end((principal_id, route, key))
             return entry
 
     async def put(self, principal_id: str, route: str, key: str,
@@ -57,6 +76,9 @@ class IdempotencyStore:
                   content_type: str, now: datetime | None = None) -> None:
         now = now or datetime.now(timezone.utc)
         async with self._lock:
+            # Evict oldest entry if at capacity
+            if len(self._items) >= self._max:
+                self._items.popitem(last=False)
             self._items[(principal_id, route, key)] = _Entry(
                 status_code=status_code, body=body,
                 headers=dict(headers), content_type=content_type,
@@ -71,6 +93,27 @@ class IdempotencyStore:
                 self._items.pop(k, None)
             return len(stale)
 
+    async def acquire_or_wait(self, key: tuple[str, str, str]) -> bool:
+        """Return True if caller should run the handler (we own the slot);
+        return False if another request is already running and we should wait
+        for its result."""
+        async with self._lock:
+            if key in self._inflight:
+                ev = self._inflight[key]
+                # Release lock before waiting
+            else:
+                ev = asyncio.Event()
+                self._inflight[key] = ev
+                return True
+        await ev.wait()
+        return False
+
+    async def release(self, key: tuple[str, str, str]) -> None:
+        async with self._lock:
+            ev = self._inflight.pop(key, None)
+            if ev is not None:
+                ev.set()
+
 
 def _principal_id(request: Request) -> str:
     """Best-effort principal identification.
@@ -79,7 +122,17 @@ def _principal_id(request: Request) -> str:
     still exercise the dedup path. Real auth must populate
     request.state.principal_id.
     """
-    return getattr(request.state, "principal_id", "anonymous")
+    return getattr(request.state, "principal_id", ANONYMOUS)
+
+
+def _from_entry(entry: _Entry) -> Response:
+    """Build a Response from a cached _Entry."""
+    return Response(
+        content=entry.body,
+        status_code=entry.status_code,
+        headers=entry.headers,
+        media_type=entry.content_type,
+    )
 
 
 class IdempotencyMiddleware(BaseHTTPMiddleware):
@@ -101,31 +154,48 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
             return cast(Response, await call_next(request))
 
         principal_id = _principal_id(request)
-        route = request.url.path
+        # Fix 1: Skip caching for anonymous principals (fail-closed)
+        if principal_id == ANONYMOUS:
+            return cast(Response, await call_next(request))
 
+        route = request.url.path
+        key_tuple = (principal_id, route, key)
+
+        # Check cache first
         cached = await self.store.get(principal_id, route, key)
         if cached is not None:
-            return Response(
-                content=cached.body,
-                status_code=cached.status_code,
-                headers=cached.headers,
-                media_type=cached.content_type,
-            )
+            return _from_entry(cached)
 
-        # Miss: invoke handler, capture response
-        response = cast(Response, await call_next(request))
-        body = b""
-        async for chunk in response.body_iterator:  # type: ignore[attr-defined]
-            body += chunk
-        await self.store.put(
-            principal_id, route, key,
-            status_code=response.status_code,
-            body=body,
-            headers={k: v for k, v in response.headers.items()
-                     if k.lower() not in {"content-length"}},
-            content_type=response.headers.get("content-type", "application/json"),
-        )
-        return Response(
-            content=body, status_code=response.status_code,
-            headers=dict(response.headers), media_type=response.media_type,
-        )
+        # Fix 2: Serialize concurrent requests with same key
+        owner = await self.store.acquire_or_wait(key_tuple)
+        if not owner:
+            # Other request finished; read cached result
+            cached = await self.store.get(principal_id, route, key)
+            if cached is not None:
+                return _from_entry(cached)
+            # Other request didn't cache (e.g., it errored before put). Fall through.
+
+        try:
+            # Miss: invoke handler, capture response
+            response = cast(Response, await call_next(request))
+            body = b""
+            async for chunk in response.body_iterator:  # type: ignore[attr-defined]
+                body += chunk
+
+            # Fix 4: Only cache 2xx/3xx responses
+            if response.status_code < 400:
+                await self.store.put(
+                    principal_id, route, key,
+                    status_code=response.status_code,
+                    body=body,
+                    headers={k: v for k, v in response.headers.items()
+                             if k.lower() not in {"content-length"}},
+                    content_type=response.headers.get("content-type", "application/json"),
+                )
+
+            return Response(
+                content=body, status_code=response.status_code,
+                headers=dict(response.headers), media_type=response.media_type,
+            )
+        finally:
+            await self.store.release(key_tuple)

@@ -1,7 +1,9 @@
+import asyncio
 import pytest
 from datetime import datetime, timedelta, timezone
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
+from httpx import AsyncClient, ASGITransport
 
 from server.app.idempotency import (
     IdempotencyMiddleware, IdempotencyStore, DEFAULT_TTL, HEADER,
@@ -50,12 +52,26 @@ def test_get_method_bypasses():
 
 
 def test_replay_returns_cached_response():
-    app = _build_app()
+    app = FastAPI()
+    store = IdempotencyStore()
+    app.add_middleware(IdempotencyMiddleware, store=store)
+    counter = {"n": 0}
+
+    @app.middleware("http")
+    async def set_principal(req, call_next):
+        req.state.principal_id = "u-1"
+        return await call_next(req)
+
+    @app.post("/echo")
+    async def echo() -> dict:
+        counter["n"] += 1
+        return {"call": counter["n"]}
+
     with TestClient(app) as c:
         r1 = c.post("/echo", headers={HEADER: "k1"})
         r2 = c.post("/echo", headers={HEADER: "k1"})
         assert r1.json() == r2.json()
-        assert app.state.counter["n"] == 1  # handler ran ONCE
+        assert counter["n"] == 1  # handler ran ONCE
 
 
 def test_different_keys_invoke_handler_separately():
@@ -138,3 +154,95 @@ def test_principal_isolation():
         r2 = c.post("/x", headers={HEADER: "k", "X-Principal": "u-2"})
         assert r1.json()["call"] == 1
         assert r2.json()["call"] == 2  # different principals, separate cache
+
+
+def test_anonymous_principal_skips_caching():
+    """Without principal_id, requests are NOT cached (no cross-request leak)."""
+    app = FastAPI()
+    app.add_middleware(IdempotencyMiddleware)
+    counter = {"n": 0}
+
+    @app.post("/x")
+    async def x() -> dict:
+        counter["n"] += 1
+        return {"n": counter["n"]}
+
+    with TestClient(app) as c:
+        r1 = c.post("/x", headers={HEADER: "k"})
+        r2 = c.post("/x", headers={HEADER: "k"})
+        # Both invocations ran — no caching for anon principals
+        assert r1.json()["n"] == 1
+        assert r2.json()["n"] == 2
+
+
+@pytest.mark.asyncio
+async def test_concurrent_same_key_only_invokes_handler_once():
+    """Race: two concurrent requests with same key should result in handler running ONCE."""
+    app = FastAPI()
+    store = IdempotencyStore()
+    app.add_middleware(IdempotencyMiddleware, store=store)
+    counter = {"n": 0}
+
+    @app.middleware("http")
+    async def set_principal(req, call_next):
+        req.state.principal_id = "u-1"
+        return await call_next(req)
+
+    @app.post("/x")
+    async def x() -> dict:
+        await asyncio.sleep(0.05)  # simulate slow handler
+        counter["n"] += 1
+        return {"n": counter["n"]}
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as ac:
+        r1, r2 = await asyncio.gather(
+            ac.post("/x", headers={HEADER: "k"}),
+            ac.post("/x", headers={HEADER: "k"}),
+        )
+    assert r1.status_code == r2.status_code == 200
+    assert r1.json() == r2.json()
+    assert counter["n"] == 1  # only one invocation
+
+
+def test_5xx_response_not_cached():
+    """4xx/5xx responses must not be cached so client can retry."""
+    app = FastAPI()
+    app.add_middleware(IdempotencyMiddleware)
+
+    @app.middleware("http")
+    async def set_principal(req, call_next):
+        req.state.principal_id = "u-1"
+        return await call_next(req)
+
+    counter = {"n": 0}
+
+    @app.post("/fail")
+    async def fail() -> dict:
+        counter["n"] += 1
+        raise HTTPException(503, detail="transient")
+
+    with TestClient(app) as c:
+        r1 = c.post("/fail", headers={HEADER: "k"})
+        r2 = c.post("/fail", headers={HEADER: "k"})
+        assert r1.status_code == r2.status_code == 503
+        assert counter["n"] == 2  # handler ran both times
+
+
+@pytest.mark.asyncio
+async def test_store_eviction_at_max_entries():
+    """Adding > max_entries items evicts oldest."""
+    s = IdempotencyStore(max_entries=3)
+    for i in range(5):
+        await s.put(
+            "p",
+            "/r",
+            f"k{i}",
+            status_code=200,
+            body=b"",
+            headers={},
+            content_type="application/json",
+        )
+    # k0, k1 evicted; k2,k3,k4 remain
+    assert await s.get("p", "/r", "k0") is None
+    assert await s.get("p", "/r", "k1") is None
+    assert await s.get("p", "/r", "k4") is not None
