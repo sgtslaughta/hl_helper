@@ -9,8 +9,14 @@ from server.app.crypto.signing import FileBackend
 from server.app.grpc._pb import fleet  # noqa: F401  triggers sys.path injection
 from server.app.grpc._pb.fleet.v1 import envelope_pb2
 
-# Import grpc fixtures for TLS/enrollment tests
-pytest_plugins = ["server.tests.grpc.conftest"]
+# Re-export grpc fixtures for TLS/enrollment tests (cannot use pytest_plugins in non-top conftest)
+from server.tests.grpc.conftest import (  # noqa: E402, F401
+    grpc_server_and_dispatcher,
+    tls_creds,
+    engine,
+    sm,
+    signing_backend,
+)
 
 
 def make_envelope(
