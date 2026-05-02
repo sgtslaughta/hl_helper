@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from server.app.models.api_key import ApiKey
 from server.app.models.audit import AuditCheckpoint, AuditEntry
 from server.app.models.base import Base
 from server.app.models.command import Command
@@ -11,6 +12,9 @@ from server.app.models.group_membership import GroupMembership
 from server.app.models.host import Host
 from server.app.models.result import Result
 from server.app.models.revoked_cert import RevokedCert
+from server.app.models.service_account import ServiceAccount
+from server.app.models.user import User
+from server.app.models.user_group import UserGroup
 
 __all__ = [
     "Base",
@@ -23,4 +27,8 @@ __all__ = [
     "RevokedCert",
     "Group",
     "GroupMembership",
+    "User",
+    "UserGroup",
+    "ApiKey",
+    "ServiceAccount",
 ]
