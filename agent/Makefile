@@ -1,4 +1,4 @@
-.PHONY: build test vet fmt lint
+.PHONY: build test vet fmt lint race leakcheck
 
 VERSION ?= dev
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
@@ -19,3 +19,9 @@ fmt:
 
 lint:
 	go vet ./...
+
+race:
+	go test -race -count=1 ./...
+
+leakcheck:
+	go test -count=1 ./...

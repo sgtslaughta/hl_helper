@@ -16,6 +16,16 @@ jobs:
       - run: ruff check .
       - run: mypy server/app/
       - run: pytest server/tests/ -q
+  py-memcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .[dev]
+      - name: pytest memory leak tests
+        run: pytest server/tests/test_memory_leaks.py server/tests/test_tracemalloc_smoke.py -v
   go:
     runs-on: ubuntu-latest
     steps:
@@ -25,6 +35,26 @@ jobs:
           go-version: "1.23"
       - run: cd agent && go vet ./...
       - run: cd agent && go test ./...
+  go-leakcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - name: go test with goleak
+        working-directory: agent
+        run: go test -count=1 ./...
+  go-race:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - name: go test -race
+        working-directory: agent
+        run: go test -race -count=1 ./...
   proto:
     runs-on: ubuntu-latest
     steps:

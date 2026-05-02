@@ -7,9 +7,16 @@ import (
 	"testing"
 
 	bolt "go.etcd.io/bbolt"
+	"go.uber.org/goleak"
 
 	"github.com/hlhelper/hl-agent/internal/outbox"
 )
+
+func TestMain(m *testing.M) {
+	// goleak.IgnoreTopFunction is used to suppress false positives from bbolt's internal cleanup goroutines.
+	// bbolt uses background goroutines for freelist management that may not fully drain during test teardown.
+	goleak.VerifyTestMain(m, goleak.IgnoreTopFunction("go.etcd.io/bbolt.(*DB).freepages"))
+}
 
 func testMasterKey() []byte {
 	key := make([]byte, 32)

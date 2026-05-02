@@ -6,8 +6,14 @@ import (
 	"path/filepath"
 	"testing"
 
+	"go.uber.org/goleak"
+
 	"github.com/hlhelper/hl-agent/internal/keystore"
 )
+
+func TestMain(m *testing.M) {
+	goleak.VerifyTestMain(m)
+}
 
 func TestOpenFileRequiresExistingDir(t *testing.T) {
 	_, err := keystore.OpenFile("/nonexistent/path/to/dir")

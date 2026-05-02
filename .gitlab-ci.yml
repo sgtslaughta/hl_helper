@@ -8,6 +8,27 @@
 stages:
 - test
 - secret-detection
+
+go-leakcheck:
+  stage: test
+  image: golang:1.23
+  script:
+    - cd agent && go test -count=1 ./...
+
+go-race:
+  stage: test
+  image: golang:1.23
+  script:
+    - cd agent && go test -race -count=1 ./...
+
+py-memcheck:
+  stage: test
+  image: python:3.12
+  before_script:
+    - pip install -e '.[dev]'
+  script:
+    - pytest server/tests/test_memory_leaks.py server/tests/test_tracemalloc_smoke.py -v
+
 sast:
   stage: test
 include:
