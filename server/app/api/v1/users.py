@@ -11,6 +11,7 @@ from pydantic import BaseModel, Discriminator, EmailStr, Tag, field_validator
 from sqlalchemy import delete, insert, select
 from sqlalchemy.exc import IntegrityError
 
+from server.app.api.state import get_app_state
 from server.app.api.middleware.admin_auth import admin_required
 from server.app.models.user import User, UserKind
 from server.app.models.user_group import UserGroup, user_group_members
@@ -149,7 +150,7 @@ async def create_user(req: Request, body: UserCreate) -> UserOut:
     Local users can have an optional password_hash (pre-computed by caller).
     OIDC users require oidc_subject and oidc_issuer; password_hash is rejected.
     """
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
 
     async with sm() as session:
         user = User(
@@ -190,7 +191,7 @@ async def create_user(req: Request, body: UserCreate) -> UserOut:
 )
 async def list_users(req: Request) -> list[UserOut]:
     """List all users (including disabled)."""
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         users = (await session.execute(select(User))).scalars().all()
     return [
@@ -216,7 +217,7 @@ async def list_users(req: Request) -> list[UserOut]:
 )
 async def get_user(req: Request, user_id: str) -> UserOut:
     """Get a user by ID."""
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         user = await session.scalar(select(User).where(User.id == user_id))
     if user is None:
@@ -241,7 +242,7 @@ async def get_user(req: Request, user_id: str) -> UserOut:
 )
 async def update_user(req: Request, user_id: str, body: UserUpdate) -> UserOut:
     """Update user display_name and/or disabled flag."""
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         user = await session.scalar(
             select(User).where(User.id == user_id).with_for_update()
@@ -274,7 +275,7 @@ async def update_user(req: Request, user_id: str, body: UserUpdate) -> UserOut:
 )
 async def delete_user(req: Request, user_id: str) -> None:
     """Hard delete a user."""
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         user = await session.scalar(select(User).where(User.id == user_id))
         if user is None:
@@ -303,7 +304,7 @@ async def delete_user(req: Request, user_id: str) -> None:
 )
 async def create_user_group(req: Request, body: UserGroupCreate) -> UserGroupOut:
     """Create a new user group."""
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         group = UserGroup(name=body.name, description=body.description)
         session.add(group)
@@ -331,7 +332,7 @@ async def create_user_group(req: Request, body: UserGroupCreate) -> UserGroupOut
 )
 async def list_user_groups(req: Request) -> list[UserGroupOut]:
     """List all user groups."""
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         groups = (await session.execute(select(UserGroup))).scalars().all()
     return [
@@ -354,7 +355,7 @@ async def add_user_to_group(
     req: Request, group_id: str, body: UserGroupMemberAdd
 ) -> dict[str, str]:
     """Add a user to a user group."""
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         # Verify group exists
         group = await session.scalar(select(UserGroup).where(UserGroup.id == group_id))
@@ -395,7 +396,7 @@ async def add_user_to_group(
 )
 async def remove_user_from_group(req: Request, group_id: str, user_id: str) -> None:
     """Remove a user from a user group."""
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         # Check if membership exists
         membership = await session.scalar(
@@ -430,7 +431,7 @@ async def remove_user_from_group(req: Request, group_id: str, user_id: str) -> N
 )
 async def create_service_account(req: Request, body: ServiceAccountCreate) -> ServiceAccountOut:
     """Create a new service account."""
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         sa = ServiceAccount(name=body.name, description=body.description)
         session.add(sa)
@@ -459,7 +460,7 @@ async def create_service_account(req: Request, body: ServiceAccountCreate) -> Se
 )
 async def list_service_accounts(req: Request) -> list[ServiceAccountOut]:
     """List all service accounts."""
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         accounts = (await session.execute(select(ServiceAccount))).scalars().all()
     return [
@@ -483,7 +484,7 @@ async def patch_service_account(
     req: Request, sa_id: str, body: ServiceAccountUpdate
 ) -> ServiceAccountOut:
     """Update service account disabled flag and/or description."""
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         sa = await session.scalar(
             select(ServiceAccount).where(ServiceAccount.id == sa_id).with_for_update()
@@ -515,7 +516,7 @@ async def patch_service_account(
 )
 async def delete_service_account(req: Request, sa_id: str) -> None:
     """Delete a service account."""
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         sa = await session.scalar(select(ServiceAccount).where(ServiceAccount.id == sa_id))
         if sa is None:

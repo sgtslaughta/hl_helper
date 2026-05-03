@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
+from server.app.api.state import get_app_state
 from server.app.api.middleware.admin_auth import admin_required
 from server.app.models import Setting
 from server.app.settings.config import load_settings, SECRET_FIELDS
@@ -58,7 +59,7 @@ async def list_settings(req: Request) -> list[EffectiveSetting]:
     via PATCH). Keys present only in the Pydantic model are reported with
     source="default" and scope="boot-only" (until classified by the runtime).
     """
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     db_rows: dict[str, Setting] = {}
     async with sm() as session:
         for s in (await session.execute(select(Setting))).scalars().all():
@@ -92,8 +93,9 @@ async def patch_setting(req: Request, body: PatchRequest) -> EffectiveSetting:
 
     TODO(C2): wire reload signal to in-process event bus once Phase 7 lands.
     """
-    sm = req.app.state.sessionmaker
-    audit = getattr(req.app.state, "audit_chain", None)
+    state = get_app_state(req)
+    sm = state.sessionmaker
+    audit = state.audit_chain
 
     async with sm() as session:
         existing = await session.scalar(
@@ -112,6 +114,8 @@ async def patch_setting(req: Request, body: PatchRequest) -> EffectiveSetting:
         # Capture old value before applying change
         old_value = existing.value
         new_value = body.value
+        audit_old: object
+        audit_new: object
         if existing.key in SECRET_FIELDS:
             audit_old = "***REDACTED***"
             audit_new = "***REDACTED***"

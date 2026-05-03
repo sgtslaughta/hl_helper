@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
+from server.app.api.state import get_app_state
 from server.app.api.middleware.admin_auth import admin_required
 from server.app.models import Role, Binding
 from server.app.rbac.catalog import Catalog
@@ -52,7 +53,7 @@ class RoleOut(BaseModel):
 
 def _get_sessionmaker(request: Request) -> Any:
     """Extract sessionmaker from app state."""
-    return request.app.state.sessionmaker
+    return get_app_state(request).sessionmaker
 
 
 def _validate_permissions(perms: list[str]) -> None:

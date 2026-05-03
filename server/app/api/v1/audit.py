@@ -22,6 +22,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import and_, select
 
+from server.app.api.state import get_app_state
 from server.app.api.middleware.admin_auth import admin_required
 from server.app.audit.chain import GENESIS_HASH, compute_entry_hash
 from server.app.models.audit import AuditEntry
@@ -124,7 +125,7 @@ async def list_audit(
     limit: int = Query(100, ge=1, le=500),
 ) -> AuditPage:
     """List audit entries with cursor pagination and filtering."""
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         stmt = select(AuditEntry)
         f = _build_filters(actor, action, subject, since, before)
@@ -160,7 +161,7 @@ async def export_audit(
     Uses stream_scalars() to avoid buffering large audit chains in memory.
     Entries are ordered by sequence number (ascending).
     """
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     f = _build_filters(actor, action, subject, since, before)
 
     async def generate() -> AsyncGenerator[bytes, None]:
@@ -183,7 +184,7 @@ async def verify_chain(req: Request, body: AuditVerifyRequest) -> AuditVerifyRes
     Uses streaming to avoid loading entire chain into memory (safe for 100K+ entries).
     Keeps only running prev_hash + counters in memory.
     """
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         stmt = select(AuditEntry).order_by(AuditEntry.sequence.asc())
         if body.from_seq is not None:

@@ -6,6 +6,7 @@ import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, AsyncIterator
+from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
@@ -60,6 +61,54 @@ class _RealRbacProvider:
         async with self._sm() as session:
             engine = BuiltinEngine(session)
             return await engine.is_authorized(principal, action, resource, ctx)
+
+
+class _LifespanApprovalProxy:
+    """Wrapper around ApprovalEngine to inject sessions per-call.
+
+    ApprovalEngine requires a session for each request. This wrapper creates
+    a fresh session from the sessionmaker for each call, ensuring clean
+    transaction isolation and commit semantics.
+    """
+
+    def __init__(self, sm: async_sessionmaker[AsyncSession]) -> None:
+        """Initialize with sessionmaker."""
+        self._sm = sm
+
+    async def request(
+        self,
+        *,
+        subject_type: str,
+        subject_id: str,
+        policy: str,
+        requester_id: str,
+        ttl: Any = None,
+    ) -> Any:
+        """Request an approval, creating a real Approval row.
+
+        Args:
+            subject_type: Type of subject being approved (e.g., "command")
+            subject_id: ID of the subject (e.g., payload kind)
+            policy: Approval policy (e.g., "single_second_factor")
+            requester_id: ID of the principal requesting approval
+            ttl: Optional time-to-live for the approval (unused, kept for interface)
+
+        Returns:
+            Approval row (from the real ApprovalEngine)
+        """
+        from server.app.rbac.approvals import ApprovalEngine
+
+        async with self._sm() as session:
+            engine = ApprovalEngine(session)
+            approval = await engine.request(
+                subject_type=subject_type,  # type: ignore[arg-type]
+                subject_id=subject_id,
+                policy=policy,  # type: ignore[arg-type]
+                requester_id=requester_id,
+                approval_id=str(uuid4()),
+            )
+            await session.commit()
+            return approval
 
 
 @dataclass
@@ -124,7 +173,7 @@ async def build_app_state(settings: FleetSettings) -> AppState:
     capability_issuer = CapabilityIssuer.load_or_generate(
         settings.data_dir / "keys" / "capability.key"
     )
-    approval_engine = None  # Will be created per-request; duck-typed
+    approval_engine = _LifespanApprovalProxy(sm)
 
     # Wire RBAC provider.
     # In production (FLEET_ENV=prod): wire real BuiltinEngine provider unless

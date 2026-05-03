@@ -49,7 +49,7 @@ class EnrollResponse(BaseModel):
 # Dependency providers (can be overridden in tests)
 async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
     """Get database session from app state."""
-    from server.app.api.app import get_app_state
+    from server.app.api.state import get_app_state
 
     state = get_app_state(request)
     async with state.sessionmaker() as session:
@@ -58,10 +58,11 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
 
 def get_enrollment_service(request: Request) -> EnrollmentService:
     """Get enrollment service from app state."""
-    from server.app.api.app import get_app_state
+    from server.app.api.state import get_app_state
 
     state = get_app_state(request)
-    return state.enrollment_service
+    es: EnrollmentService = state.enrollment_service
+    return es
 
 
 @router.post("/enroll", response_model=EnrollResponse, dependencies=[Depends(rate_limit_dependency(_limiter))])

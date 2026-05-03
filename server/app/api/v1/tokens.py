@@ -7,6 +7,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
+from server.app.api.state import get_app_state
 from server.app.api.middleware.admin_auth import admin_required
 from server.app.auth.api_key import ApiKeyService
 
@@ -57,7 +58,7 @@ async def issue_token(req: Request, body: IssueRequest) -> IssueResponse:
 
     Requires admin authentication via Authorization: Bearer <FLEET_ADMIN_TOKEN>
     """
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         svc = ApiKeyService(session)
         issued = await svc.issue(
@@ -91,7 +92,7 @@ async def list_tokens(req: Request) -> list[TokenSummary]:
 
     from server.app.models import ApiKey
 
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         rows = (await session.execute(select(ApiKey))).scalars().all()
     return [
@@ -120,7 +121,7 @@ async def revoke_token(req: Request, api_key_id: str) -> None:
 
     Requires admin authentication via Authorization: Bearer <FLEET_ADMIN_TOKEN>
     """
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         svc = ApiKeyService(session)
         await svc.revoke(api_key_id)

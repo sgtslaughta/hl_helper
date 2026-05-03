@@ -124,14 +124,6 @@ async def test_e2e_user_story_reboot_approval_audit(admin_headers):
 
     async with app.router.lifespan_context(app):
         state = app.state.app_state
-        # Some v1 routers read app.state.sessionmaker / app.state.audit_chain
-        # directly (legacy path); bridge them from app_state for compatibility.
-        app.state.sessionmaker = state.sessionmaker
-        app.state.audit_chain = state.audit_chain
-        app.state.dispatcher = state.dispatcher
-        app.state.api_dispatcher = state.api_dispatcher
-        app.state.enrollment_service = state.enrollment_service
-        app.state.revocation_service = state.revocation_service
 
         # Seed built-in roles into database
         await _seed_builtin_roles(state.sessionmaker)

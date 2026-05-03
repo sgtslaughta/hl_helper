@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
+from server.app.api.state import get_app_state
 from server.app.api.middleware.admin_auth import admin_required
 from server.app.models import Approval
 from server.app.pagination import apply_cursor, build_page
@@ -110,7 +111,7 @@ async def list_approvals(
     # Clamp limit
     limit = min(max(1, limit), 500)
 
-    sm = request.app.state.sessionmaker
+    sm = get_app_state(request).sessionmaker
     async with sm() as session:
         query = select(Approval)
         if subject_type:
@@ -164,7 +165,7 @@ async def get_approval(request: Request, approval_id: str) -> ApprovalOut:
     Requires admin authentication.
     Returns 404 if not found.
     """
-    sm = request.app.state.sessionmaker
+    sm = get_app_state(request).sessionmaker
     async with sm() as session:
         row = await session.scalar(
             select(Approval).where(Approval.id == approval_id)
@@ -205,7 +206,7 @@ async def create_approval(request: Request, body: ApprovalCreate) -> ApprovalOut
     if not requester_id:
         raise HTTPException(status_code=400, detail="acting_principal_required")
 
-    sm = request.app.state.sessionmaker
+    sm = get_app_state(request).sessionmaker
     async with sm() as session:
         engine = ApprovalEngine(session, ttl=timedelta(minutes=body.ttl_minutes))
         approval = await engine.request(
@@ -251,7 +252,7 @@ async def decide_approval(
     if not decider_id:
         raise HTTPException(status_code=400, detail="acting_principal_required")
 
-    sm = request.app.state.sessionmaker
+    sm = get_app_state(request).sessionmaker
     async with sm() as session:
         engine = ApprovalEngine(session)
         result = await engine.decide(

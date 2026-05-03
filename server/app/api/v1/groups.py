@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
+from server.app.api.state import get_app_state
 from server.app.api.middleware.admin_auth import admin_required
 from server.app.models.group import Group
 from server.app.models.group_membership import GroupMembership
@@ -92,7 +93,7 @@ async def create_group(req: Request, body: GroupCreate) -> GroupOut:
 
     Requires admin authentication via Authorization: Bearer <FLEET_ADMIN_TOKEN>
     """
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         # Validate parent_id if provided
         parent_uuid: UUID | None = None
@@ -150,7 +151,7 @@ async def list_groups(req: Request) -> list[GroupOut]:
 
     Requires admin authentication via Authorization: Bearer <FLEET_ADMIN_TOKEN>
     """
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         result = await session.execute(select(Group))
         rows = result.scalars().all()
@@ -178,7 +179,7 @@ async def get_group(req: Request, group_id: str) -> GroupOut:
 
     Requires admin authentication via Authorization: Bearer <FLEET_ADMIN_TOKEN>
     """
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         try:
             group_uuid = UUID(group_id)
@@ -220,7 +221,7 @@ async def update_group(
 
     Requires admin authentication via Authorization: Bearer <FLEET_ADMIN_TOKEN>
     """
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         try:
             group_uuid = UUID(group_id)
@@ -312,7 +313,7 @@ async def delete_group(req: Request, group_id: str) -> None:
 
     Requires admin authentication via Authorization: Bearer <FLEET_ADMIN_TOKEN>
     """
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         try:
             group_uuid = UUID(group_id)
@@ -355,7 +356,7 @@ async def add_member(
 
     Requires admin authentication via Authorization: Bearer <FLEET_ADMIN_TOKEN>
     """
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         try:
             group_uuid = UUID(group_id)
@@ -408,7 +409,7 @@ async def remove_member(req: Request, group_id: str, host_id: str) -> None:
 
     Requires admin authentication via Authorization: Bearer <FLEET_ADMIN_TOKEN>
     """
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         try:
             group_uuid = UUID(group_id)

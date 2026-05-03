@@ -60,7 +60,7 @@ class ActionResponse(BaseModel):
 # ===== Dependency providers (can be overridden in tests) =====
 async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
     """Get database session from app state."""
-    from server.app.api.app import get_app_state
+    from server.app.api.state import get_app_state
 
     state = get_app_state(request)
     async with state.sessionmaker() as session:
@@ -69,10 +69,11 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
 
 def get_revocation_service(request: Request) -> RevocationService:
     """Get revocation service from app state."""
-    from server.app.api.app import get_app_state
+    from server.app.api.state import get_app_state
 
     state = get_app_state(request)
-    return state.revocation_service
+    rs: RevocationService = state.revocation_service
+    return rs
 
 
 @router.delete("/{host_id}", status_code=204)
@@ -127,7 +128,7 @@ async def reboot_host(
     payload = RebootPayload(delay_s=body.delay_s, reason=body.reason)
     idempotency_key = request.headers.get("Idempotency-Key")
 
-    from server.app.api.app import get_app_state
+    from server.app.api.state import get_app_state
 
     state = get_app_state(request)
     result = await state.api_dispatcher.dispatch(
@@ -172,7 +173,7 @@ async def shell_exec_host(
     payload = ShellExecPayload(command=body.command, timeout_s=body.timeout_s)
     idempotency_key = request.headers.get("Idempotency-Key")
 
-    from server.app.api.app import get_app_state
+    from server.app.api.state import get_app_state
 
     state = get_app_state(request)
     result = await state.api_dispatcher.dispatch(
@@ -217,7 +218,7 @@ async def pkg_update_host(
     payload = PkgUpdatePayload(classes=tuple(body.classes))
     idempotency_key = request.headers.get("Idempotency-Key")
 
-    from server.app.api.app import get_app_state
+    from server.app.api.state import get_app_state
 
     state = get_app_state(request)
     result = await state.api_dispatcher.dispatch(

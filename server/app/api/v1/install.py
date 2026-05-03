@@ -28,7 +28,7 @@ async def get_install_script(
     Returns:
         Shell script with X-Install-Signature header containing base64 signature
     """
-    from server.app.api.app import get_app_state
+    from server.app.api.state import get_app_state
 
     state = get_app_state(request)
 

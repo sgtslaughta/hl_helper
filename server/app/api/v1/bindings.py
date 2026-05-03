@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
+from server.app.api.state import get_app_state
 from server.app.api.middleware.admin_auth import admin_required
 from server.app.models.binding import Binding
 from server.app.models.role import Role
@@ -129,7 +130,7 @@ async def list_bindings(
     - principal_id: filter by principal_id
     - role_id: filter by role_id
     """
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         query = select(Binding)
         if principal_id:
@@ -165,7 +166,7 @@ async def get_binding(req: Request, binding_id: str) -> BindingOut:
 
     Requires admin authentication.
     """
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         binding = await session.scalar(
             select(Binding).where(Binding.id == binding_id)
@@ -208,7 +209,7 @@ async def create_binding(req: Request, body: BindingCreate) -> BindingOut:
     # Compute scope_hash
     scope_hash = _compute_scope_hash(body.scope_kind, body.scope_value)
 
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         # Verify role_id exists
         role = await session.scalar(select(Role).where(Role.id == body.role_id))
@@ -262,7 +263,7 @@ async def delete_binding(req: Request, binding_id: str) -> None:
 
     Requires admin authentication.
     """
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         binding = await session.scalar(
             select(Binding).where(Binding.id == binding_id)

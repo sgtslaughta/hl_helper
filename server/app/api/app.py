@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -22,7 +22,7 @@ from server.app.api.v1.tokens import router as tokens_router
 from server.app.api.v1.users import router as users_router
 from server.app.errors import http_exception_handler, validation_exception_handler
 from server.app.idempotency import IdempotencyMiddleware
-from server.app.lifespan import AppState, app_lifespan
+from server.app.lifespan import app_lifespan
 from server.app.middleware.request_id import RequestIdMiddleware
 
 
@@ -61,6 +61,6 @@ def create_app() -> FastAPI:
     return app
 
 
-def get_app_state(request: Request) -> AppState:
-    """Get AppState from request."""
-    return request.app.state.app_state  # type: ignore[no-any-return]
+# Re-export from server.app.api.state to keep backward compat for callers
+# that imported from this module before the split.
+from server.app.api.state import get_app_state as get_app_state  # noqa: E402, F401

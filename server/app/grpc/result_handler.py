@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from server.app.audit.sql_chain import SqlAuditChain
 from server.app.crypto.result_envelope import canonical_result_bytes, verify_result
+from server.app.events.bus import Bus
+from server.app.events.after_commit import publish_after_commit
 from server.app.grpc._pb import fleet  # noqa: F401
 from server.app.grpc._pb.fleet.v1 import results_pb2
 from server.app.models.host import Host
@@ -62,15 +64,18 @@ class ResultHandler:
         self,
         sm: async_sessionmaker[AsyncSession],
         audit_chain: SqlAuditChain,
+        event_bus: Bus | None = None,
     ) -> None:
         """Initialize ResultHandler.
 
         Args:
             sm: Async sessionmaker for database access.
             audit_chain: SqlAuditChain for audit logging.
+            event_bus: Optional event bus for publishing result events.
         """
         self._sm = sm
         self._audit = audit_chain
+        self._event_bus = event_bus
 
     async def handle(
         self,
@@ -89,9 +94,11 @@ class ResultHandler:
              First result must have prev_result_hash == 32-byte zeros.
              Only enforce chain link when env.sequence == last_sequence + 1. Otherwise
              accept anyway with warning log.
-          5. Insert Result row; commit.
+          5. Insert Result row.
           6. Audit entry: action="result.accept", actor=host_id, subject=command_id,
              payload={sequence, status, exit_code, signature_hex_short}.
+          7. If event_bus is configured, schedule bus event publish on commit.
+          8. Commit.
 
         Args:
             env: ResultEnvelope to handle.
@@ -276,6 +283,21 @@ class ResultHandler:
                 },
                 timestamp=now,
             )
+
+            # 7. Publish result event if bus is set
+            if self._event_bus is not None:
+                publish_after_commit(
+                    session,
+                    self._event_bus,
+                    "hosts.status",
+                    {
+                        "event": "command.result",
+                        "command_id": env.command_id,
+                        "host_id": expected_host_id,
+                        "status": _result_status_to_string(env.status),
+                        "exit_code": env.exit_code,
+                    },
+                )
 
             await session.commit()
             return result

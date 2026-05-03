@@ -12,6 +12,7 @@ from pydantic_core import PydanticCustomError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
+from server.app.api.state import get_app_state
 from server.app.api.middleware.admin_auth import admin_required
 from server.app.models.update_policy import UpdatePolicy
 from server.app.models.maintenance_window import MaintenanceWindow
@@ -145,7 +146,7 @@ async def create_update_policy(
 
     Requires admin authentication via Authorization: Bearer <FLEET_ADMIN_TOKEN>
     """
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         policy = UpdatePolicy(
             id=str(uuid4()),
@@ -192,7 +193,7 @@ async def list_update_policies(req: Request) -> list[UpdatePolicyOut]:
 
     Requires admin authentication via Authorization: Bearer <FLEET_ADMIN_TOKEN>
     """
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         result = await session.execute(select(UpdatePolicy))
         rows = result.scalars().all()
@@ -224,7 +225,7 @@ async def get_update_policy(req: Request, policy_id: str) -> UpdatePolicyOut:
 
     Requires admin authentication via Authorization: Bearer <FLEET_ADMIN_TOKEN>
     """
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         result = await session.execute(
             select(UpdatePolicy).where(UpdatePolicy.id == policy_id)
@@ -263,7 +264,7 @@ async def update_update_policy(
 
     Requires admin authentication via Authorization: Bearer <FLEET_ADMIN_TOKEN>
     """
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         result = await session.execute(
             select(UpdatePolicy).where(UpdatePolicy.id == policy_id)
@@ -328,7 +329,7 @@ async def delete_update_policy(req: Request, policy_id: str) -> None:
 
     Requires admin authentication via Authorization: Bearer <FLEET_ADMIN_TOKEN>
     """
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         result = await session.execute(
             select(UpdatePolicy).where(UpdatePolicy.id == policy_id)
@@ -361,7 +362,7 @@ async def create_maintenance_window(
 
     Requires admin authentication via Authorization: Bearer <FLEET_ADMIN_TOKEN>
     """
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         window = MaintenanceWindow(
             id=str(uuid4()),
@@ -408,7 +409,7 @@ async def list_maintenance_windows(req: Request) -> list[MaintenanceWindowOut]:
 
     Requires admin authentication via Authorization: Bearer <FLEET_ADMIN_TOKEN>
     """
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         result = await session.execute(select(MaintenanceWindow))
         rows = result.scalars().all()
@@ -440,7 +441,7 @@ async def get_maintenance_window(req: Request, window_id: str) -> MaintenanceWin
 
     Requires admin authentication via Authorization: Bearer <FLEET_ADMIN_TOKEN>
     """
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         result = await session.execute(
             select(MaintenanceWindow).where(MaintenanceWindow.id == window_id)
@@ -479,7 +480,7 @@ async def update_maintenance_window(
 
     Requires admin authentication via Authorization: Bearer <FLEET_ADMIN_TOKEN>
     """
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         result = await session.execute(
             select(MaintenanceWindow).where(MaintenanceWindow.id == window_id)
@@ -544,7 +545,7 @@ async def delete_maintenance_window(req: Request, window_id: str) -> None:
 
     Requires admin authentication via Authorization: Bearer <FLEET_ADMIN_TOKEN>
     """
-    sm = req.app.state.sessionmaker
+    sm = get_app_state(req).sessionmaker
     async with sm() as session:
         result = await session.execute(
             select(MaintenanceWindow).where(MaintenanceWindow.id == window_id)
