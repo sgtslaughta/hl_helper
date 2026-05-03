@@ -316,3 +316,101 @@ def test_request_body_too_large_returns_413():
         # Should return 413
         assert r.status_code == 413
         assert "payload too large" in r.text.lower()
+
+
+def test_idempotency_dedups_with_acting_principal_header():
+    """Admin auth with X-Acting-Principal header → requests with same principal+key dedup."""
+    app = FastAPI()
+    store = IdempotencyStore()
+    app.add_middleware(IdempotencyMiddleware, store=store)
+    counter = {"n": 0}
+
+    @app.post("/echo")
+    async def echo() -> dict:
+        counter["n"] += 1
+        return {"call": counter["n"]}
+
+    with TestClient(app) as c:
+        # Two requests with same admin token (via Authorization header)
+        # and same X-Acting-Principal and same Idempotency-Key
+        headers1 = {
+            "Authorization": "Bearer secret-admin-token",
+            "X-Acting-Principal": "user-123",
+            HEADER: "dedup-key-1",
+        }
+        headers2 = {
+            "Authorization": "Bearer secret-admin-token",
+            "X-Acting-Principal": "user-123",
+            HEADER: "dedup-key-1",
+        }
+        r1 = c.post("/echo", headers=headers1)
+        r2 = c.post("/echo", headers=headers2)
+        assert r1.status_code == 200
+        assert r2.status_code == 200
+        assert r1.json() == r2.json()
+        assert counter["n"] == 1  # handler ran only once
+
+
+def test_idempotency_dedups_with_admin_only():
+    """Admin token-only (no X-Acting-Principal) → requests with same token+key dedup."""
+    app = FastAPI()
+    store = IdempotencyStore()
+    app.add_middleware(IdempotencyMiddleware, store=store)
+    counter = {"n": 0}
+
+    @app.post("/echo")
+    async def echo() -> dict:
+        counter["n"] += 1
+        return {"call": counter["n"]}
+
+    with TestClient(app) as c:
+        # Two requests with same admin token but NO X-Acting-Principal
+        headers1 = {
+            "Authorization": "Bearer secret-admin-token",
+            HEADER: "dedup-key-2",
+        }
+        headers2 = {
+            "Authorization": "Bearer secret-admin-token",
+            HEADER: "dedup-key-2",
+        }
+        r1 = c.post("/echo", headers=headers1)
+        r2 = c.post("/echo", headers=headers2)
+        assert r1.status_code == 200
+        assert r2.status_code == 200
+        assert r1.json() == r2.json()
+        assert counter["n"] == 1  # handler ran only once
+
+
+def test_idempotency_different_acting_principals_dont_collide():
+    """Same admin token but different X-Acting-Principal values → different namespaces."""
+    app = FastAPI()
+    store = IdempotencyStore()
+    app.add_middleware(IdempotencyMiddleware, store=store)
+    counter = {"n": 0}
+
+    @app.post("/echo")
+    async def echo() -> dict:
+        counter["n"] += 1
+        return {"call": counter["n"]}
+
+    with TestClient(app) as c:
+        # Two requests with same admin token and same Idempotency-Key
+        # but DIFFERENT X-Acting-Principal values
+        headers1 = {
+            "Authorization": "Bearer secret-admin-token",
+            "X-Acting-Principal": "user-123",
+            HEADER: "dedup-key-3",
+        }
+        headers2 = {
+            "Authorization": "Bearer secret-admin-token",
+            "X-Acting-Principal": "user-456",
+            HEADER: "dedup-key-3",
+        }
+        r1 = c.post("/echo", headers=headers1)
+        r2 = c.post("/echo", headers=headers2)
+        assert r1.status_code == 200
+        assert r2.status_code == 200
+        # Different principals → handler runs twice
+        assert r1.json()["call"] == 1
+        assert r2.json()["call"] == 2
+        assert counter["n"] == 2  # both invocations ran

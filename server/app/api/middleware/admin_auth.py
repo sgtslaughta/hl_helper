@@ -16,6 +16,8 @@ async def admin_required(request: Request) -> str:
     If token unset → 503 (server misconfigured).
     If wrong token → 401 (unauthorized).
 
+    Sets request.state.admin_authenticated = True on success.
+
     Returns:
         "admin" actor string if valid
     """
@@ -45,4 +47,5 @@ async def admin_required(request: Request) -> str:
             detail="Invalid admin token",
         )
 
+    request.state.admin_authenticated = True
     return "admin"

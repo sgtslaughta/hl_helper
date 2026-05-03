@@ -130,11 +130,31 @@ class IdempotencyStore:
 def _principal_id(request: Request) -> str:
     """Best-effort principal identification.
 
-    Until C3 wires real auth, fall back to a fixed sentinel so tests can
-    still exercise the dedup path. Real auth must populate
-    request.state.principal_id.
+    Priority:
+    1. request.state.principal_id (C3 user auth)
+    2. X-Acting-Principal header (admin acting on behalf of user) → f"acting:{value}"
+    3. Authorization Bearer token (admin-only) → f"admin:{sha256[:16]}"
+    4. ANONYMOUS (fail-closed; no caching)
     """
-    return getattr(request.state, "principal_id", ANONYMOUS)
+    # First check: C3 user auth
+    principal = getattr(request.state, "principal_id", None)
+    if isinstance(principal, str):
+        return principal
+
+    # Second check: X-Acting-Principal header (admin acting on behalf of user)
+    acting = request.headers.get("X-Acting-Principal", "").strip()
+    if acting:
+        return f"acting:{acting}"
+
+    # Third check: Authorization Bearer token (admin-only)
+    auth_header = request.headers.get("Authorization", "").strip()
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:]  # Strip "Bearer " prefix
+        token_hash = hashlib.sha256(token.encode()).hexdigest()[:16]
+        return f"admin:{token_hash}"
+
+    # Fall back to anonymous (no caching)
+    return ANONYMOUS
 
 
 def _from_entry(entry: _Entry) -> Response:

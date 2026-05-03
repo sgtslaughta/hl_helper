@@ -10,11 +10,22 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import and_, select
 
 from server.app.api.middleware.admin_auth import admin_required
+from server.app.dispatcher.dispatcher import (
+    RebootPayload,
+    ShellExecPayload,
+    PkgUpdatePayload,
+)
+from server.app.dispatcher.targets import (
+    HostListSelector,
+    GroupSelector,
+    TagSelector,
+)
 from server.app.models import Task, TaskRun, Command
 from server.app.models.task import TaskKind, TaskStatus, TaskRisk
 from server.app.models.task_run import TaskRunStatus
 from server.app.models.command import CommandStatus
 from server.app.pagination import apply_cursor, build_page
+from server.app.rbac.provider import Principal
 
 
 def _sessionmaker(request: Request):  # type: ignore[no-untyped-def]
@@ -365,6 +376,8 @@ async def dispatch_task(
     Requires X-Acting-Principal header for actor identity.
     Returns 503 if dispatcher not available.
     Returns 400 if X-Acting-Principal missing.
+    Returns 404 if task not found.
+    Returns 400 if task kind or target selector unsupported.
     """
     _principal = _get_acting_principal(request)
 
@@ -375,13 +388,105 @@ async def dispatch_task(
             detail="Dispatcher not available",
         )
 
-    # Placeholder for the wired-dispatcher path — full integration with the
-    # CommandDispatcher.dispatch() pipeline (resolving the Task's payload +
-    # selector, returning real counts) is tracked as a follow-up. Returning
-    # zeros here is misleading; we 503 conservatively when it would matter.
-    raise HTTPException(
-        status_code=503,
-        detail="Task dispatch wiring not implemented; use /v1/hosts/{id}/actions/* for now",
+    # Load Task from DB
+    sm = _sessionmaker(request)
+    async with sm() as session:
+        task = await session.get(Task, task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+
+        # Build payload object from task.kind and task.payload
+        payload: RebootPayload | ShellExecPayload | PkgUpdatePayload
+
+        if task.kind == TaskKind.REBOOT:
+            payload = RebootPayload(
+                delay_s=int(task.payload.get("delay_s", 0)),
+                reason=str(task.payload.get("reason", "")),
+            )
+        elif task.kind == TaskKind.SHELL_EXEC:
+            payload = ShellExecPayload(
+                command=str(task.payload.get("command", "")),
+                timeout_s=int(task.payload.get("timeout_s", 60)),
+            )
+        elif task.kind == TaskKind.PKG_UPDATE:
+            classes_raw = task.payload.get("classes", [])
+            classes_list = classes_raw if isinstance(classes_raw, list) else []
+            payload = PkgUpdatePayload(
+                classes=tuple(str(c) for c in classes_list),
+            )
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="unsupported_task_kind",
+            )
+
+        # Build selector from body.targets (if provided) or task.target_selector
+        selector_dict = body.targets if body.targets is not None else task.target_selector
+
+        # Type hint for selector variable
+        targets: HostListSelector | GroupSelector | TagSelector
+
+        if "host_id" in selector_dict:
+            host_id_v = selector_dict["host_id"]
+            if not isinstance(host_id_v, str):
+                raise HTTPException(status_code=400, detail="unsupported_selector_shape")
+            targets = HostListSelector(host_ids=[host_id_v])
+        elif "host_ids" in selector_dict:
+            raw = selector_dict.get("host_ids", [])
+            if not isinstance(raw, list) or not all(isinstance(h, str) for h in raw):
+                raise HTTPException(status_code=400, detail="unsupported_selector_shape")
+            targets = HostListSelector(host_ids=list(raw))
+        elif "group_id" in selector_dict:
+            gid = selector_dict["group_id"]
+            if not isinstance(gid, str):
+                raise HTTPException(status_code=400, detail="unsupported_selector_shape")
+            include_sub = selector_dict.get("include_subgroups", True)
+            if not isinstance(include_sub, bool):
+                raise HTTPException(status_code=400, detail="unsupported_selector_shape")
+            targets = GroupSelector(group_id=gid, include_subgroups=include_sub)
+        elif "tag" in selector_dict:
+            # Tag selector
+            tag_dict = selector_dict["tag"]
+            if isinstance(tag_dict, dict) and "key" in tag_dict and "value" in tag_dict:
+                targets = TagSelector(
+                    key=tag_dict["key"],
+                    value=tag_dict["value"],
+                )
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail="unsupported_selector_shape",
+                )
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="unsupported_selector_shape",
+            )
+
+        # Construct Principal from acting principal header
+        principal = Principal(user_id=_principal)
+
+        # Get idempotency key from header
+        idempotency_key = request.headers.get("Idempotency-Key")
+
+        # Call dispatcher.dispatch
+        result = await dispatcher.dispatch(
+            session,
+            principal=principal,
+            targets=targets,
+            payload=payload,
+            idempotency_key=idempotency_key,
+        )
+
+        # Commit session
+        await session.commit()
+
+    # Return result with real counts
+    return DispatchResult(
+        task_id=result.task_id,
+        dispatched=len(result.dispatched),
+        denied=len(result.denied),
+        pending_approval_ids=result.pending_approval_ids,
     )
 
 

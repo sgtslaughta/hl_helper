@@ -268,6 +268,161 @@ async def test_delete_task_with_running_taskruns_409(auth, sm, mock_settings):
 
 
 @pytest.mark.asyncio
+async def test_dispatch_task_invokes_dispatcher(auth, sm, mock_settings):
+    """POST /v1/tasks/{task_id}/dispatch invokes dispatcher with correct params."""
+    from server.app.dispatcher.dispatcher import DispatchResult
+
+    app = create_app()
+    app.state.sessionmaker = sm
+
+    # Create a mock dispatcher
+    mock_dispatcher = mock.AsyncMock()
+    mock_dispatcher.dispatch = mock.AsyncMock(
+        return_value=DispatchResult(
+            task_id="task-123",
+            dispatched=["h-1", "h-2"],
+            denied=[],
+            pending_approval_ids=[],
+        )
+    )
+
+    # Attach mock to app.state as api_dispatcher (preferred) or dispatcher
+    state = mock.MagicMock()
+    state.api_dispatcher = mock_dispatcher
+    state.sessionmaker = sm
+    app.state.app_state = state
+
+    with mock.patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=mock_settings,
+    ):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://t"
+        ) as c:
+            # Create task with reboot payload
+            body = {
+                "kind": "reboot",
+                "payload": {"delay_s": 5, "reason": "testing"},
+                "target_selector": {"group_id": "g-1"},
+            }
+            r = await c.post("/v1/tasks", json=body, headers=auth)
+            task_id = r.json()["id"]
+
+            # Dispatch the task
+            headers = {**auth, "X-Acting-Principal": "u-1"}
+            r2 = await c.post(
+                f"/v1/tasks/{task_id}/dispatch",
+                json={},
+                headers=headers,
+            )
+            assert r2.status_code == 200
+            d = r2.json()
+            assert d["task_id"] == "task-123"
+            assert d["dispatched"] == 2
+            assert d["denied"] == 0
+            assert d["pending_approval_ids"] == []
+
+            # Verify dispatcher was called
+            assert mock_dispatcher.dispatch.called
+
+
+@pytest.mark.asyncio
+async def test_dispatch_task_404_unknown_task(auth, sm, mock_settings):
+    """POST /v1/tasks/{task_id}/dispatch returns 404 for nonexistent task."""
+    from server.app.dispatcher.dispatcher import DispatchResult
+
+    app = create_app()
+    app.state.sessionmaker = sm
+
+    # Create a mock dispatcher
+    mock_dispatcher = mock.AsyncMock()
+    mock_dispatcher.dispatch = mock.AsyncMock(
+        return_value=DispatchResult(
+            task_id="task-123",
+            dispatched=["h-1"],
+            denied=[],
+            pending_approval_ids=[],
+        )
+    )
+
+    state = mock.MagicMock()
+    state.api_dispatcher = mock_dispatcher
+    state.sessionmaker = sm
+    app.state.app_state = state
+
+    with mock.patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=mock_settings,
+    ):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://t"
+        ) as c:
+            # Try to dispatch nonexistent task
+            headers = {**auth, "X-Acting-Principal": "u-1"}
+            r = await c.post(
+                "/v1/tasks/nonexistent-task-id/dispatch",
+                json={},
+                headers=headers,
+            )
+            assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_dispatch_task_with_target_override(auth, sm, mock_settings):
+    """POST /v1/tasks/{task_id}/dispatch with targets override."""
+    from server.app.dispatcher.dispatcher import DispatchResult
+
+    app = create_app()
+    app.state.sessionmaker = sm
+
+    # Create a mock dispatcher
+    mock_dispatcher = mock.AsyncMock()
+    mock_dispatcher.dispatch = mock.AsyncMock(
+        return_value=DispatchResult(
+            task_id="task-123",
+            dispatched=["h-override"],
+            denied=[],
+            pending_approval_ids=[],
+        )
+    )
+
+    state = mock.MagicMock()
+    state.api_dispatcher = mock_dispatcher
+    state.sessionmaker = sm
+    app.state.app_state = state
+
+    with mock.patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=mock_settings,
+    ):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://t"
+        ) as c:
+            # Create task with group selector
+            body = {
+                "kind": "shell_exec",
+                "payload": {"command": "echo hello"},
+                "target_selector": {"group_id": "g-1"},
+            }
+            r = await c.post("/v1/tasks", json=body, headers=auth)
+            task_id = r.json()["id"]
+
+            # Dispatch with host override
+            headers = {**auth, "X-Acting-Principal": "u-1"}
+            dispatch_body = {
+                "targets": {"host_id": "h-override"}
+            }
+            r2 = await c.post(
+                f"/v1/tasks/{task_id}/dispatch",
+                json=dispatch_body,
+                headers=headers,
+            )
+            assert r2.status_code == 200
+            d = r2.json()
+            assert d["dispatched"] == 1
+
+
+@pytest.mark.asyncio
 async def test_dispatch_task_503_no_dispatcher(auth, sm, mock_settings):
     """POST /v1/tasks/{task_id}/dispatch returns 503 when dispatcher not available."""
     app = create_app()
