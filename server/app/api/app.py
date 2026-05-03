@@ -10,6 +10,7 @@ from server.app.api.v1.approvals import router as approvals_router
 from server.app.api.v1.audit import router as audit_router
 from server.app.api.v1.bindings import router as bindings_router
 from server.app.api.v1.enroll import router as enroll_router
+from server.app.api.v1.events_ws import router as events_ws_router
 from server.app.api.v1.groups import router as groups_router
 from server.app.api.v1.hosts import router as hosts_router
 from server.app.api.v1.install import router as install_router
@@ -45,6 +46,7 @@ def create_app() -> FastAPI:
     app.include_router(audit_router)
     app.include_router(bindings_router)
     app.include_router(enroll_router)
+    app.include_router(events_ws_router)
     app.include_router(groups_router)
     app.include_router(hosts_router)
     app.include_router(install_router)
