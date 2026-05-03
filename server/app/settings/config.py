@@ -29,6 +29,9 @@ SETTING_SCOPES: dict[str, SettingScope] = {
     "vault_token": SettingScope.BOOT_ONLY,
     "session_signing_key_ref": SettingScope.BOOT_ONLY,
     "admin_token": SettingScope.BOOT_ONLY,
+    "idempotency_max_body_bytes": SettingScope.RUNTIME_MUTABLE,
+    "rate_limit_max_buckets": SettingScope.RUNTIME_MUTABLE,
+    "trusted_proxy_ips": SettingScope.RUNTIME_MUTABLE,
 }
 
 
@@ -70,6 +73,13 @@ class FleetSettings(BaseSettings):
 
     # Admin API token (boot-only)
     admin_token: SecretStr | None = Field(default=None)
+
+    # Idempotency middleware settings
+    idempotency_max_body_bytes: int = Field(default=1_048_576)  # 1 MiB
+
+    # Rate limiter settings
+    rate_limit_max_buckets: int = Field(default=100_000)
+    trusted_proxy_ips: list[str] = Field(default_factory=list)
 
     # Origin tracking — populated by load_settings()
     # key -> "env" | "file" | "default"

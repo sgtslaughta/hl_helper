@@ -341,3 +341,91 @@ async def test_redeem_concurrent_calls_only_one_wins(
     outcomes = [r[0] for r in results]
     assert outcomes.count("success") == 1
     assert outcomes.count("already_redeemed") == 1
+
+
+@pytest.mark.asyncio
+async def test_redeem_agent_pubkey_must_match_csr_pubkey(
+    service: EnrollmentService, async_session
+) -> None:
+    """Test that agent_pubkey must match the public key in the CSR."""
+    csr_pem, correct_pubkey = make_csr()
+    # Generate a different pubkey that won't match the CSR
+    wrong_sk = ed25519.Ed25519PrivateKey.generate()
+    wrong_pubkey = wrong_sk.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw
+    )
+
+    async with async_session() as session:
+        plaintext, _ = await service.issue_token(
+            session, issued_by="admin@test", ttl=timedelta(minutes=15)
+        )
+        await session.commit()
+
+        # Try to redeem with wrong agent_pubkey
+        from server.app.enrollment.service import CsrInvalidError
+
+        with pytest.raises(CsrInvalidError) as exc_info:
+            await service.redeem(
+                session,
+                token_plaintext=plaintext,
+                csr_pem=csr_pem,
+                hostname="test-host",
+                agent_pubkey=wrong_pubkey,
+            )
+
+        assert "pubkey" in str(exc_info.value).lower()
+
+
+@pytest.mark.asyncio
+async def test_redeem_agent_pubkey_invalid_length(
+    service: EnrollmentService, async_session
+) -> None:
+    """Test that agent_pubkey with wrong length is rejected."""
+    csr_pem, _ = make_csr()
+
+    async with async_session() as session:
+        plaintext, _ = await service.issue_token(
+            session, issued_by="admin@test", ttl=timedelta(minutes=15)
+        )
+        await session.commit()
+
+        from server.app.enrollment.service import CsrInvalidError
+
+        # Try with wrong length pubkey
+        with pytest.raises(CsrInvalidError) as exc_info:
+            await service.redeem(
+                session,
+                token_plaintext=plaintext,
+                csr_pem=csr_pem,
+                hostname="test-host",
+                agent_pubkey=b"x" * 31,  # Wrong length
+            )
+
+        assert "pubkey" in str(exc_info.value).lower()
+
+
+@pytest.mark.asyncio
+async def test_redeem_agent_pubkey_matches_succeeds(
+    service: EnrollmentService, async_session
+) -> None:
+    """Test that redeem succeeds when agent_pubkey matches CSR pubkey."""
+    csr_pem, correct_pubkey = make_csr()
+
+    async with async_session() as session:
+        plaintext, _ = await service.issue_token(
+            session, issued_by="admin@test", ttl=timedelta(minutes=15)
+        )
+        await session.commit()
+
+        # Should succeed with matching pubkey
+        result = await service.redeem(
+            session,
+            token_plaintext=plaintext,
+            csr_pem=csr_pem,
+            hostname="test-host",
+            agent_pubkey=correct_pubkey,
+        )
+        await session.commit()
+
+        assert result.host_id
+        assert result.leaf_cert_pem

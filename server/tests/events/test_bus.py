@@ -286,3 +286,33 @@ class TestEventShape:
         assert event.channel == "test_channel"
         assert event.payload == {"a": 1, "b": "two"}
         assert event.timestamp == now
+
+
+class TestRingBufferCardinality:
+    """Test ring buffer bounded cardinality (max 1024 channels)."""
+
+    @pytest.mark.asyncio
+    async def test_ring_buffers_bounded_at_1024_channels(self) -> None:
+        """Bus ring buffers dict stays bounded at max 1024 channels."""
+        bus = Bus(ring_buffer_size=256, max_channels=1024)
+
+        # Publish on 1025 distinct channels
+        for i in range(1025):
+            await bus.publish(f"channel-{i}", {"data": i})
+
+        # Ring buffer dict size must not exceed max_channels
+        assert len(bus._ring_buffers) <= 1024
+
+    @pytest.mark.asyncio
+    async def test_oldest_channel_evicted_on_overflow(self) -> None:
+        """When channels exceed max_channels, LRU evicts oldest channel."""
+        bus = Bus(ring_buffer_size=256, max_channels=1024)
+
+        # Publish on channels 0..1024
+        for i in range(1025):
+            await bus.publish(f"channel-{i}", {"data": i})
+
+        # Channel 0 should be evicted (oldest, never accessed again)
+        assert "channel-0" not in bus._ring_buffers
+        # Recent channels should be present
+        assert "channel-1024" in bus._ring_buffers

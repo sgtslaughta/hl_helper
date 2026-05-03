@@ -143,7 +143,7 @@ async def test_enroll_endpoint_happy_path(
 async def test_enroll_endpoint_unknown_token(
     client: httpx.AsyncClient,
 ) -> None:
-    """Test unknown token returns 404."""
+    """Test unknown token returns 401 with standard error body."""
     csr_pem, agent_pubkey = make_csr()
     agent_pubkey_b64 = base64.b64encode(agent_pubkey).decode("ascii")
 
@@ -157,7 +157,10 @@ async def test_enroll_endpoint_unknown_token(
         },
     )
 
-    assert response.status_code == 404
+    assert response.status_code == 401
+    data = response.json()
+    assert data.get("title") == "invalid_or_expired_token"
+    assert data.get("status") == 401
 
 
 @pytest.mark.asyncio
@@ -166,7 +169,7 @@ async def test_enroll_endpoint_expired_token(
     enrollment_service: EnrollmentService,
     async_session_maker,
 ) -> None:
-    """Test expired token returns 410."""
+    """Test expired token returns 401 with standard error body."""
     csr_pem, agent_pubkey = make_csr()
     agent_pubkey_b64 = base64.b64encode(agent_pubkey).decode("ascii")
     now = datetime.now(timezone.utc)
@@ -191,7 +194,10 @@ async def test_enroll_endpoint_expired_token(
         },
     )
 
-    assert response.status_code == 410
+    assert response.status_code == 401
+    data = response.json()
+    assert data.get("title") == "invalid_or_expired_token"
+    assert data.get("status") == 401
 
 
 @pytest.mark.asyncio
@@ -200,7 +206,7 @@ async def test_enroll_endpoint_already_redeemed(
     enrollment_service: EnrollmentService,
     async_session_maker,
 ) -> None:
-    """Test already-redeemed token returns 409."""
+    """Test already-redeemed token returns 401 with standard error body."""
     csr_pem, agent_pubkey = make_csr()
 
     # Issue and redeem once
@@ -233,7 +239,66 @@ async def test_enroll_endpoint_already_redeemed(
         },
     )
 
-    assert response.status_code == 409
+    assert response.status_code == 401
+    data = response.json()
+    assert data.get("title") == "invalid_or_expired_token"
+    assert data.get("status") == 401
+
+
+@pytest.mark.asyncio
+async def test_enroll_endpoint_all_token_failures_uniform(
+    client: httpx.AsyncClient,
+    enrollment_service: EnrollmentService,
+    async_session_maker,
+) -> None:
+    """Test that unknown, expired, and already-redeemed tokens all return same response body."""
+    csr_pem, agent_pubkey = make_csr()
+    agent_pubkey_b64 = base64.b64encode(agent_pubkey).decode("ascii")
+    now = datetime.now(timezone.utc)
+
+    # Prepare: unknown, expired, and already-redeemed tokens
+    async with async_session_maker() as session:
+        # Expired token
+        expired_token, _ = await enrollment_service.issue_token(
+            session,
+            issued_by="admin@test",
+            ttl=timedelta(minutes=15),
+            now=now - timedelta(minutes=20),
+        )
+        # Already-redeemed token
+        redeemed_token, _ = await enrollment_service.issue_token(
+            session,
+            issued_by="admin@test",
+            ttl=timedelta(minutes=15),
+        )
+        await session.commit()
+
+        await enrollment_service.redeem(
+            session,
+            token_plaintext=redeemed_token,
+            csr_pem=csr_pem,
+            hostname="test-host",
+            agent_pubkey=agent_pubkey,
+        )
+        await session.commit()
+
+    unknown_token = "unknown-token-xxx-which-is-long-enough"
+
+    # All three should return the same response
+    for token in [unknown_token, expired_token, redeemed_token]:
+        response = await client.post(
+            "/v1/enroll",
+            json={
+                "token": token,
+                "hostname": "test-agent",
+                "csr_pem": csr_pem.decode("utf-8"),
+                "agent_pubkey_b64": agent_pubkey_b64,
+            },
+        )
+        assert response.status_code == 401
+        data = response.json()
+        assert data.get("title") == "invalid_or_expired_token"
+        assert data.get("status") == 401
 
 
 @pytest.mark.asyncio

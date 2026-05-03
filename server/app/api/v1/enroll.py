@@ -17,6 +17,7 @@ from server.app.enrollment.service import (
     TokenNotFoundError,
 )
 from server.app.api.middleware.rate_limit import RateLimiter, rate_limit_dependency
+from server.app.errors import problem
 
 router = APIRouter(prefix="/v1", tags=["enrollment"])
 
@@ -92,12 +93,9 @@ async def enroll(
             hostname=body.hostname,
             agent_pubkey=agent_pubkey,
         )
-    except TokenNotFoundError:
-        raise HTTPException(status_code=404, detail="enrollment token not found")
-    except TokenExpiredError:
-        raise HTTPException(status_code=410, detail="enrollment token expired")
-    except TokenAlreadyRedeemedError:
-        raise HTTPException(status_code=409, detail="enrollment token already redeemed")
+    except (TokenNotFoundError, TokenExpiredError, TokenAlreadyRedeemedError):
+        # Return uniform 401 for all token failures (oracle mitigation)
+        return problem(401, "invalid_or_expired_token", title="invalid_or_expired_token")
     except CsrInvalidError:
         raise HTTPException(status_code=400, detail="invalid CSR")
 

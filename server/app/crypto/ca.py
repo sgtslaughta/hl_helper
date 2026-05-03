@@ -250,26 +250,74 @@ class InternalCA:
     def verify_chain(self, leaf_pem: bytes) -> bool:
         """Verify leaf -> intermediate -> root chain.
 
-        Checks signatures only. Does **not** check expiry, revocation, or EKU;
-        callers in the request path apply those policies separately.
+        Checks:
+        - Signature validity (leaf signed by intermediate, intermediate by root)
+        - Name chaining (leaf issuer matches intermediate subject, etc.)
+        - Validity periods (all certs must be within their valid date range)
+        - BasicConstraints (intermediate and root must have ca=True)
         """
         try:
             leaf = x509.load_pem_x509_certificate(leaf_pem)
         except Exception:
             return False
+
         try:
+            now = datetime.now(timezone.utc)
+
+            # Check signatures
             int_pub = self.int_cert.public_key()
-            if isinstance(int_pub, ed25519.Ed25519PublicKey):
-                int_pub.verify(leaf.signature, leaf.tbs_certificate_bytes)
-            else:
+            if not isinstance(int_pub, ed25519.Ed25519PublicKey):
                 return False
+            int_pub.verify(leaf.signature, leaf.tbs_certificate_bytes)
+
             root_pub = self.root_cert.public_key()
-            if isinstance(root_pub, ed25519.Ed25519PublicKey):
-                root_pub.verify(
-                    self.int_cert.signature, self.int_cert.tbs_certificate_bytes
-                )
-            else:
+            if not isinstance(root_pub, ed25519.Ed25519PublicKey):
                 return False
+            root_pub.verify(
+                self.int_cert.signature, self.int_cert.tbs_certificate_bytes
+            )
+
+            # Check name chaining
+            if leaf.issuer != self.int_cert.subject:
+                return False
+            if self.int_cert.issuer != self.root_cert.subject:
+                return False
+
+            # Check validity periods
+            if not (leaf.not_valid_before_utc <= now <= leaf.not_valid_after_utc):
+                return False
+            if not (
+                self.int_cert.not_valid_before_utc
+                <= now
+                <= self.int_cert.not_valid_after_utc
+            ):
+                return False
+            if not (
+                self.root_cert.not_valid_before_utc
+                <= now
+                <= self.root_cert.not_valid_after_utc
+            ):
+                return False
+
+            # Check BasicConstraints
+            try:
+                int_bc = self.int_cert.extensions.get_extension_for_class(
+                    x509.BasicConstraints
+                )
+                if not int_bc.value.ca:
+                    return False
+            except x509.ExtensionNotFound:
+                return False
+
+            try:
+                root_bc = self.root_cert.extensions.get_extension_for_class(
+                    x509.BasicConstraints
+                )
+                if not root_bc.value.ca:
+                    return False
+            except x509.ExtensionNotFound:
+                return False
+
         except Exception:
             return False
         return True
@@ -357,9 +405,14 @@ class InternalCA:
             format=serialization.PrivateFormat.PKCS8,
             encryption_algorithm=serialization.NoEncryption(),
         )
-        # Atomic-ish write with strict perms.
-        path.write_bytes(pem)
-        os.chmod(path, 0o600)
+        # Atomic write with strict perms: write to temp, then rename
+        tmp_path = path.parent / f"{path.name}.tmp"
+        fd = os.open(str(tmp_path), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+        try:
+            os.write(fd, pem)
+        finally:
+            os.close(fd)
+        os.replace(str(tmp_path), str(path))
 
     @staticmethod
     def _write_certificate(path: Path, cert: x509.Certificate) -> None:

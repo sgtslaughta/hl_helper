@@ -19,19 +19,23 @@ router = APIRouter(prefix="/v1/approvals", tags=["approvals"])
 
 
 class ApprovalCreate(BaseModel):
-    """Request body for creating an approval."""
+    """Request body for creating an approval.
+
+    Note: requester_id is derived from X-Acting-Principal header.
+    """
 
     subject_type: Literal["command", "task", "policy_change"]
     subject_id: str
     policy: Literal["single", "two_person", "single_second_factor"]
-    requester_id: str
     ttl_minutes: int = Field(default=10, ge=1, le=1440)
 
 
 class ApprovalDecide(BaseModel):
-    """Request body for deciding an approval."""
+    """Request body for deciding an approval.
 
-    decider_id: str
+    Note: decider_id is derived from X-Acting-Principal header.
+    """
+
     decision: Literal["approve", "reject"]
     mfa_proof: str | None = None
     reason: str | None = None
@@ -55,7 +59,7 @@ class ApprovalListItemOut(BaseModel):
 
 
 class ApprovalOut(BaseModel):
-    """Approval object in responses."""
+    """Approval object in responses (mfa_proof_hash never exposed)."""
 
     id: str
     subject_type: str
@@ -65,7 +69,6 @@ class ApprovalOut(BaseModel):
     state: str
     decided_by_id: str | None
     decided_at: datetime | None
-    mfa_proof: str | None
     rejected_reason: str | None
     expires_at: datetime
     created_at: datetime
@@ -179,7 +182,6 @@ async def get_approval(request: Request, approval_id: str) -> ApprovalOut:
         state=row.state,
         decided_by_id=row.decided_by_id,
         decided_at=row.decided_at,
-        mfa_proof=row.mfa_proof,
         rejected_reason=row.rejected_reason,
         expires_at=row.expires_at,
         created_at=row.created_at,
@@ -195,9 +197,14 @@ async def get_approval(request: Request, approval_id: str) -> ApprovalOut:
 async def create_approval(request: Request, body: ApprovalCreate) -> ApprovalOut:
     """Create an approval request.
 
-    Requires admin authentication.
+    Requires admin authentication and X-Acting-Principal header.
     Returns 201 with the created approval.
     """
+    # TODO(C3): replace X-Acting-Principal header with current_principal once user auth is wired
+    requester_id = request.headers.get("X-Acting-Principal", "").strip()
+    if not requester_id:
+        raise HTTPException(status_code=400, detail="acting_principal_required")
+
     sm = request.app.state.sessionmaker
     async with sm() as session:
         engine = ApprovalEngine(session, ttl=timedelta(minutes=body.ttl_minutes))
@@ -205,7 +212,7 @@ async def create_approval(request: Request, body: ApprovalCreate) -> ApprovalOut
             subject_type=body.subject_type,
             subject_id=body.subject_id,
             policy=body.policy,
-            requester_id=body.requester_id,
+            requester_id=requester_id,
             approval_id=str(uuid4()),
         )
         await session.commit()
@@ -219,7 +226,6 @@ async def create_approval(request: Request, body: ApprovalCreate) -> ApprovalOut
         state=approval.state,
         decided_by_id=approval.decided_by_id,
         decided_at=approval.decided_at,
-        mfa_proof=approval.mfa_proof,
         rejected_reason=approval.rejected_reason,
         expires_at=approval.expires_at,
         created_at=approval.created_at,
@@ -236,16 +242,21 @@ async def decide_approval(
 ) -> ApprovalDecisionOut:
     """Decide on an approval.
 
-    Requires admin authentication.
+    Requires admin authentication and X-Acting-Principal header.
     Returns 404 if approval not found.
     Returns 200 with decision result.
     """
+    # TODO(C3): replace X-Acting-Principal header with current_principal once user auth is wired
+    decider_id = request.headers.get("X-Acting-Principal", "").strip()
+    if not decider_id:
+        raise HTTPException(status_code=400, detail="acting_principal_required")
+
     sm = request.app.state.sessionmaker
     async with sm() as session:
         engine = ApprovalEngine(session)
         result = await engine.decide(
             approval_id,
-            decider_id=body.decider_id,
+            decider_id=decider_id,
             decision=body.decision,
             mfa_proof=body.mfa_proof,
             reason=body.reason,

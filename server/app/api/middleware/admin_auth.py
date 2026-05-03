@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import secrets
+
 from fastapi import HTTPException, Request, status
 
 from server.app.settings.config import load_settings
@@ -36,8 +38,8 @@ async def admin_required(request: Request) -> str:
 
     token = auth_header[7:]  # Strip "Bearer " prefix
 
-    # Verify token
-    if token != settings.admin_token.get_secret_value():
+    # Verify token using constant-time comparison
+    if not secrets.compare_digest(token, settings.admin_token.get_secret_value()):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid admin token",

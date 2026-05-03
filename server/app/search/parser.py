@@ -97,6 +97,8 @@ def _parse_leaf(op: str, body: Any, schema: SearchSchema) -> ColumnElement[Any]:
     if op == "in":
         if not isinstance(value, list) or not value:
             raise SearchError("in_requires_nonempty_list")
+        if len(value) > 100:
+            raise SearchError("in_list_too_long")
         return cast(ColumnElement[Any], col.in_(value))
     if op == "contains":
         if not isinstance(value, str):

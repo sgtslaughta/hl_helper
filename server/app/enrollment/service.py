@@ -126,7 +126,13 @@ class EnrollmentService:
     ) -> EnrollmentResult:
         """Validate token, sign CSR, persist Host row, mark token redeemed atomically.
 
-        Order: hash → SELECT (fail fast) → sign CSR → atomic UPDATE-WHERE-NULL → insert Host.
+        Validates agent_pubkey matches the public key in the CSR to prevent
+        proof-of-possession attacks.
+
+        Order: hash → SELECT (fail fast) → validate pubkey → sign CSR → atomic UPDATE-WHERE-NULL → insert Host.
+
+        Raises:
+            CsrInvalidError: if agent_pubkey doesn't match CSR public key or is malformed.
         """
         if now is None:
             now = datetime.now(timezone.utc)
@@ -157,7 +163,38 @@ class EnrollmentService:
         if tok.redeemed_at is not None:
             raise TokenAlreadyRedeemedError("enrollment token already redeemed")
 
-        # 5. Generate host_id (before CSR signing)
+        # 5. Validate agent_pubkey: extract public key from CSR and verify it matches
+        try:
+            if len(agent_pubkey) != 32:
+                raise CsrInvalidError("agent_pubkey must be exactly 32 bytes")
+
+            # Parse CSR to extract public key
+            if csr_pem.startswith(b"-----"):
+                csr_obj = x509.load_pem_x509_csr(csr_pem)
+            else:
+                csr_obj = x509.load_der_x509_csr(csr_pem)
+
+            csr_pubkey = csr_obj.public_key()
+
+            # Verify CSR pubkey is Ed25519 and extract raw bytes
+            if not isinstance(csr_pubkey, ed25519.Ed25519PublicKey):
+                raise CsrInvalidError(
+                    f"CSR must contain Ed25519 public key, got {type(csr_pubkey).__name__}"
+                )
+
+            csr_pubkey_raw = csr_pubkey.public_bytes(
+                encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw
+            )
+
+            # Verify agent_pubkey matches CSR public key
+            if agent_pubkey != csr_pubkey_raw:
+                raise CsrInvalidError("agent_pubkey does not match public key in CSR (pubkey_mismatch)")
+        except CsrInvalidError:
+            raise
+        except Exception as e:
+            raise CsrInvalidError(f"invalid CSR or pubkey validation failed: {e}") from e
+
+        # 5.5. Generate host_id (before CSR signing)
         host_id = str(uuid.uuid4())
 
         # 6. Sign CSR (before claiming token)

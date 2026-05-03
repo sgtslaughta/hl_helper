@@ -23,6 +23,7 @@ Limitations:
 """
 from __future__ import annotations
 import asyncio
+import hashlib
 from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -50,28 +51,29 @@ class _Entry:
 class IdempotencyStore:
     """Async-safe in-memory cache for idempotency entries."""
 
-    def __init__(self, ttl: timedelta = DEFAULT_TTL, *, max_entries: int = 10000) -> None:
+    def __init__(self, ttl: timedelta = DEFAULT_TTL, *, max_entries: int = 10000, max_body_bytes: int = 1_048_576) -> None:
         self._ttl = ttl
         self._max = max_entries
+        self._max_body_bytes = max_body_bytes
         self._lock = asyncio.Lock()
-        self._items: OrderedDict[tuple[str, str, str], _Entry] = OrderedDict()
-        self._inflight: dict[tuple[str, str, str], asyncio.Event] = {}
+        self._items: OrderedDict[tuple[str, str, str, str], _Entry] = OrderedDict()
+        self._inflight: dict[tuple[str, str, str, str], asyncio.Event] = {}
 
-    async def get(self, principal_id: str, route: str, key: str,
+    async def get(self, principal_id: str, route: str, key: str, body_hash: str,
                   now: datetime | None = None) -> _Entry | None:
         now = now or datetime.now(timezone.utc)
         async with self._lock:
-            entry = self._items.get((principal_id, route, key))
+            entry = self._items.get((principal_id, route, key, body_hash))
             if entry is None:
                 return None
             if now >= entry.expires_at:
-                self._items.pop((principal_id, route, key), None)
+                self._items.pop((principal_id, route, key, body_hash), None)
                 return None
             # Move to end to maintain LRU order
-            self._items.move_to_end((principal_id, route, key))
+            self._items.move_to_end((principal_id, route, key, body_hash))
             return entry
 
-    async def put(self, principal_id: str, route: str, key: str,
+    async def put(self, principal_id: str, route: str, key: str, body_hash: str,
                   *, status_code: int, body: bytes, headers: Mapping[str, str],
                   content_type: str, now: datetime | None = None) -> None:
         now = now or datetime.now(timezone.utc)
@@ -79,7 +81,7 @@ class IdempotencyStore:
             # Evict oldest entry if at capacity
             if len(self._items) >= self._max:
                 self._items.popitem(last=False)
-            self._items[(principal_id, route, key)] = _Entry(
+            self._items[(principal_id, route, key, body_hash)] = _Entry(
                 status_code=status_code, body=body,
                 headers=dict(headers), content_type=content_type,
                 expires_at=now + self._ttl,
@@ -93,7 +95,7 @@ class IdempotencyStore:
                 self._items.pop(k, None)
             return len(stale)
 
-    async def acquire_or_wait(self, key: tuple[str, str, str]) -> bool:
+    async def acquire_or_wait(self, key: tuple[str, str, str, str]) -> bool:
         """Return True if caller should run the handler (we own the slot);
         return False if another request is already running and we should wait
         for its result."""
@@ -108,11 +110,21 @@ class IdempotencyStore:
         await ev.wait()
         return False
 
-    async def release(self, key: tuple[str, str, str]) -> None:
+    async def release(self, key: tuple[str, str, str, str]) -> None:
         async with self._lock:
             ev = self._inflight.pop(key, None)
             if ev is not None:
                 ev.set()
+
+    async def check_conflict(self, principal_id: str, route: str, key: str, body_hash: str) -> str | None:
+        """Check if same (principal, route, key) exists with different body_hash.
+        Return the conflicting body_hash if found, None otherwise."""
+        async with self._lock:
+            for (p, r, k, bh), entry in self._items.items():
+                if p == principal_id and r == route and k == key and bh != body_hash:
+                    # Found a conflict
+                    return bh
+        return None
 
 
 def _principal_id(request: Request) -> str:
@@ -142,9 +154,16 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
     bypass the middleware entirely.
     """
 
-    def __init__(self, app: Any, *, store: IdempotencyStore | None = None) -> None:
+    def __init__(self, app: Any, *, store: IdempotencyStore | None = None, max_body_bytes: int | None = None) -> None:
         super().__init__(app)
-        self.store = store or IdempotencyStore()
+        # Resolve effective max body bytes: explicit arg wins; else inherit from
+        # provided store; else use a 1 MiB default.
+        if max_body_bytes is None and store is not None:
+            max_body_bytes = store._max_body_bytes
+        if max_body_bytes is None:
+            max_body_bytes = 1_048_576
+        self.store = store or IdempotencyStore(max_body_bytes=max_body_bytes)
+        self.max_body_bytes = max_body_bytes
 
     async def dispatch(self, request: Request, call_next: Callable[[Request], Awaitable[Any]]) -> Response:
         if request.method not in WRITE_METHODS:
@@ -159,10 +178,36 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
             return cast(Response, await call_next(request))
 
         route = request.url.path
-        key_tuple = (principal_id, route, key)
+
+        # Compute body hash from request body
+        request_body = await request.body()
+
+        # Check body size limit
+        if len(request_body) > self.max_body_bytes:
+            from server.app.errors import problem
+            return problem(
+                413,
+                "payload_too_large",
+                title="Payload Too Large",
+                detail=f"request body exceeds {self.max_body_bytes} bytes",
+            )
+
+        body_hash = hashlib.sha256(request_body).hexdigest()
+        key_tuple = (principal_id, route, key, body_hash)
+
+        # Check for conflicting body_hash with same (principal, route, key)
+        conflict = await self.store.check_conflict(principal_id, route, key, body_hash)
+        if conflict is not None:
+            from server.app.errors import problem
+            return problem(
+                422,
+                "idempotency_key_conflict",
+                title="Idempotency Key Conflict",
+                detail="request with same idempotency key but different body already exists",
+            )
 
         # Check cache first
-        cached = await self.store.get(principal_id, route, key)
+        cached = await self.store.get(principal_id, route, key, body_hash)
         if cached is not None:
             return _from_entry(cached)
 
@@ -170,7 +215,7 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
         owner = await self.store.acquire_or_wait(key_tuple)
         if not owner:
             # Other request finished; read cached result
-            cached = await self.store.get(principal_id, route, key)
+            cached = await self.store.get(principal_id, route, key, body_hash)
             if cached is not None:
                 return _from_entry(cached)
             # Other request didn't cache (e.g., it errored before put). Fall through.
@@ -185,7 +230,7 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
             # Fix 4: Only cache 2xx/3xx responses
             if response.status_code < 400:
                 await self.store.put(
-                    principal_id, route, key,
+                    principal_id, route, key, body_hash,
                     status_code=response.status_code,
                     body=body,
                     headers={k: v for k, v in response.headers.items()

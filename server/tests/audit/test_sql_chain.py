@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -280,3 +281,44 @@ class TestForceCheckpoint:
             assert checkpoint.covers_sequence == 1
         finally:
             await session.close()
+
+
+class TestConcurrentAppends:
+    @pytest.mark.asyncio
+    async def test_concurrent_appends_no_duplicate_sequences(
+        self, backend: FileBackend, sm: async_sessionmaker
+    ) -> None:
+        """Fire N concurrent appends and verify all succeed with unique sequences."""
+        chain = SqlAuditChain(backend, checkpoint_interval=100)
+        n = 20
+
+        async def append_entry(i: int) -> int:
+            session = sm()
+            try:
+                entry = await chain.append(session, actor=f"user{i}", action=f"action{i}")
+                await session.commit()
+                return entry.sequence
+            finally:
+                await session.close()
+
+        # Fire all concurrent appends
+        sequences = await asyncio.gather(*[append_entry(i) for i in range(n)])
+
+        # All sequences should be unique and form exact permutation 0..n-1
+        assert sorted(sequences) == list(range(n))
+        assert len(set(sequences)) == n
+
+
+class TestLargeChainVerify:
+    @pytest.mark.asyncio
+    async def test_large_chain_verify_succeeds(
+        self, chain: SqlAuditChain, session: AsyncSession
+    ) -> None:
+        """Verify large chain (1000+ entries) without loading all into memory."""
+        # Add 1000 entries
+        for i in range(1000):
+            await chain.append(session, actor=f"user{i}", action=f"action{i}")
+        await session.commit()
+
+        # Verify should succeed without excessive memory usage
+        await chain.verify(session)  # Should not raise

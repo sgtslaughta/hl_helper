@@ -15,7 +15,7 @@ from __future__ import annotations
 import binascii
 import json
 from datetime import datetime, timezone
-from typing import AsyncGenerator
+from typing import AsyncGenerator, AsyncIterator, TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
@@ -26,6 +26,16 @@ from server.app.api.middleware.admin_auth import admin_required
 from server.app.audit.chain import GENESIS_HASH, compute_entry_hash
 from server.app.models.audit import AuditEntry
 from server.app.pagination import apply_cursor, build_page
+
+T = TypeVar("T")
+
+
+async def enumerate_async(async_iter: AsyncIterator[T]) -> AsyncIterator[tuple[int, T]]:
+    """Async enumerate helper."""
+    i = 0
+    async for item in async_iter:
+        yield i, item
+        i += 1
 
 router = APIRouter(prefix="/v1/audit", tags=["audit"])
 
@@ -168,7 +178,11 @@ async def export_audit(
 
 @router.post("/actions/verify", response_model=AuditVerifyResult, dependencies=[Depends(admin_required)])
 async def verify_chain(req: Request, body: AuditVerifyRequest) -> AuditVerifyResult:
-    """Re-walk the SHA-256 hash chain and report first break."""
+    """Re-walk the SHA-256 hash chain and report first break.
+
+    Uses streaming to avoid loading entire chain into memory (safe for 100K+ entries).
+    Keeps only running prev_hash + counters in memory.
+    """
     sm = req.app.state.sessionmaker
     async with sm() as session:
         stmt = select(AuditEntry).order_by(AuditEntry.sequence.asc())
@@ -176,54 +190,62 @@ async def verify_chain(req: Request, body: AuditVerifyRequest) -> AuditVerifyRes
             stmt = stmt.where(AuditEntry.sequence >= body.from_seq)
         if body.to_seq is not None:
             stmt = stmt.where(AuditEntry.sequence <= body.to_seq)
-        rows = (await session.execute(stmt)).scalars().all()
 
-    if not rows:
-        return AuditVerifyResult(ok=True, break_at_seq=None, total_entries=0, message="empty chain in range")
+        # Stream results instead of loading all at once
+        result = await session.stream_scalars(stmt)
 
-    # Verify chain linkage
-    for i, e in enumerate(rows):
-        # First entry must have prev_hash == GENESIS_HASH
-        if i == 0:
-            if e.prev_hash != GENESIS_HASH:
-                return AuditVerifyResult(
-                    ok=False,
-                    break_at_seq=e.sequence,
-                    total_entries=len(rows),
-                    message="first entry prev_hash != GENESIS_HASH",
-                )
-        else:
-            # Subsequent entries: prev_hash must match predecessor's entry_hash
-            if e.prev_hash != rows[i - 1].entry_hash:
-                return AuditVerifyResult(
-                    ok=False,
-                    break_at_seq=e.sequence,
-                    total_entries=len(rows),
-                    message=f"prev_hash mismatch at seq={e.sequence}",
-                )
+        total_entries = 0
+        prev_entry_hash = GENESIS_HASH
+        async for i, e in enumerate_async(result):
+            total_entries += 1
 
-        # Ensure timestamp is timezone-aware for hash computation
-        ts = e.timestamp
-        if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=timezone.utc)
+            # First entry must have prev_hash == GENESIS_HASH
+            if i == 0:
+                if e.prev_hash != GENESIS_HASH:
+                    return AuditVerifyResult(
+                        ok=False,
+                        break_at_seq=e.sequence,
+                        total_entries=total_entries,
+                        message="first entry prev_hash != GENESIS_HASH",
+                    )
+            else:
+                # Subsequent entries: prev_hash must match predecessor's entry_hash
+                if e.prev_hash != prev_entry_hash:
+                    return AuditVerifyResult(
+                        ok=False,
+                        break_at_seq=e.sequence,
+                        total_entries=total_entries,
+                        message=f"prev_hash mismatch at seq={e.sequence}",
+                    )
 
-        # Recompute entry_hash using the same function as sql_chain
-        expected_hash = compute_entry_hash(
-            sequence=e.sequence,
-            timestamp=ts,
-            actor=e.actor,
-            action=e.action,
-            subject=e.subject,
-            payload=e.payload,
-            prev_hash=e.prev_hash,
-        )
+            # Ensure timestamp is timezone-aware for hash computation
+            ts = e.timestamp
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
 
-        if e.entry_hash != expected_hash:
-            return AuditVerifyResult(
-                ok=False,
-                break_at_seq=e.sequence,
-                total_entries=len(rows),
-                message=f"entry_hash mismatch at seq={e.sequence}",
+            # Recompute entry_hash using the same function as sql_chain
+            expected_hash = compute_entry_hash(
+                sequence=e.sequence,
+                timestamp=ts,
+                actor=e.actor,
+                action=e.action,
+                subject=e.subject,
+                payload=e.payload,
+                prev_hash=e.prev_hash,
             )
 
-    return AuditVerifyResult(ok=True, break_at_seq=None, total_entries=len(rows))
+            if e.entry_hash != expected_hash:
+                return AuditVerifyResult(
+                    ok=False,
+                    break_at_seq=e.sequence,
+                    total_entries=total_entries,
+                    message=f"entry_hash mismatch at seq={e.sequence}",
+                )
+
+            # Update for next iteration
+            prev_entry_hash = e.entry_hash
+
+    if total_entries == 0:
+        return AuditVerifyResult(ok=True, break_at_seq=None, total_entries=0, message="empty chain in range")
+
+    return AuditVerifyResult(ok=True, break_at_seq=None, total_entries=total_entries)

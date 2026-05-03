@@ -101,19 +101,27 @@ def compute_entry_hash(
 
 
 def merkle_root(leaves: list[bytes]) -> bytes:
-    """Standard binary Merkle tree, sha256, duplicate last leaf when odd at each level.
+    """RFC 6962 binary Merkle tree with domain separation.
 
+    Leaf nodes: H(0x00 || leaf_data)
+    Internal nodes: H(0x01 || left || right)
+    Odd leaf at level: duplicate the last leaf
     Empty input → 32 zero bytes.
-    Single leaf → return leaf as-is (no hashing applied).
+
+    Args:
+        leaves: Pre-hashed leaf values (e.g., entry_hash from audit entries).
+
+    Returns:
+        Root hash with RFC 6962 domain separation applied.
     """
     if not leaves:
         return GENESIS_HASH
 
-    if len(leaves) == 1:
-        return leaves[0]
+    # RFC 6962: hash leaves with 0x00 prefix
+    leaf_level = [hashlib.sha256(b"\x00" + leaf).digest() for leaf in leaves]
 
-    # Build tree level by level
-    current_level = leaves[:]
+    # Build tree level by level with 0x01 prefix for internal nodes
+    current_level = leaf_level
 
     while len(current_level) > 1:
         next_level = []
@@ -122,10 +130,11 @@ def merkle_root(leaves: list[bytes]) -> bytes:
                 left = current_level[i]
                 right = current_level[i + 1]
             else:
-                # Odd count: duplicate last leaf
+                # Odd count: duplicate last node
                 left = current_level[i]
                 right = current_level[i]
-            parent = hashlib.sha256(left + right).digest()
+            # RFC 6962: internal nodes use 0x01 prefix
+            parent = hashlib.sha256(b"\x01" + left + right).digest()
             next_level.append(parent)
         current_level = next_level
 
@@ -286,10 +295,11 @@ class AuditChain:
                     f"Checkpoint {i} merkle_root does not match recomputed root"
                 )
 
-            # Verify signature
+            # Verify signature with the exact signing_pubkey stored in checkpoint
+            # (not the backend's current trust anchors, to enforce key pinning)
             signed_message = checkpoint.sequence.to_bytes(8, "big") + checkpoint.merkle_root
-            if not self._backend.verify(signed_message, checkpoint.signature):
-                raise CheckpointError(f"Checkpoint {i} signature does not verify")
+            if not self._backend.verify_with_pubkey(signed_message, checkpoint.signature, checkpoint.signing_pubkey):
+                raise CheckpointError(f"Checkpoint {i} signature does not verify with pinned pubkey")
 
     def force_checkpoint(self, *, timestamp: datetime | None = None) -> Checkpoint:
         """Create checkpoint over current head (sequence = length-1).

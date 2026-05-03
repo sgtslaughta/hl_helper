@@ -1,6 +1,7 @@
 """Approval engine — gates high-risk subjects behind a policy + decider check."""
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Literal
@@ -71,7 +72,7 @@ class ApprovalEngine:
             return DecisionResult(approved=False, state="rejected", rejected_reason="not_found")
 
         # Already terminal
-        if a.state != "pending":
+        if a.state not in ("pending", "pending_second"):
             return DecisionResult(approved=False, state=a.state, rejected_reason=a.rejected_reason)
 
         # Expiry check
@@ -92,7 +93,8 @@ class ApprovalEngine:
             return DecisionResult(approved=False, state="rejected", rejected_reason=a.rejected_reason)
 
         # decision == "approve"
-        if a.policy == "two_person" and decider_id == a.requester_id:
+        # Check: approver cannot be requester
+        if decider_id == a.requester_id:
             a.state = ApprovalState.REJECTED
             a.decided_by_id = decider_id
             a.decided_at = now
@@ -100,13 +102,41 @@ class ApprovalEngine:
             await self._s.flush()
             return DecisionResult(approved=False, state="rejected", rejected_reason="same_principal")
 
+        # two_person state machine
+        if a.policy == "two_person":
+            if a.state == "pending":
+                # First approve: transition to pending_second, store first_decider_id
+                a.state = ApprovalState.PENDING_SECOND
+                a.first_decider_id = decider_id
+                await self._s.flush()
+                return DecisionResult(approved=False, state="pending_second")
+            elif a.state == "pending_second":
+                # Second approve: check decider is different from first_decider_id
+                if decider_id == a.first_decider_id:
+                    a.state = ApprovalState.REJECTED
+                    a.decided_by_id = decider_id
+                    a.decided_at = now
+                    a.rejected_reason = "same_principal"
+                    await self._s.flush()
+                    return DecisionResult(approved=False, state="rejected", rejected_reason="same_principal")
+                # Different decider: approve
+                a.state = ApprovalState.APPROVED
+                a.decided_by_id = decider_id
+                a.decided_at = now
+                await self._s.flush()
+                return DecisionResult(approved=True, state="approved")
+
+        # single_second_factor requires MFA
         if a.policy == "single_second_factor" and not mfa_proof:
             return DecisionResult(approved=False, state="pending", rejected_reason="mfa_required")
 
+        # single or single_second_factor (with MFA provided) or degraded two_person
         a.state = ApprovalState.APPROVED
         a.decided_by_id = decider_id
         a.decided_at = now
-        a.mfa_proof = mfa_proof
+        # Hash the proof if provided (never store plaintext)
+        if mfa_proof:
+            a.mfa_proof_hash = hashlib.sha256(mfa_proof.encode()).digest()
         await self._s.flush()
         return DecisionResult(approved=True, state="approved")
 

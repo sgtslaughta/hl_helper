@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.app.crypto.signing import SigningBackend
@@ -19,6 +21,9 @@ from .chain import (
     compute_entry_hash,
     merkle_root,
 )
+
+# Process-local lock for serializing critical sections of append()
+_APPEND_LOCK = asyncio.Lock()
 
 
 class SqlAuditChain:
@@ -52,23 +57,29 @@ class SqlAuditChain:
         """Append new entry; returns it. Auto-creates checkpoint when (seq+1) % interval == 0.
 
         The checkpoint covers entries from [last_checkpoint_seq+1 .. current_seq] inclusive.
+
+        Uses asyncio.Lock to serialize critical section: prevents concurrent appends from
+        computing the same sequence number (race condition). If IntegrityError occurs due to
+        duplicate sequence, retries once.
         """
         if payload is None:
             payload = {}
         if timestamp is None:
             timestamp = datetime.now(timezone.utc)
 
-        # Get next sequence number by finding max existing sequence
-        result = await session.execute(
-            select(AuditEntryModel).order_by(AuditEntryModel.sequence.desc()).limit(1)
-        )
-        last_entry = result.scalar_one_or_none()
-        sequence = 0 if last_entry is None else last_entry.sequence + 1
+        # Serialize critical section: read-then-insert must not race
+        async with _APPEND_LOCK:
+            # Get next sequence number by finding max existing sequence
+            result = await session.execute(
+                select(AuditEntryModel).order_by(AuditEntryModel.sequence.desc()).limit(1)
+            )
+            last_entry = result.scalar_one_or_none()
+            sequence = 0 if last_entry is None else last_entry.sequence + 1
 
-        # Get prev_hash (last entry's entry_hash or GENESIS_HASH)
-        prev_hash = GENESIS_HASH if last_entry is None else last_entry.entry_hash
+            # Get prev_hash (last entry's entry_hash or GENESIS_HASH)
+            prev_hash = GENESIS_HASH if last_entry is None else last_entry.entry_hash
 
-        # Compute entry_hash
+        # Compute entry_hash (outside lock, not critical)
         entry_hash = compute_entry_hash(
             sequence=sequence,
             timestamp=timestamp,
@@ -90,8 +101,42 @@ class SqlAuditChain:
             prev_hash=prev_hash,
             entry_hash=entry_hash,
         )
-        session.add(entry)
-        await session.flush()
+        try:
+            session.add(entry)
+            await session.flush()
+        except IntegrityError:
+            # Duplicate sequence due to race — rollback and retry once
+            await session.rollback()
+            async with _APPEND_LOCK:
+                result = await session.execute(
+                    select(AuditEntryModel).order_by(AuditEntryModel.sequence.desc()).limit(1)
+                )
+                last_entry = result.scalar_one_or_none()
+                sequence = 0 if last_entry is None else last_entry.sequence + 1
+                prev_hash = GENESIS_HASH if last_entry is None else last_entry.entry_hash
+
+            entry_hash = compute_entry_hash(
+                sequence=sequence,
+                timestamp=timestamp,
+                actor=actor,
+                action=action,
+                subject=subject,
+                payload=payload,
+                prev_hash=prev_hash,
+            )
+
+            entry = AuditEntryModel(
+                sequence=sequence,
+                timestamp=timestamp,
+                actor=actor,
+                action=action,
+                subject=subject,
+                payload=payload,
+                prev_hash=prev_hash,
+                entry_hash=entry_hash,
+            )
+            session.add(entry)
+            await session.flush()
 
         # Auto-checkpoint: if (sequence+1) % interval == 0
         if (sequence + 1) % self._checkpoint_interval == 0:
@@ -231,14 +276,14 @@ class SqlAuditChain:
                     f"merkle_root does not match recomputed root"
                 )
 
-            # Verify signature
+            # Verify signature with pinned signing_pubkey
             signed_message = (
                 checkpoint.covers_sequence.to_bytes(8, "big") + checkpoint.merkle_root
             )
-            if not self._backend.verify(signed_message, checkpoint.signature):
+            if not self._backend.verify_with_pubkey(signed_message, checkpoint.signature, checkpoint.signing_pubkey):
                 raise CheckpointError(
                     f"Checkpoint covers_sequence {checkpoint.covers_sequence} "
-                    f"signature does not verify"
+                    f"signature does not verify with pinned pubkey"
                 )
 
     async def _checkpoint_now(

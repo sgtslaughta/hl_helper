@@ -329,3 +329,24 @@ async def test_invalid_cursor_returns_400(auth, sm, mock_admin_token) -> None:  
         r = await c.get("/v1/audit?cursor=not-base64-json", headers=auth)
         assert r.status_code == 400
         assert "invalid_cursor" in r.text
+
+
+@pytest.mark.asyncio
+async def test_verify_chain_streams_large_chains(auth, sm, signing_backend, mock_admin_token) -> None:  # type: ignore[no-untyped-def]
+    """Verify endpoint streams entries without loading all into memory."""
+    chain = SqlAuditChain(signing_backend, checkpoint_interval=100)
+    async with sm() as session:
+        # Add 100 entries
+        for i in range(100):
+            await chain.append(session, actor=f"user{i}", action=f"action{i}")
+        await session.commit()
+
+    app = create_app()
+    app.state.sessionmaker = sm
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        r = await c.post("/v1/audit/actions/verify", json={}, headers=auth)
+        assert r.status_code == 200
+        d = r.json()
+        assert d["ok"] is True
+        assert d["total_entries"] == 100
+        assert d["break_at_seq"] is None

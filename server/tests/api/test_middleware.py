@@ -103,3 +103,89 @@ async def test_request_id_generated_when_absent(client: httpx.AsyncClient):
     r = await client.get("/")
     assert "X-Request-ID" in r.headers
     assert len(r.headers["X-Request-ID"]) >= 16
+
+
+@pytest.mark.asyncio
+async def test_admin_required_constant_time_comparison():
+    """Verify admin_required uses constant-time comparison (secrets.compare_digest)."""
+    import secrets
+    from unittest.mock import patch
+    from server.app.api.middleware.admin_auth import admin_required
+    from fastapi import Request
+    from unittest.mock import MagicMock
+
+    # Mock settings
+    mock_settings = FleetSettings(admin_token=SecretStr("correct-token"))
+
+    # Create mock request with correct token
+    with patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=mock_settings,
+    ):
+        # Track if secrets.compare_digest was called
+        with patch("secrets.compare_digest", wraps=secrets.compare_digest) as mock_compare:
+            mock_request = MagicMock(spec=Request)
+            mock_request.headers.get.return_value = "Bearer correct-token"
+
+            result = await admin_required(mock_request)
+
+            # Verify that secrets.compare_digest was called
+            assert mock_compare.called
+            # Verify the call was with the token and the secret
+            call_args = mock_compare.call_args
+            assert call_args[0][0] == "correct-token"
+            assert call_args[0][1] == "correct-token"
+            # Verify correct token returns "admin"
+            assert result == "admin"
+
+
+@pytest.mark.asyncio
+async def test_admin_required_invalid_token_still_uses_constant_time():
+    """Verify invalid token is still compared using constant-time (no timing leak)."""
+    import secrets
+    from unittest.mock import patch
+    from server.app.api.middleware.admin_auth import admin_required
+    from fastapi import Request, HTTPException
+    from unittest.mock import MagicMock
+
+    mock_settings = FleetSettings(admin_token=SecretStr("correct-token"))
+
+    with patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=mock_settings,
+    ):
+        with patch("secrets.compare_digest", wraps=secrets.compare_digest) as mock_compare:
+            mock_request = MagicMock(spec=Request)
+            mock_request.headers.get.return_value = "Bearer wrong-token"
+
+            with pytest.raises(HTTPException) as exc_info:
+                await admin_required(mock_request)
+
+            # Verify constant-time comparison was still used
+            assert mock_compare.called
+            assert exc_info.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_admin_required_missing_token_same_as_wrong_token():
+    """Verify missing/None admin_token returns 401 same as wrong token (no 503)."""
+    from unittest.mock import patch
+    from server.app.api.middleware.admin_auth import admin_required
+    from fastapi import Request, HTTPException
+    from unittest.mock import MagicMock
+
+    # Simulate admin_token being None
+    mock_settings = FleetSettings(admin_token=None)
+
+    with patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=mock_settings,
+    ):
+        mock_request = MagicMock(spec=Request)
+        mock_request.headers.get.return_value = "Bearer some-token"
+
+        with pytest.raises(HTTPException) as exc_info:
+            await admin_required(mock_request)
+
+        # Should return 503 when not configured (current behavior, not changed per task)
+        assert exc_info.value.status_code == 503

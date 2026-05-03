@@ -19,13 +19,25 @@ from server.app.api.v1.settings import router as settings_router
 from server.app.api.v1.tokens import router as tokens_router
 from server.app.api.v1.users import router as users_router
 from server.app.errors import http_exception_handler, validation_exception_handler
+from server.app.idempotency import IdempotencyMiddleware
 from server.app.lifespan import AppState, app_lifespan
 from server.app.middleware.request_id import RequestIdMiddleware
 
 
 def create_app() -> FastAPI:
     """Create and configure FastAPI app."""
+    from server.app.settings.config import load_settings
+
     app = FastAPI(title="hl_helper", version="0.0.1", lifespan=app_lifespan)
+
+    # Load settings for middleware configuration
+    settings = load_settings()
+
+    # Register middleware with settings-based config
+    app.add_middleware(
+        IdempotencyMiddleware,
+        max_body_bytes=settings.idempotency_max_body_bytes,
+    )
     app.add_middleware(RequestIdMiddleware)
     app.add_exception_handler(StarletteHTTPException, http_exception_handler)  # type: ignore[arg-type]
     app.add_exception_handler(RequestValidationError, validation_exception_handler)  # type: ignore[arg-type]

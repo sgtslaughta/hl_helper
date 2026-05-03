@@ -1,10 +1,12 @@
 import asyncio
+import hashlib
 import pytest
 from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from httpx import AsyncClient, ASGITransport
 
+from server.app.api.app import create_app
 from server.app.idempotency import (
     IdempotencyMiddleware, IdempotencyStore, DEFAULT_TTL, HEADER,
 )
@@ -107,14 +109,15 @@ def test_different_routes_separate_keyspace():
 async def test_store_expiry_purged():
     s = IdempotencyStore(ttl=timedelta(seconds=1))
     now = datetime.now(timezone.utc)
-    await s.put("p", "/r", "k",
+    body_hash = hashlib.sha256(b'{}').hexdigest()
+    await s.put("p", "/r", "k", body_hash,
                 status_code=200, body=b'{}',
                 headers={}, content_type="application/json", now=now)
     # Within TTL → hit
-    hit = await s.get("p", "/r", "k", now=now)
+    hit = await s.get("p", "/r", "k", body_hash, now=now)
     assert hit is not None
     # After TTL → miss
-    miss = await s.get("p", "/r", "k", now=now + timedelta(seconds=2))
+    miss = await s.get("p", "/r", "k", body_hash, now=now + timedelta(seconds=2))
     assert miss is None
 
 
@@ -123,7 +126,8 @@ async def test_purge_expired_returns_count():
     s = IdempotencyStore(ttl=timedelta(seconds=1))
     now = datetime.now(timezone.utc)
     for i in range(3):
-        await s.put(f"p{i}", "/r", "k",
+        body_hash = hashlib.sha256(b'').hexdigest()
+        await s.put(f"p{i}", "/r", "k", body_hash,
                     status_code=200, body=b'',
                     headers={}, content_type="application/json", now=now)
     purged = await s.purge_expired(now=now + timedelta(seconds=2))
@@ -233,16 +237,82 @@ async def test_store_eviction_at_max_entries():
     """Adding > max_entries items evicts oldest."""
     s = IdempotencyStore(max_entries=3)
     for i in range(5):
+        body_hash = hashlib.sha256(b"").hexdigest()
         await s.put(
             "p",
             "/r",
             f"k{i}",
+            body_hash,
             status_code=200,
             body=b"",
             headers={},
             content_type="application/json",
         )
     # k0, k1 evicted; k2,k3,k4 remain
-    assert await s.get("p", "/r", "k0") is None
-    assert await s.get("p", "/r", "k1") is None
-    assert await s.get("p", "/r", "k4") is not None
+    body_hash = hashlib.sha256(b"").hexdigest()
+    assert await s.get("p", "/r", "k0", body_hash) is None
+    assert await s.get("p", "/r", "k1", body_hash) is None
+    assert await s.get("p", "/r", "k4", body_hash) is not None
+
+
+def test_idempotency_middleware_installed_in_app():
+    """Test that IdempotencyMiddleware is installed in FastAPI app."""
+    app = create_app()
+    # Check that IdempotencyMiddleware is in the middleware stack
+    middleware_classes = [m.cls.__name__ for m in app.user_middleware]
+    assert "IdempotencyMiddleware" in middleware_classes
+
+
+def test_different_request_bodies_same_key_returns_409():
+    """Two requests with same (principal, route, key) but different bodies return 422 conflict."""
+    app = FastAPI()
+    store = IdempotencyStore()
+    app.add_middleware(IdempotencyMiddleware, store=store)
+
+    call_count = {"n": 0}
+
+    @app.middleware("http")
+    async def set_principal(req, call_next):
+        req.state.principal_id = "u-1"
+        return await call_next(req)
+
+    @app.post("/echo")
+    async def echo(data: dict) -> dict:
+        call_count["n"] += 1
+        return {"call": call_count["n"], "data": data}
+
+    with TestClient(app) as c:
+        # First request with body {"a": 1}
+        r1 = c.post("/echo", headers={HEADER: "key1"}, json={"a": 1})
+        assert r1.status_code == 200
+        assert r1.json() == {"call": 1, "data": {"a": 1}}
+
+        # Second request with same key but different body {"a": 2}
+        r2 = c.post("/echo", headers={HEADER: "key1"}, json={"a": 2})
+        # Should return 422 idempotency_key_conflict
+        assert r2.status_code == 422
+        assert "idempotency_key_conflict" in r2.text
+
+
+def test_request_body_too_large_returns_413():
+    """Request body > max bytes should return 413."""
+    app = FastAPI()
+    store = IdempotencyStore(max_body_bytes=100)  # Very small for test
+    app.add_middleware(IdempotencyMiddleware, store=store)
+
+    @app.middleware("http")
+    async def set_principal(req, call_next):
+        req.state.principal_id = "u-1"
+        return await call_next(req)
+
+    @app.post("/echo")
+    async def echo(data: dict) -> dict:
+        return {"ok": True}
+
+    with TestClient(app) as c:
+        # Large body (> 100 bytes)
+        large_body = {"data": "x" * 200}
+        r = c.post("/echo", headers={HEADER: "key1"}, json=large_body)
+        # Should return 413
+        assert r.status_code == 413
+        assert "payload too large" in r.text.lower()

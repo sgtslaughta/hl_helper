@@ -260,21 +260,32 @@ class TestForceCheckpointEmpty:
 
 
 class TestMerkleRootSingleLeaf:
-    def test_merkle_root_single_leaf(self) -> None:
-        h = hashlib.sha256(b"single").digest()
-        assert merkle_root([h]) == h
+    def test_merkle_root_single_leaf_rfc6962(self) -> None:
+        """RFC 6962: single leaf must be H(0x00 || leaf)."""
+        leaf = hashlib.sha256(b"single").digest()
+        # Expected: H(0x00 || leaf)
+        expected = hashlib.sha256(b"\x00" + leaf).digest()
+        result = merkle_root([leaf])
+        assert result == expected
 
 
 class TestMerkleRootOddCount:
     def test_merkle_root_odd_count(self) -> None:
+        """RFC 6962: 3 leaves duplicate the last when odd."""
         a = hashlib.sha256(b"a").digest()
         b = hashlib.sha256(b"b").digest()
         c = hashlib.sha256(b"c").digest()
 
-        # Merkle tree: pair (a,b) -> h_ab, pair (c,c) -> h_cc, then pair (h_ab, h_cc)
-        h_ab = hashlib.sha256(a + b).digest()
-        h_cc = hashlib.sha256(c + c).digest()
-        expected = hashlib.sha256(h_ab + h_cc).digest()
+        # RFC 6962 leaf hashing
+        h_a = hashlib.sha256(b"\x00" + a).digest()
+        h_b = hashlib.sha256(b"\x00" + b).digest()
+        h_c = hashlib.sha256(b"\x00" + c).digest()
+
+        # Pair (h_a, h_b) and (h_c, h_c) with 0x01 prefix
+        h_ab = hashlib.sha256(b"\x01" + h_a + h_b).digest()
+        h_cc = hashlib.sha256(b"\x01" + h_c + h_c).digest()
+        # Final pair with 0x01 prefix
+        expected = hashlib.sha256(b"\x01" + h_ab + h_cc).digest()
 
         assert merkle_root([a, b, c]) == expected
 
@@ -282,6 +293,44 @@ class TestMerkleRootOddCount:
 class TestMerkleRootEmpty:
     def test_merkle_root_empty(self) -> None:
         assert merkle_root([]) == b"\x00" * 32
+
+
+class TestMerkleRfc6962DomainSeparation:
+    def test_merkle_root_rfc6962_leaf_prefix(self) -> None:
+        """Verify leaf hashing uses 0x00 prefix (RFC 6962 domain separation)."""
+        # Single leaf: should be H(0x00 || leaf), not leaf as-is
+        leaf1 = hashlib.sha256(b"leaf1").digest()
+        root_single = merkle_root([leaf1])
+        expected_single = hashlib.sha256(b"\x00" + leaf1).digest()
+        assert root_single == expected_single, "Single leaf must use 0x00 prefix"
+
+    def test_merkle_root_rfc6962_internal_prefix(self) -> None:
+        """Verify internal node hashing uses 0x01 prefix (RFC 6962 domain separation)."""
+        # Two leaves: root should be H(0x01 || H(0x00||leaf1) || H(0x00||leaf2))
+        leaf1 = hashlib.sha256(b"leaf1").digest()
+        leaf2 = hashlib.sha256(b"leaf2").digest()
+        h_leaf1 = hashlib.sha256(b"\x00" + leaf1).digest()
+        h_leaf2 = hashlib.sha256(b"\x00" + leaf2).digest()
+        expected_root = hashlib.sha256(b"\x01" + h_leaf1 + h_leaf2).digest()
+        result = merkle_root([leaf1, leaf2])
+        assert result == expected_root, "Internal nodes must use 0x01 prefix"
+
+    def test_merkle_root_rfc6962_four_leaves(self) -> None:
+        """Verify RFC 6962 for 4 leaves (asymmetric tree)."""
+        leaves = [
+            hashlib.sha256(b"leaf1").digest(),
+            hashlib.sha256(b"leaf2").digest(),
+            hashlib.sha256(b"leaf3").digest(),
+            hashlib.sha256(b"leaf4").digest(),
+        ]
+        h_leaves = [hashlib.sha256(b"\x00" + leaf).digest() for leaf in leaves]
+        # Level 1: pair (h_leaves[0], h_leaves[1]) and (h_leaves[2], h_leaves[3])
+        h_01 = hashlib.sha256(b"\x01" + h_leaves[0] + h_leaves[1]).digest()
+        h_23 = hashlib.sha256(b"\x01" + h_leaves[2] + h_leaves[3]).digest()
+        # Level 2: pair (h_01, h_23)
+        root = hashlib.sha256(b"\x01" + h_01 + h_23).digest()
+        result = merkle_root(leaves)
+        assert result == root, "RFC 6962 tree for 4 leaves must match"
 
 
 class TestPayloadDefaults:
@@ -297,3 +346,27 @@ class TestTimestampDefault:
         after = datetime.now(timezone.utc)
 
         assert before <= entry.timestamp <= after
+
+
+class TestCheckpointSigningPubkeyPinning:
+    def test_checkpoint_verify_requires_pinned_pubkey(self, backend: FileBackend) -> None:
+        """Verify that checkpoint signature verification uses the pinned signing_pubkey, not backend trust anchors."""
+        chain = AuditChain(backend, checkpoint_interval=100)
+        chain.append(actor="user1", action="action1")
+        checkpoint = chain.force_checkpoint()
+
+        # Mutate the signing_pubkey in checkpoint to a different key
+        # (simulate key rotation where backend now trusts a new key)
+        tampered = Checkpoint(
+            sequence=checkpoint.sequence,
+            merkle_root=checkpoint.merkle_root,
+            signature=checkpoint.signature,
+            signing_pubkey=b"\xaa" * 32,  # Different (invalid) pubkey
+            timestamp=checkpoint.timestamp,
+        )
+        chain._checkpoints[0] = tampered
+
+        # Verification should fail because signature was signed with original key,
+        # but we're trying to verify against the tampered pubkey
+        with pytest.raises(CheckpointError):
+            chain.verify()

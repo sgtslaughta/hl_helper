@@ -161,6 +161,20 @@ def test_max_depth_configurable():
         parse(nested, schema)
 
 
+def test_in_with_100_values_succeeds(host_schema):
+    """in operator with exactly 100 values should succeed."""
+    values = [f"val-{i}" for i in range(100)]
+    clause = parse({"in": {"id": values}}, host_schema)
+    assert clause is not None
+
+
+def test_in_with_101_values_rejected(host_schema):
+    """in operator with 101 values should raise SearchError."""
+    values = [f"val-{i}" for i in range(101)]
+    with pytest.raises(SearchError, match="in_list_too_long"):
+        parse({"in": {"id": values}}, host_schema)
+
+
 @pytest.mark.asyncio
 async def test_contains_escapes_like_wildcards(sm, host_schema):
     """User input '%' and '_' must NOT act as SQL LIKE wildcards."""

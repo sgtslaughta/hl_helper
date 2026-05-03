@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections import defaultdict, deque
+from collections import OrderedDict, deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Mapping
@@ -107,24 +107,24 @@ class Bus:
     - Supports arbitrary string channels.
     - Per-subscription bounded queues with backpressure (drops oldest, sends advisory).
     - Resume capability: new subscribers can request events since a given sequence.
-    - Ring buffer of recent events per channel for resume support.
+    - Ring buffer of recent events per channel for resume support (LRU eviction).
     """
 
-    def __init__(self, ring_buffer_size: int = 256) -> None:
+    def __init__(self, ring_buffer_size: int = 256, max_channels: int = 1024) -> None:
         """Initialize the bus.
 
         Args:
             ring_buffer_size: Number of recent events to keep per channel for resume.
+            max_channels: Maximum number of distinct channels to keep ring buffers for.
+                When exceeded, least-recently-used channel buffer is evicted.
         """
         self._sequence = 0
         self._sequence_lock = asyncio.Lock()
-        self._subscriptions: dict[str, list[Subscription]] = defaultdict(list)
-        # Ring buffer per channel for resume support. Created on first publish
-        # OR first subscribe for a channel. Callers should use a bounded set
-        # of channel names — high-cardinality channel keys leak memory here.
-        self._ring_buffers: dict[str, deque[Event]] = defaultdict(
-            lambda: deque(maxlen=ring_buffer_size)
-        )
+        self._subscriptions: dict[str, list[Subscription]] = {}
+        self._max_channels = max_channels
+        # Ring buffer per channel using OrderedDict for LRU eviction.
+        # move_to_end() on access; popitem(last=False) to evict oldest when full.
+        self._ring_buffers: OrderedDict[str, deque[Event]] = OrderedDict()
         self._ring_buffer_size = ring_buffer_size
 
     async def publish(self, channel: str, payload: Mapping[str, Any]) -> Event:
@@ -150,6 +150,16 @@ class Bus:
         )
 
         # Store in ring buffer for resume support
+        if channel not in self._ring_buffers:
+            # Evict LRU channel if at capacity
+            if len(self._ring_buffers) >= self._max_channels:
+                self._ring_buffers.popitem(last=False)
+            # Create new ring buffer
+            self._ring_buffers[channel] = deque(maxlen=self._ring_buffer_size)
+        else:
+            # Move channel to end (most recently used)
+            self._ring_buffers.move_to_end(channel)
+
         self._ring_buffers[channel].append(event)
 
         # Send to all subscribers on this channel
@@ -200,7 +210,13 @@ class Bus:
         sub = Subscription(self, channel, queue)
 
         # Register subscription
+        if channel not in self._subscriptions:
+            self._subscriptions[channel] = []
         self._subscriptions[channel].append(sub)
+
+        # Mark channel as accessed in ring buffers (LRU)
+        if channel in self._ring_buffers:
+            self._ring_buffers.move_to_end(channel)
 
         # Replay buffered events if since_sequence provided
         if since_sequence is not None and channel in self._ring_buffers:

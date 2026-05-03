@@ -30,6 +30,7 @@ class SigningBackend(Protocol):
 
     def sign(self, data: bytes) -> bytes: ...
     def verify(self, data: bytes, sig: bytes) -> bool: ...
+    def verify_with_pubkey(self, data: bytes, sig: bytes, pubkey: bytes) -> bool: ...
     def public_key_bytes(self) -> bytes: ...
     def trust_anchors(self) -> list[bytes]: ...
     def rotate(self, grace: timedelta) -> None: ...
@@ -87,6 +88,28 @@ class FileBackend:
             except Exception:
                 continue
         return False
+
+    def verify_with_pubkey(self, data: bytes, sig: bytes, pubkey: bytes) -> bool:
+        """Verify signature with explicit public key (raw 32-byte Ed25519 or PEM).
+
+        Accepts either raw 32-byte Ed25519 public key bytes or a PEM-encoded
+        SubjectPublicKeyInfo. The checkpoint's stored signing_pubkey may be in
+        either form depending on backend version, so both are supported.
+
+        Returns True iff signature verifies under the given pubkey.
+        """
+        try:
+            if len(pubkey) == 32:
+                pub = ed25519.Ed25519PublicKey.from_public_bytes(pubkey)
+            else:
+                loaded = serialization.load_pem_public_key(pubkey)
+                if not isinstance(loaded, ed25519.Ed25519PublicKey):
+                    return False
+                pub = loaded
+            pub.verify(sig, data)
+            return True
+        except Exception:
+            return False
 
     def public_key_bytes(self) -> bytes:
         return (self.dir / self.CURRENT_PUB).read_bytes()
@@ -161,8 +184,14 @@ class FileBackend:
             format=serialization.PrivateFormat.PKCS8,
             encryption_algorithm=serialization.NoEncryption(),
         )
-        path.write_bytes(pem)
-        os.chmod(path, 0o600)
+        # Atomic write with strict perms: write to temp, then rename
+        tmp_path = path.parent / f"{path.name}.tmp"
+        fd = os.open(str(tmp_path), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+        try:
+            os.write(fd, pem)
+        finally:
+            os.close(fd)
+        os.replace(str(tmp_path), str(path))
 
     @staticmethod
     def _write_public(path: Path, key: ed25519.Ed25519PublicKey) -> None:

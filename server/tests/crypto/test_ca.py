@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -133,3 +133,117 @@ def test_verify_chain_rejects_tampered_leaf(ca: InternalCA) -> None:
         + b"-----END CERTIFICATE-----\n"
     )
     assert ca.verify_chain(bad_pem) is False
+
+
+def test_verify_chain_rejects_expired_leaf(ca: InternalCA) -> None:
+    """Chain validation must reject expired leaf certificate."""
+    _, csr_pem = _make_csr("host-expired")
+    # Issue cert with -24 hours (already expired)
+    cert_pem = ca.issue_host_cert(
+        csr_pem, host_id="host-expired", ttl=timedelta(hours=1)
+    )
+    # Manually modify cert to be expired by moving not_valid_after to past
+    cert = x509.load_pem_x509_certificate(cert_pem)
+    now = datetime.now(timezone.utc)
+    expired_cert = (
+        x509.CertificateBuilder()
+        .subject_name(cert.subject)
+        .issuer_name(cert.issuer)
+        .public_key(cert.public_key())
+        .serial_number(cert.serial_number)
+        .not_valid_before(now - timedelta(days=2))
+        .not_valid_after(now - timedelta(hours=1))  # Expired 1h ago
+        .add_extension(cert.extensions[0].value, critical=cert.extensions[0].critical)
+        .add_extension(cert.extensions[1].value, critical=cert.extensions[1].critical)
+        .add_extension(cert.extensions[2].value, critical=cert.extensions[2].critical)
+        .add_extension(cert.extensions[3].value, critical=cert.extensions[3].critical)
+        .sign(private_key=ca.int_key, algorithm=None)
+    )
+    expired_pem = expired_cert.public_bytes(serialization.Encoding.PEM)
+    assert ca.verify_chain(expired_pem) is False
+
+
+def test_verify_chain_rejects_leaf_name_mismatch(ca: InternalCA, tmp_path: Path) -> None:
+    """Chain validation must reject if leaf issuer != intermediate subject."""
+    other_ca = InternalCA.bootstrap(tmp_path / "other")
+    _, csr_pem = _make_csr("host-X")
+    # Issue from different CA, will have wrong issuer
+    foreign_pem = other_ca.issue_host_cert(
+        csr_pem, host_id="host-X", ttl=timedelta(hours=24)
+    )
+    # This is already rejected because signature won't match, but explicitly test name check
+    assert ca.verify_chain(foreign_pem) is False
+
+
+def test_verify_chain_rejects_intermediate_without_ca_flag(ca: InternalCA) -> None:
+    """Chain validation must reject intermediate without BasicConstraints.ca=True."""
+    _, csr_pem = _make_csr("host-Y")
+
+    # Create a cert that looks like an intermediate but lacks CA flag
+    # We'll patch the intermediate temporarily
+    original_int_cert = ca.int_cert
+
+    # Build a fake intermediate without CA flag
+    non_ca_int = (
+        x509.CertificateBuilder()
+        .subject_name(ca.int_cert.subject)
+        .issuer_name(ca.root_cert.subject)
+        .public_key(ca.int_key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(ca.int_cert.not_valid_before_utc)
+        .not_valid_after(ca.int_cert.not_valid_after_utc)
+        .add_extension(
+            x509.BasicConstraints(ca=False, path_length=None), critical=True
+        )
+        .add_extension(
+            x509.KeyUsage(
+                digital_signature=True,
+                content_commitment=False,
+                key_encipherment=False,
+                data_encipherment=False,
+                key_agreement=False,
+                key_cert_sign=True,
+                crl_sign=True,
+                encipher_only=False,
+                decipher_only=False,
+            ),
+            critical=True,
+        )
+        .sign(private_key=ca.root_key, algorithm=None)
+    )
+
+    # Temporarily swap to invalid intermediate
+    ca.int_cert = non_ca_int
+    cert_pem = ca.issue_host_cert(
+        csr_pem, host_id="host-Y", ttl=timedelta(hours=24)
+    )
+    # Restore original
+    ca.int_cert = original_int_cert
+
+    # Create a new CA instance with the invalid intermediate to test
+    test_ca = InternalCA(
+        root_key=ca.root_key,
+        root_cert=ca.root_cert,
+        int_key=ca.int_key,
+        int_cert=non_ca_int,
+    )
+    assert test_ca.verify_chain(cert_pem) is False
+
+
+def test_private_key_file_mode_secure(tmp_path: Path) -> None:
+    """Private key file must be written with 0600 perms atomically."""
+    InternalCA.bootstrap(tmp_path)
+    # Check that the written key file has 0600 perms
+    key_file = tmp_path / "root.key"
+    mode = key_file.stat().st_mode & 0o777
+    assert mode == 0o600, f"Expected 0o600, got {oct(mode)}"
+
+
+def test_signing_private_key_file_mode_secure(tmp_path: Path) -> None:
+    """Signing backend private key file must be written with 0600 perms atomically."""
+    from server.app.crypto.signing import FileBackend
+
+    FileBackend.bootstrap(tmp_path / "signing")
+    key_file = tmp_path / "signing" / "current.key"
+    mode = key_file.stat().st_mode & 0o777
+    assert mode == 0o600, f"Expected 0o600, got {oct(mode)}"

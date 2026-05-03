@@ -66,27 +66,43 @@ class CapabilityIssuer:
     def issue(self, claims: CapabilityClaims) -> bytes:
         """Issue a capability token with the given claims.
 
+        Uses parameterized datalog to prevent injection attacks.
         Returns bytes (utf-8 encoded base64 string).
         """
         # Format datetimes to RFC3339 with Z suffix
         issued_at_str = claims.issued_at.isoformat().replace("+00:00", "Z")
         expires_at_str = claims.expires_at.isoformat().replace("+00:00", "Z")
 
-        # Build datalog body with facts
-        facts = [
-            f'host("{claims.host_id}");',
-            f'action("{claims.action}");',
-            f'issued_at("{issued_at_str}");',
-            f'expires_at("{expires_at_str}");',
-            f'issuer("{claims.issuer}");',
-        ]
-
-        # Add resource fact if present
+        # Build datalog facts using parameterized API to prevent injection
+        # Parameters are safely escaped by the biscuit library
+        datalog_source = (
+            "host({host_id}); "
+            "action({action}); "
+            "issued_at({issued_at}); "
+            "expires_at({expires_at}); "
+            "issuer({issuer})"
+        )
         if claims.resource is not None:
-            facts.insert(2, f'resource("{claims.resource}");')
+            datalog_source = (
+                "host({host_id}); "
+                "action({action}); "
+                "resource({resource}); "
+                "issued_at({issued_at}); "
+                "expires_at({expires_at}); "
+                "issuer({issuer})"
+            )
 
-        datalog_body = " ".join(facts)
-        builder = BiscuitBuilder(datalog_body)
+        params = {
+            "host_id": claims.host_id,
+            "action": claims.action,
+            "issued_at": issued_at_str,
+            "expires_at": expires_at_str,
+            "issuer": claims.issuer,
+        }
+        if claims.resource is not None:
+            params["resource"] = claims.resource
+
+        builder = BiscuitBuilder(datalog_source, parameters=params)
         biscuit = builder.build(self._private_key)
 
         # Return as bytes (utf-8 of base64)

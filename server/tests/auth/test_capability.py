@@ -375,3 +375,97 @@ class TestCapabilityMalformedTokens:
                 expected_host="h1",
                 expected_action="pkg.update",
             )
+
+
+class TestCapabilityDatalogInjection:
+    """Test protection against datalog injection attacks."""
+
+    def test_issue_with_malicious_host_id_injection(self):
+        """Reject or safely handle malicious host_id that attempts datalog injection."""
+        issuer = CapabilityIssuer.generate()
+        now = datetime.now(timezone.utc)
+
+        # Attacker tries to inject datalog rule via host_id
+        malicious_claims = CapabilityClaims(
+            host_id='h1"); allow if true; //',
+            action="pkg.update",
+            resource=None,
+            issued_at=now,
+            expires_at=now + timedelta(minutes=5),
+            issuer="admin",
+        )
+
+        # Either validation rejects the input at issuance, or the parameterized
+        # datalog API treats the string as a literal value (no injected rule).
+        # In the parameterized case, verifying with a *different* host_id must
+        # still fail — proving the injected `allow if true` was not honored.
+        try:
+            token = issuer.issue(malicious_claims)
+            verifier = CapabilityVerifier([issuer.public_key])
+
+            # Verify with a different host should fail — injection not honored
+            with pytest.raises(CapabilityScopeError):
+                verifier.verify(
+                    token,
+                    expected_host="not-h1",
+                    expected_action="pkg.update",
+                )
+        except ValueError as e:
+            # If validation is done at issuance, ValueError is also acceptable
+            assert "injection" in str(e).lower() or "invalid" in str(e).lower()
+
+    def test_issue_with_malicious_action_injection(self):
+        """Reject or safely handle malicious action that attempts datalog injection."""
+        issuer = CapabilityIssuer.generate()
+        now = datetime.now(timezone.utc)
+
+        malicious_claims = CapabilityClaims(
+            host_id="h1",
+            action='pkg.update"); allow if true; //',
+            resource=None,
+            issued_at=now,
+            expires_at=now + timedelta(minutes=5),
+            issuer="admin",
+        )
+
+        try:
+            token = issuer.issue(malicious_claims)
+            verifier = CapabilityVerifier([issuer.public_key])
+
+            with pytest.raises(CapabilityScopeError):
+                verifier.verify(
+                    token,
+                    expected_host="h1",
+                    expected_action="not-pkg.update",
+                )
+        except ValueError as e:
+            assert "injection" in str(e).lower() or "invalid" in str(e).lower()
+
+    def test_issue_roundtrip_legitimate_values_still_works(self):
+        """Verify legitimate input still works correctly after injection protection."""
+        issuer = CapabilityIssuer.generate()
+        now = datetime.now(timezone.utc)
+
+        # Legitimate values that might look unusual but are safe
+        claims = CapabilityClaims(
+            host_id="host-123_abc:def",
+            action="pkg.update.security",
+            resource="pkg:openssl-1.1.1",
+            issued_at=now,
+            expires_at=now + timedelta(minutes=5),
+            issuer="admin-user",
+        )
+
+        token = issuer.issue(claims)
+        verifier = CapabilityVerifier([issuer.public_key])
+
+        result = verifier.verify(
+            token,
+            expected_host="host-123_abc:def",
+            expected_action="pkg.update.security",
+            expected_resource="pkg:openssl-1.1.1",
+        )
+
+        assert result.host_id == "host-123_abc:def"
+        assert result.action == "pkg.update.security"
+        assert result.resource == "pkg:openssl-1.1.1"
