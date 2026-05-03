@@ -1,4 +1,10 @@
-"""Risk classifier: (payload_kind, target_count) → 'low'|'med'|'high'."""
+"""Risk classifier: (payload_kind, target_count) → 'low'|'med'|'high'.
+
+Provides classify() to assess operational risk based on command type and scope.
+Fail-closed design: unknown payloads default to 'high'. Security-critical operations
+(shell_exec, container_exec, shutdown on multiple hosts) are high risk. Package
+updates are low risk only with explicit security metadata; otherwise medium.
+"""
 
 from __future__ import annotations
 
@@ -12,6 +18,7 @@ PayloadKind = Literal[
     "container_update",
     "file_transfer",
     "custom",
+    "container_exec",
 ]
 RiskLevel = Literal["low", "med", "high"]
 

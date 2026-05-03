@@ -1,4 +1,10 @@
-"""Resolve a target selector to a concrete list of host IDs."""
+"""Resolve target selectors to concrete host lists with diamond-dedup and nesting.
+
+Supports four selector types: GroupSelector (with optional subgroup expansion),
+TagSelector (JSON label matching), HostListSelector (direct ID list), and
+MixedSelector (recursive union of selectors). resolve_targets() returns unique
+sorted host IDs, deduplicating overlaps and handling graph traversal for groups.
+"""
 
 from __future__ import annotations
 
@@ -30,7 +36,7 @@ class HostListSelector:
 
 @dataclass(frozen=True)
 class MixedSelector:
-    selectors: list["GroupSelector | TagSelector | HostListSelector"]
+    selectors: list["GroupSelector | TagSelector | HostListSelector | MixedSelector"]
 
 
 Selector = GroupSelector | TagSelector | HostListSelector | MixedSelector

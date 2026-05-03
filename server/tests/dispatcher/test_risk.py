@@ -41,3 +41,26 @@ def test_container_update_threshold_5() -> None:
     assert classify("container_update", 5) == "med"
     assert classify("container_update", 6) == "high"
     assert classify("container_update", 100) == "high"
+
+
+def test_container_exec_high() -> None:
+    """container_exec always returns high."""
+    assert classify("container_exec", 1) == "high"
+    assert classify("container_exec", 100) == "high"
+
+
+def test_file_transfer_med() -> None:
+    """file_transfer always returns med."""
+    assert classify("file_transfer", 1) == "med"
+    assert classify("file_transfer", 100) == "med"
+
+
+def test_shutdown_one_host_med() -> None:
+    """shutdown with 1 host returns med."""
+    assert classify("shutdown", 1) == "med"
+
+
+def test_custom_high() -> None:
+    """custom always returns high (fail-closed)."""
+    assert classify("custom", 1) == "high"
+    assert classify("custom", 100) == "high"

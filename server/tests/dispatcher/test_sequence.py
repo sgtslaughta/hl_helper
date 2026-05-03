@@ -75,3 +75,74 @@ async def test_concurrent_per_host_no_dupes_no_gaps(
     assert sorted_results == list(range(1, 51)), (
         f"Expected range 1..50, got {sorted_results}"
     )
+
+
+@pytest.mark.asyncio
+async def test_sequence_durable_across_session_close(
+    sm: async_sessionmaker,
+) -> None:
+    """Allocate 3 in one session, commit, close; new session sees next_seq=4."""
+    # Session 1: allocate 3 times, commit, and close
+    async with sm() as session:
+        seq1 = await allocate(session, "host-durable")
+        seq2 = await allocate(session, "host-durable")
+        seq3 = await allocate(session, "host-durable")
+        await session.commit()
+        # Session implicitly closed here
+
+        assert seq1 == 1
+        assert seq2 == 2
+        assert seq3 == 3
+
+    # Session 2: new session should get seq=4 (next_seq is durable)
+    async with sm() as session:
+        seq4 = await allocate(session, "host-durable")
+        await session.commit()
+
+        assert seq4 == 4
+
+
+@pytest.mark.asyncio
+async def test_updated_at_bumps_on_each_allocation(
+    sm: async_sessionmaker,
+) -> None:
+    """updated_at timestamp is bumped on each allocation."""
+    from sqlalchemy import select
+    from server.app.models.host_sequence import HostSequence
+
+    # First allocation
+    async with sm() as session:
+        seq1 = await allocate(session, "host-timestamp")
+        await session.commit()
+
+        assert seq1 == 1
+
+    # Get first updated_at
+    async with sm() as session:
+        row1 = (
+            await session.execute(
+                select(HostSequence).where(HostSequence.host_id == "host-timestamp")
+            )
+        ).scalar_one()
+        updated_at_1 = row1.updated_at
+
+    # Delay long enough for second-resolution timestamp to differ
+    await asyncio.sleep(1.1)
+
+    async with sm() as session:
+        seq2 = await allocate(session, "host-timestamp")
+        await session.commit()
+
+        assert seq2 == 2
+
+    # Get second updated_at
+    async with sm() as session:
+        row2 = (
+            await session.execute(
+                select(HostSequence).where(HostSequence.host_id == "host-timestamp")
+            )
+        ).scalar_one()
+        updated_at_2 = row2.updated_at
+
+    # Verify updated_at was bumped (second is later than first)
+    assert updated_at_2 > updated_at_1
