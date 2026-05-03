@@ -6,6 +6,7 @@ import base64
 from typing import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -68,7 +69,7 @@ async def enroll(
     body: EnrollRequest,
     service: EnrollmentService = Depends(get_enrollment_service),
     session: AsyncSession = Depends(get_session),
-) -> EnrollResponse:
+) -> EnrollResponse | JSONResponse:
     """Enroll an agent with a one-time token."""
     # Decode pubkey
     try:

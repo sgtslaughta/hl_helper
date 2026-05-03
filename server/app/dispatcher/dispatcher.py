@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import ClassVar
+from typing import Any, ClassVar
 from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -151,9 +151,9 @@ class CommandDispatcher:
         audit: SqlAuditChain,
         capability_issuer: CapabilityIssuer,
         signing_backend: SigningBackend,
-        approval_engine,  # Optional for this implementation
-        rbac_provider,
-        scope_evaluator,  # Optional for this implementation
+        approval_engine: Any,  # ApprovalEngine-like; duck-typed for tests
+        rbac_provider: Any,
+        scope_evaluator: Any,  # reserved; not yet used
     ) -> None:
         """Initialize dispatcher with collaborators."""
         self._queue = queue
@@ -321,8 +321,10 @@ class CommandDispatcher:
                 sequence=sequence,
                 nonce=nonce,
                 issued_by=principal_id,
-                risk=_risk_to_proto(risk),
             )
+            # Proto enum value from generated module — use the int constant directly
+            # via setattr to bypass type-stub strictness on the enum field type.
+            setattr(envelope, "risk", _risk_to_proto(risk))
             # Set timestamps
             envelope.issued_at.FromDatetime(issued_at)
             envelope.expires_at.FromDatetime(expires_at)
@@ -380,7 +382,7 @@ class CommandDispatcher:
 
         # Step 12: Return DispatchResult
         return DispatchResult(
-            task_id=task_id,
+            task_id=task_id or "",
             dispatched=dispatched_candidates,
             denied=denied,
             pending_approval_ids=pending_approval_ids,
@@ -388,11 +390,12 @@ class CommandDispatcher:
 
     def _get_payload_kind(self, payload: object) -> str:
         """Extract payload_kind from payload object."""
-        if hasattr(payload, "payload_kind"):
-            return payload.payload_kind
+        kind = getattr(payload, "payload_kind", None)
+        if isinstance(kind, str):
+            return kind
         raise TypeError(f"payload has no payload_kind: {type(payload).__name__}")
 
-    def _extract_payload_metadata(self, payload: object) -> dict:
+    def _extract_payload_metadata(self, payload: object) -> dict[str, Any]:
         """Extract metadata from payload for risk classification."""
         if isinstance(payload, PkgUpdatePayload):
             return {"classes": payload.classes}

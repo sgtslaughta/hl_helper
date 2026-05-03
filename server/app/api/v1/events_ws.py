@@ -81,7 +81,7 @@ async def _event_to_json(event: Event) -> dict[str, Any]:
 
 async def _send_heartbeat(
     ws: WebSocket,
-    last_pong: dict,
+    last_pong: dict[str, float],
     interval_sec: float,
     timeout_sec: float,
 ) -> None:
@@ -150,9 +150,9 @@ async def events_ws(
     await ws.accept()
 
     # Get or create Bus from app state (interim until Task 7.4 wires it)
-    bus: Bus = getattr(ws.app.state, "bus", None)
-    if bus is None:
-        bus = Bus()
+    bus_attr = getattr(ws.app.state, "bus", None)
+    bus: Bus = bus_attr if isinstance(bus_attr, Bus) else Bus()
+    if bus_attr is None:
         ws.app.state.bus = bus
 
     # Send ready signal
@@ -162,7 +162,7 @@ async def events_ws(
     import time
     subscriptions: dict[str, Any] = {}
     forward_tasks: list[asyncio.Task[Any]] = []
-    last_pong: dict = {"ts": time.monotonic()}
+    last_pong: dict[str, float] = {"ts": time.monotonic()}
     heartbeat_task = asyncio.create_task(
         _send_heartbeat(ws, last_pong, heartbeat_interval, pong_timeout)
     )

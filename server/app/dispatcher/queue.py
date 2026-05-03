@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections import OrderedDict
 from datetime import datetime, timezone
 
-from sqlalchemy import select, update
+from sqlalchemy import Select, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.app.models.command import Command, CommandStatus
@@ -71,7 +71,7 @@ class CommandQueue:
 
         return command
 
-    def _oldest_queued_stmt(self, host_id: str):
+    def _oldest_queued_stmt(self, host_id: str) -> Select[tuple[Command]]:
         return (
             select(Command)
             .where(Command.host_id == host_id, Command.status == CommandStatus.QUEUED)
@@ -102,7 +102,8 @@ class CommandQueue:
     async def peek(self, session: AsyncSession, host_id: str) -> Command | None:
         """Return oldest QUEUED command for host without changing state."""
         result = await session.execute(self._oldest_queued_stmt(host_id))
-        return result.scalar_one_or_none()
+        row: Command | None = result.scalar_one_or_none()
+        return row
 
     async def expire_overdue(
         self, session: AsyncSession, *, now: datetime | None = None
@@ -125,4 +126,5 @@ class CommandQueue:
             .execution_options(synchronize_session=False)
         )
         result = await session.execute(stmt)
-        return int(result.rowcount or 0)
+        rowcount = getattr(result, "rowcount", None)
+        return int(rowcount or 0)

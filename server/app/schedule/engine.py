@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Awaitable, Callable
+from typing import Any, Awaitable, Callable
 
 from zoneinfo import ZoneInfo
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
@@ -40,7 +40,7 @@ class ScheduleEngine:
     def __init__(
         self,
         *,
-        sessionmaker: async_sessionmaker,
+        sessionmaker: async_sessionmaker[Any],
         on_fire: Callable[[Schedule], Awaitable[None]],
         jobstore_url: str | None = None,
     ) -> None:

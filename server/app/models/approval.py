@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
+from typing import Any
 
 from sqlalchemy import DateTime, Enum as SQLEnum, Index, String, func, LargeBinary, JSON
 from sqlalchemy.orm import Mapped, mapped_column
@@ -72,7 +73,7 @@ class Approval(Base):
     )
     mfa_proof_hash: Mapped[bytes | None] = mapped_column(LargeBinary(32), nullable=True)
     rejected_reason: Mapped[str | None] = mapped_column(String, nullable=True)
-    payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
