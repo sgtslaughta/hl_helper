@@ -10,6 +10,7 @@ from pydantic import SecretStr
 
 from server.app.api.app import create_app
 from server.app.settings.config import FleetSettings
+from server.tests._helpers.app_state import make_test_app_state
 
 
 @pytest.fixture(autouse=True)
@@ -34,7 +35,7 @@ def mock_settings():
 async def test_reboot_endpoint_dispatches_and_returns_task_id(auth, sm, mock_settings):
     """POST /actions/reboot with valid host returns 200 with task_id."""
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
 
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
@@ -74,7 +75,7 @@ async def test_reboot_endpoint_dispatches_and_returns_task_id(auth, sm, mock_set
 async def test_shell_exec_endpoint_creates_pending_approval(auth, sm, mock_settings):
     """Shell exec dispatch returns pending_approval_ids when approval needed."""
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
 
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
@@ -112,7 +113,7 @@ async def test_shell_exec_endpoint_creates_pending_approval(auth, sm, mock_setti
 async def test_action_missing_acting_principal_400(auth, sm, mock_settings):
     """POST /actions without X-Acting-Principal header returns 400."""
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
 
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
@@ -140,7 +141,7 @@ async def test_action_missing_acting_principal_400(auth, sm, mock_settings):
 async def test_action_unknown_host_returns_dispatched_empty(auth, sm, mock_settings):
     """POST /actions with nonexistent host returns empty dispatched."""
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
 
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
@@ -177,7 +178,7 @@ async def test_action_unknown_host_returns_dispatched_empty(auth, sm, mock_setti
 async def test_idempotent_reboot_same_key_returns_same_task_id(auth, sm, mock_settings):
     """Two calls with same Idempotency-Key return same task_id."""
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
 
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
@@ -221,7 +222,7 @@ async def test_idempotent_reboot_same_key_returns_same_task_id(auth, sm, mock_se
 async def test_pkg_update_endpoint(auth, sm, mock_settings):
     """POST /actions/pkg-update with classes list."""
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
 
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",

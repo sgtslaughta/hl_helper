@@ -19,6 +19,7 @@ from sqlalchemy import select
 from server.app.api.state import get_app_state
 from server.app.api.middleware.admin_auth import admin_required
 from server.app.models import Setting
+from server.app.models.setting import SettingSource
 from server.app.settings.config import load_settings, SECRET_FIELDS
 
 router = APIRouter(prefix="/v1/settings", tags=["settings"])
@@ -125,7 +126,7 @@ async def patch_setting(req: Request, body: PatchRequest) -> EffectiveSetting:
 
         # Apply
         existing.value = body.value
-        existing.source = "runtime"
+        existing.source = SettingSource.RUNTIME
         existing.updated_at = datetime.now(timezone.utc)
         await session.commit()
 

@@ -72,8 +72,12 @@ def require(
 
         resource = await _resolve_resource(resource_loader, request)
 
-        # Fix 2: Defensive sessionmaker check
+        # Defensive sessionmaker check. Read from AppState (production lifespan)
+        # or fall back to direct app.state.sessionmaker injection (legacy tests).
         sm = getattr(request.app.state, "sessionmaker", None)
+        if sm is None:
+            app_state = getattr(request.app.state, "app_state", None)
+            sm = getattr(app_state, "sessionmaker", None) if app_state else None
         if sm is None:
             raise HTTPException(status_code=500, detail="rbac_session_unavailable")
 
@@ -85,6 +89,9 @@ def require(
 
         if not decision.allow:
             audit = getattr(request.app.state, "audit_chain", None)
+            if audit is None:
+                app_state = getattr(request.app.state, "app_state", None)
+                audit = getattr(app_state, "audit_chain", None) if app_state else None
             if audit is not None:
                 principal_id = principal.user_id or principal.service_account_id or "<unknown>"
                 async with sm() as audit_session:

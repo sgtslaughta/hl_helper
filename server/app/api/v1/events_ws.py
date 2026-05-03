@@ -8,6 +8,7 @@ from typing import Any
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
 
+from server.app.api.state import get_app_state
 from server.app.events.bus import Bus, Event
 from server.app.events.ws_filter import event_visible
 from server.app.settings.config import load_settings
@@ -149,11 +150,17 @@ async def events_ws(
     # Accept connection
     await ws.accept()
 
-    # Get or create Bus from app state (interim until Task 7.4 wires it)
-    bus_attr = getattr(ws.app.state, "bus", None)
-    bus: Bus = bus_attr if isinstance(bus_attr, Bus) else Bus()
-    if bus_attr is None:
-        ws.app.state.bus = bus
+    # Resolve Bus. Tests that inject ``app.state.bus = bus_inst`` directly
+    # take precedence over the lifespan-built bus (legacy injection path).
+    # Fall back to lifespan's bus, then to a fresh Bus.
+    direct_bus = getattr(ws.app.state, "bus", None)
+    if isinstance(direct_bus, Bus):
+        bus = direct_bus
+    else:
+        state = get_app_state(ws)
+        bus = state.bus if state.bus is not None else Bus()
+        if direct_bus is None:
+            ws.app.state.bus = bus
 
     # Send ready signal
     await ws.send_json({"type": "ready"})

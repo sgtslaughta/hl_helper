@@ -118,3 +118,40 @@ def test_admin_seeded_idempotent(tmp_path: Path) -> None:
             {"email": admin_email},
         ).scalar()
         assert user_count == 1, f"Expected 1 user, found {user_count}"
+
+
+def test_admin_seeded_double_upgrade_idempotent(tmp_path: Path) -> None:
+    """Test that running upgrade twice without downgrade is idempotent."""
+    db = tmp_path / "fleet_test.db"
+    admin_email = "admin@test"
+    env = os.environ.copy()
+    env["FLEET_DB_URL"] = f"sqlite+aiosqlite:///{db}"
+    env["FLEET_BOOTSTRAP_ADMIN_EMAIL"] = admin_email
+
+    repo = Path(__file__).resolve().parents[3]
+
+    # Run upgrade to head
+    result1 = subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        cwd=repo, env=env, capture_output=True, text=True,
+    )
+    assert result1.returncode == 0, f"alembic upgrade failed:\n{result1.stdout}\n{result1.stderr}"
+
+    # Run upgrade to head again (idempotent)
+    result2 = subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        cwd=repo, env=env, capture_output=True, text=True,
+    )
+    assert result2.returncode == 0, f"alembic upgrade failed:\n{result2.stdout}\n{result2.stderr}"
+
+    # Verify still only one binding/user
+    eng = create_engine(f"sqlite:///{db}")
+    with eng.connect() as conn:
+        binding_count = conn.execute(text("SELECT COUNT(*) FROM bindings")).scalar()
+        assert binding_count == 1, f"Expected 1 binding, found {binding_count}"
+
+        user_count = conn.execute(
+            text("SELECT COUNT(*) FROM users WHERE email = :email"),
+            {"email": admin_email},
+        ).scalar()
+        assert user_count == 1, f"Expected 1 user, found {user_count}"

@@ -17,6 +17,7 @@ from server.app.deps import current_principal
 from server.app.deps_rbac import require
 from server.app.models import AuditEntry, Binding, Role
 from server.app.rbac import Principal, Resource
+from server.tests._helpers.app_state import make_test_app_state
 
 
 @pytest.mark.asyncio
@@ -68,8 +69,7 @@ async def test_require_grants_when_principal_authorized(
         await session.commit()
 
     app = FastAPI()
-    app.state.sessionmaker = sm
-    app.state.audit_chain = None
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
 
     fake_principal = Principal(user_id="u-1")
     app.dependency_overrides[current_principal] = lambda: fake_principal
@@ -92,8 +92,7 @@ async def test_require_emits_audit_on_deny(
     audit = SqlAuditChain(signing_backend)
 
     app = FastAPI()
-    app.state.sessionmaker = sm
-    app.state.audit_chain = audit
+    app.state.app_state = make_test_app_state(sessionmaker=sm, audit_chain=audit)
 
     fake_principal = Principal(user_id="u-deny")
     app.dependency_overrides[current_principal] = lambda: fake_principal
@@ -119,8 +118,7 @@ async def test_require_with_resource_loader_async(
 ) -> None:
     """resource_loader can be async; loaded resource flows into authz."""
     app = FastAPI()
-    app.state.sessionmaker = sm
-    app.state.audit_chain = None
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
     app.dependency_overrides[current_principal] = lambda: Principal(user_id="u-x")
 
     async def load_host(req) -> Resource:
@@ -140,8 +138,7 @@ async def test_require_with_resource_loader_async(
 async def test_require_with_sync_resource_loader(sm: async_sessionmaker) -> None:
     """resource_loader can be a plain sync function."""
     app = FastAPI()
-    app.state.sessionmaker = sm
-    app.state.audit_chain = None
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
     app.dependency_overrides[current_principal] = lambda: Principal(user_id="u-x")
 
     def load_host(req) -> Resource:
@@ -180,8 +177,7 @@ async def test_require_returns_decision_with_binding_id(sm: async_sessionmaker) 
         await session.commit()
 
     app = FastAPI()
-    app.state.sessionmaker = sm
-    app.state.audit_chain = None
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
     app.dependency_overrides[current_principal] = lambda: Principal(user_id="u-bp")
 
     @app.get("/p")
@@ -203,8 +199,7 @@ async def test_require_audit_payload_contains_perm_and_reason(
     audit = SqlAuditChain(signing_backend)
 
     app = FastAPI()
-    app.state.sessionmaker = sm
-    app.state.audit_chain = audit
+    app.state.app_state = make_test_app_state(sessionmaker=sm, audit_chain=audit)
     app.dependency_overrides[current_principal] = lambda: Principal(user_id="u-pr")
 
     @app.get("/blk", dependencies=[Depends(require("host:exec"))])

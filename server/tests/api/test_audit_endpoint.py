@@ -12,6 +12,7 @@ from sqlalchemy import select
 from server.app.api.app import create_app
 from server.app.audit.sql_chain import SqlAuditChain
 from server.app.models.audit import AuditEntry
+from server.tests._helpers.app_state import make_test_app_state
 
 
 @pytest.fixture
@@ -35,7 +36,7 @@ def mock_admin_token():  # type: ignore[no-untyped-def]
 async def test_list_audit_admin_gated_401(sm, mock_admin_token) -> None:  # type: ignore[no-untyped-def]
     """Unauthenticated request to /v1/audit returns 401."""
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         r = await c.get("/v1/audit")
         assert r.status_code == 401
@@ -57,7 +58,7 @@ async def test_list_audit_returns_entries(auth, sm, signing_backend, mock_admin_
         await session.commit()
 
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         r = await c.get("/v1/audit", headers=auth)
         assert r.status_code == 200
@@ -78,7 +79,7 @@ async def test_filter_by_actor(auth, sm, signing_backend, mock_admin_token) -> N
         await session.commit()
 
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         r = await c.get("/v1/audit?actor=u-1", headers=auth)
         assert r.status_code == 200
@@ -98,7 +99,7 @@ async def test_filter_by_action(auth, sm, signing_backend, mock_admin_token) -> 
         await session.commit()
 
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         r = await c.get("/v1/audit?action=role.created", headers=auth)
         assert r.status_code == 200
@@ -118,7 +119,7 @@ async def test_filter_by_subject(auth, sm, signing_backend, mock_admin_token) ->
         await session.commit()
 
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         r = await c.get("/v1/audit?subject=g-1", headers=auth)
         assert r.status_code == 200
@@ -137,7 +138,7 @@ async def test_pagination_returns_next_cursor(auth, sm, signing_backend, mock_ad
         await session.commit()
 
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         # Page 1
         r1 = await c.get("/v1/audit?limit=3", headers=auth)
@@ -171,7 +172,7 @@ async def test_verify_clean_chain(auth, sm, signing_backend, mock_admin_token) -
         await session.commit()
 
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         r = await c.post("/v1/audit/actions/verify", headers=auth, json={})
         assert r.status_code == 200
@@ -198,7 +199,7 @@ async def test_verify_detects_tamper(auth, sm, signing_backend, mock_admin_token
         await session.commit()
 
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         r = await c.post("/v1/audit/actions/verify", headers=auth, json={})
         assert r.status_code == 200
@@ -217,7 +218,7 @@ async def test_export_streams_ndjson(auth, sm, signing_backend, mock_admin_token
         await session.commit()
 
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         r = await c.get("/v1/audit/export", headers=auth)
         assert r.status_code == 200
@@ -241,7 +242,7 @@ async def test_export_filters_apply(auth, sm, signing_backend, mock_admin_token)
         await session.commit()
 
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         r = await c.get("/v1/audit/export?actor=u-1", headers=auth)
         assert r.status_code == 200
@@ -260,7 +261,7 @@ async def test_pagination_follows_next_cursor_through_3_pages(auth, sm, signing_
         await session.commit()
 
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         # Page 1
         r1 = await c.get("/v1/audit?limit=3", headers=auth)
@@ -297,7 +298,7 @@ async def test_verify_with_from_seq_to_seq_filters(auth, sm, signing_backend, mo
         await session.commit()
 
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         # Verify full chain first (sanity check)
         r = await c.post("/v1/audit/actions/verify", json={}, headers=auth)
@@ -311,7 +312,7 @@ async def test_verify_with_from_seq_to_seq_filters(auth, sm, signing_backend, mo
 async def test_verify_empty_chain_ok(auth, sm, mock_admin_token) -> None:  # type: ignore[no-untyped-def]
     """Empty chain → ok=true, total_entries=0."""
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         r = await c.post("/v1/audit/actions/verify", json={}, headers=auth)
         assert r.status_code == 200
@@ -324,7 +325,7 @@ async def test_verify_empty_chain_ok(auth, sm, mock_admin_token) -> None:  # typ
 async def test_invalid_cursor_returns_400(auth, sm, mock_admin_token) -> None:  # type: ignore[no-untyped-def]
     """Malformed cursor parameter returns 400."""
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         r = await c.get("/v1/audit?cursor=not-base64-json", headers=auth)
         assert r.status_code == 400
@@ -342,7 +343,7 @@ async def test_verify_chain_streams_large_chains(auth, sm, signing_backend, mock
         await session.commit()
 
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         r = await c.post("/v1/audit/actions/verify", json={}, headers=auth)
         assert r.status_code == 200

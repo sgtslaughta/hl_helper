@@ -10,6 +10,7 @@ from server.app.api.app import create_app
 from server.app.models import Role, Binding
 from server.app.models.binding import PrincipalType, ScopeKind
 from server.app.settings.config import FleetSettings
+from server.tests._helpers.app_state import make_test_app_state
 from pydantic import SecretStr
 
 
@@ -31,7 +32,7 @@ def auth_headers() -> dict[str, str]:
 async def test_list_roles_includes_builtin_4(sm):
     """Verify GET /v1/roles returns all 4 built-in roles with built_in flag."""
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
         return_value=FleetSettings(admin_token=SecretStr(ADMIN_TOKEN)),
@@ -51,7 +52,7 @@ async def test_list_roles_includes_builtin_4(sm):
 async def test_create_custom_role_201(sm):
     """Verify POST /v1/roles with valid perms returns 201."""
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
         return_value=FleetSettings(admin_token=SecretStr(ADMIN_TOKEN)),
@@ -74,7 +75,7 @@ async def test_create_custom_role_201(sm):
 async def test_create_role_invalid_permission_422(sm):
     """Verify POST with bogus perm returns 422 with detail."""
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
         return_value=FleetSettings(admin_token=SecretStr(ADMIN_TOKEN)),
@@ -94,7 +95,7 @@ async def test_create_role_invalid_permission_422(sm):
 async def test_update_builtin_role_403(sm):
     """Verify PATCH on built-in role returns 403."""
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
         return_value=FleetSettings(admin_token=SecretStr(ADMIN_TOKEN)),
@@ -119,7 +120,7 @@ async def test_update_builtin_role_403(sm):
 async def test_delete_builtin_role_403(sm):
     """Verify DELETE on built-in role returns 403."""
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
         return_value=FleetSettings(admin_token=SecretStr(ADMIN_TOKEN)),
@@ -143,7 +144,7 @@ async def test_delete_builtin_role_403(sm):
 async def test_delete_role_with_bindings_409(sm):
     """Verify DELETE role with bindings returns 409."""
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
 
     # Create custom role and binding
     async with sm() as session:
@@ -185,7 +186,7 @@ async def test_delete_role_with_bindings_409(sm):
 async def test_update_custom_role_200(sm):
     """Verify PATCH custom role's permissions returns 200 and updates."""
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
 
     # Create custom role
     async with sm() as session:
@@ -227,7 +228,7 @@ async def test_update_custom_role_200(sm):
 async def test_delete_custom_role_204(sm):
     """Verify DELETE custom role with no bindings returns 204."""
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
 
     # Create custom role
     async with sm() as session:
@@ -257,7 +258,7 @@ async def test_delete_custom_role_204(sm):
 async def test_list_roles_admin_gated_401(sm):
     """Verify GET /v1/roles without token returns 401."""
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
         return_value=FleetSettings(admin_token=SecretStr(ADMIN_TOKEN)),
@@ -271,7 +272,7 @@ async def test_list_roles_admin_gated_401(sm):
 async def test_create_duplicate_name_409(sm):
     """Verify POST with duplicate name returns 409."""
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
 
     # Create first role
     async with sm() as session:
@@ -305,7 +306,7 @@ async def test_create_duplicate_name_409(sm):
 async def test_patch_invalid_permission_422(sm):
     """Verify PATCH with invalid permission returns 422."""
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
 
     # Create custom role
     async with sm() as session:
@@ -338,7 +339,7 @@ async def test_patch_invalid_permission_422(sm):
 async def test_patch_empty_permissions_list_allowed(sm):
     """Verify PATCH with empty permissions list is allowed (inert role)."""
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
 
     # Create custom role with permissions
     async with sm() as session:
@@ -381,7 +382,7 @@ async def test_patch_empty_permissions_list_allowed(sm):
 async def test_patch_clear_description_to_null(sm):
     """Verify PATCH can clear description by setting to null."""
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
 
     # Create custom role with description
     async with sm() as session:
@@ -424,7 +425,7 @@ async def test_patch_clear_description_to_null(sm):
 async def test_role_name_immutable_via_patch(sm):
     """Verify PATCH silently ignores name changes (RoleUpdate excludes name)."""
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
 
     # Create custom role
     async with sm() as session:

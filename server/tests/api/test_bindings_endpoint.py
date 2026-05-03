@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from server.app.api.app import create_app
 from server.app.models.role import Role
 from server.app.settings.config import FleetSettings
+from server.tests._helpers.app_state import make_test_app_state
 from server.tests.models.conftest import sm  # noqa: F401
 
 
@@ -23,7 +24,7 @@ async def client(sm: async_sessionmaker) -> AsyncIterator[httpx.AsyncClient]:  #
     app = create_app()
 
     # Set the sessionmaker in app state
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
 
     # Mock settings with test admin token
     mock_settings = FleetSettings(admin_token=SecretStr("test-admin-token"))
@@ -44,7 +45,7 @@ async def client(sm: async_sessionmaker) -> AsyncIterator[httpx.AsyncClient]:  #
 async def test_list_bindings_admin_gated_401(sm: async_sessionmaker) -> None:  # noqa: F811
     """GET /v1/bindings without auth → 401."""
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
 
     mock_settings = FleetSettings(admin_token=SecretStr("test-admin-token"))
 
@@ -65,7 +66,7 @@ async def test_create_global_binding_201(client: httpx.AsyncClient) -> None:
     """POST /v1/bindings with global scope → 201."""
     # Get a role ID from the seeded roles that were created in the fixture's app.state.sessionmaker
     app = client._transport.app
-    session_maker = app.state.sessionmaker
+    session_maker = app.state.app_state.sessionmaker
     async with session_maker() as session:
         role = await session.scalar(
             select(Role).where(Role.name == "viewer")
@@ -94,7 +95,7 @@ async def test_create_global_binding_201(client: httpx.AsyncClient) -> None:
 async def test_create_group_binding_with_value_validates(client: httpx.AsyncClient) -> None:
     """POST /v1/bindings with group scope validates shape."""
     app = client._transport.app
-    session_maker = app.state.sessionmaker
+    session_maker = app.state.app_state.sessionmaker
     async with session_maker() as session:
         role = await session.scalar(
             select(Role).where(Role.name == "viewer")
@@ -120,7 +121,7 @@ async def test_create_group_binding_with_value_validates(client: httpx.AsyncClie
 async def test_create_invalid_scope_value_shape_422(client: httpx.AsyncClient) -> None:
     """POST /v1/bindings with invalid scope_value shape → 422."""
     app = client._transport.app
-    session_maker = app.state.sessionmaker
+    session_maker = app.state.app_state.sessionmaker
     async with session_maker() as session:
         role = await session.scalar(
             select(Role).where(Role.name == "viewer")
@@ -144,7 +145,7 @@ async def test_create_invalid_scope_value_shape_422(client: httpx.AsyncClient) -
 async def test_create_unknown_scope_kind_422(client: httpx.AsyncClient) -> None:
     """POST /v1/bindings with invalid scope_kind → 422."""
     app = client._transport.app
-    session_maker = app.state.sessionmaker
+    session_maker = app.state.app_state.sessionmaker
     async with session_maker() as session:
         role = await session.scalar(
             select(Role).where(Role.name == "viewer")
@@ -168,7 +169,7 @@ async def test_create_unknown_scope_kind_422(client: httpx.AsyncClient) -> None:
 async def test_duplicate_binding_409(client: httpx.AsyncClient) -> None:
     """POST same binding twice → second is 409."""
     app = client._transport.app
-    session_maker = app.state.sessionmaker
+    session_maker = app.state.app_state.sessionmaker
     async with session_maker() as session:
         role = await session.scalar(
             select(Role).where(Role.name == "viewer")
@@ -196,7 +197,7 @@ async def test_duplicate_binding_409(client: httpx.AsyncClient) -> None:
 async def test_filter_by_principal_id(client: httpx.AsyncClient) -> None:
     """GET /v1/bindings?principal_id=u-1 filters correctly."""
     app = client._transport.app
-    session_maker = app.state.sessionmaker
+    session_maker = app.state.app_state.sessionmaker
     async with session_maker() as session:
         role = await session.scalar(
             select(Role).where(Role.name == "viewer")
@@ -239,7 +240,7 @@ async def test_filter_by_principal_id(client: httpx.AsyncClient) -> None:
 async def test_delete_binding_204_then_404(client: httpx.AsyncClient) -> None:
     """DELETE /v1/bindings/{id} returns 204, then 404 on second attempt."""
     app = client._transport.app
-    session_maker = app.state.sessionmaker
+    session_maker = app.state.app_state.sessionmaker
     async with session_maker() as session:
         role = await session.scalar(
             select(Role).where(Role.name == "viewer")
@@ -272,7 +273,7 @@ async def test_delete_binding_204_then_404(client: httpx.AsyncClient) -> None:
 async def test_scope_hash_deterministic_for_value_key_order(client: httpx.AsyncClient) -> None:
     """POST two bindings with same scope_value but different key order → 409."""
     app = client._transport.app
-    session_maker = app.state.sessionmaker
+    session_maker = app.state.app_state.sessionmaker
     async with session_maker() as session:
         role = await session.scalar(
             select(Role).where(Role.name == "viewer")
@@ -310,7 +311,7 @@ async def test_scope_hash_deterministic_for_value_key_order(client: httpx.AsyncC
 async def test_host_list_with_non_string_element_422(client: httpx.AsyncClient) -> None:
     """POST with host_ids containing non-string → 422."""
     app = client._transport.app
-    session_maker = app.state.sessionmaker
+    session_maker = app.state.app_state.sessionmaker
     async with session_maker() as session:
         role = await session.scalar(
             select(Role).where(Role.name == "viewer")
@@ -334,7 +335,7 @@ async def test_host_list_with_non_string_element_422(client: httpx.AsyncClient) 
 async def test_host_list_with_empty_string_element_422(client: httpx.AsyncClient) -> None:
     """POST with host_ids containing empty string → 422."""
     app = client._transport.app
-    session_maker = app.state.sessionmaker
+    session_maker = app.state.app_state.sessionmaker
     async with session_maker() as session:
         role = await session.scalar(
             select(Role).where(Role.name == "viewer")
@@ -358,7 +359,7 @@ async def test_host_list_with_empty_string_element_422(client: httpx.AsyncClient
 async def test_self_with_empty_principal_id_422(client: httpx.AsyncClient) -> None:
     """POST with self scope and empty principal_id → 422."""
     app = client._transport.app
-    session_maker = app.state.sessionmaker
+    session_maker = app.state.app_state.sessionmaker
     async with session_maker() as session:
         role = await session.scalar(
             select(Role).where(Role.name == "viewer")
@@ -382,7 +383,7 @@ async def test_self_with_empty_principal_id_422(client: httpx.AsyncClient) -> No
 async def test_tag_with_empty_key_or_value_422(client: httpx.AsyncClient) -> None:
     """POST with tag scope and empty key/value → 422."""
     app = client._transport.app
-    session_maker = app.state.sessionmaker
+    session_maker = app.state.app_state.sessionmaker
     async with session_maker() as session:
         role = await session.scalar(
             select(Role).where(Role.name == "viewer")
@@ -406,7 +407,7 @@ async def test_tag_with_empty_key_or_value_422(client: httpx.AsyncClient) -> Non
 async def test_filter_combined_principal_and_role(client: httpx.AsyncClient) -> None:
     """GET /v1/bindings with both principal_id and role_id filters."""
     app = client._transport.app
-    session_maker = app.state.sessionmaker
+    session_maker = app.state.app_state.sessionmaker
     async with session_maker() as session:
         role = await session.scalar(
             select(Role).where(Role.name == "viewer")
@@ -451,7 +452,7 @@ async def test_filter_combined_principal_and_role(client: httpx.AsyncClient) -> 
 async def test_delete_then_recreate_succeeds(client: httpx.AsyncClient) -> None:
     """DELETE a binding then POST same tuple → 201 (no ghost duplicate)."""
     app = client._transport.app
-    session_maker = app.state.sessionmaker
+    session_maker = app.state.app_state.sessionmaker
     async with session_maker() as session:
         role = await session.scalar(
             select(Role).where(Role.name == "viewer")

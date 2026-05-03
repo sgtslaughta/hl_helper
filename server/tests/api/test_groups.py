@@ -17,6 +17,7 @@ from server.app.api.app import create_app
 from server.app.models.base import Base
 from server.app.models.group_membership import GroupMembership
 from server.app.settings.config import FleetSettings
+from server.tests._helpers.app_state import make_test_app_state
 from pydantic import SecretStr
 
 
@@ -46,7 +47,7 @@ async def client(async_session_maker):
         async with async_session_maker() as session:
             yield session
 
-    app.state.sessionmaker = async_session_maker
+    app.state.app_state = make_test_app_state(sessionmaker=async_session_maker)
 
     mock_settings = FleetSettings(admin_token=SecretStr("test-admin-token"))
 

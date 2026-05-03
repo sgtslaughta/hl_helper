@@ -10,6 +10,7 @@ from unittest import mock
 from server.app.api.app import create_app
 from server.app.models import Setting
 from server.app.settings.config import FleetSettings
+from server.tests._helpers.app_state import make_test_app_state
 from pydantic import SecretStr
 
 
@@ -47,7 +48,7 @@ async def test_list_settings_returns_redacted_secrets(auth_headers, sm):
         await session.commit()
 
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
         return_value=FleetSettings(admin_token=SecretStr(ADMIN_TOKEN)),
@@ -69,7 +70,7 @@ async def test_patch_runtime_mutable_succeeds(auth_headers, sm):
                             updated_at=datetime.now(timezone.utc)))
         await session.commit()
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
         return_value=FleetSettings(admin_token=SecretStr(ADMIN_TOKEN)),
@@ -90,7 +91,7 @@ async def test_patch_boot_only_rejected(auth_headers, sm):
                             updated_at=datetime.now(timezone.utc)))
         await session.commit()
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
         return_value=FleetSettings(admin_token=SecretStr(ADMIN_TOKEN)),
@@ -111,7 +112,7 @@ async def test_patch_env_locked_rejected(auth_headers, sm):
                             updated_at=datetime.now(timezone.utc)))
         await session.commit()
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
         return_value=FleetSettings(admin_token=SecretStr(ADMIN_TOKEN)),
@@ -127,7 +128,7 @@ async def test_patch_env_locked_rejected(auth_headers, sm):
 @pytest.mark.asyncio
 async def test_patch_unknown_key_404(auth_headers, sm):
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
         return_value=FleetSettings(admin_token=SecretStr(ADMIN_TOKEN)),
@@ -154,8 +155,7 @@ async def test_patch_emits_audit_entry(auth_headers, sm, signing_backend):
 
     audit = SqlAuditChain(signing_backend)
     app = create_app()
-    app.state.sessionmaker = sm
-    app.state.audit_chain = audit
+    app.state.app_state = make_test_app_state(sessionmaker=sm, audit_chain=audit)
 
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
@@ -187,7 +187,7 @@ async def test_patch_response_redacts_secrets(auth_headers, sm):
                             updated_at=datetime.now(timezone.utc)))
         await session.commit()
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
         return_value=FleetSettings(admin_token=SecretStr(ADMIN_TOKEN)),
@@ -218,8 +218,7 @@ async def test_patch_audit_redacts_secrets(auth_headers, sm, signing_backend):
         await session.commit()
     audit = SqlAuditChain(signing_backend)
     app = create_app()
-    app.state.sessionmaker = sm
-    app.state.audit_chain = audit
+    app.state.app_state = make_test_app_state(sessionmaker=sm, audit_chain=audit)
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
         return_value=FleetSettings(admin_token=SecretStr(ADMIN_TOKEN)),

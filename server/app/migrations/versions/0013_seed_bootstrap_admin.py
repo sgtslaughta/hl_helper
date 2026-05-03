@@ -115,7 +115,13 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Remove bootstrap admin if FLEET_BOOTSTRAP_ADMIN_EMAIL is set."""
+    """Remove bootstrap admin if FLEET_BOOTSTRAP_ADMIN_EMAIL is set.
+
+    DESTRUCTIVE: deletes the seeded user and ALL their bindings. If an operator added
+    additional bindings via API after upgrade, those are lost. Recommended: snapshot the
+    user's bindings before downgrade, or skip downgrade and manage admin removal via the
+    API instead.
+    """
     admin_email = os.environ.get("FLEET_BOOTSTRAP_ADMIN_EMAIL")
 
     if not admin_email:

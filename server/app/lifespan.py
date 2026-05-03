@@ -18,6 +18,7 @@ from server.app.db.session import make_engine, make_sessionmaker
 from server.app.dispatcher.dispatcher import CommandDispatcher as ApiCommandDispatcher
 from server.app.dispatcher.queue import CommandQueue
 from server.app.enrollment.service import EnrollmentService
+from server.app.events.bus import Bus
 from server.app.grpc.dispatcher import CommandDispatcher
 from server.app.grpc.result_handler import ResultHandler
 from server.app.models import Base
@@ -115,6 +116,7 @@ class _LifespanApprovalProxy:
 class AppState:
     """Application state container."""
 
+    bus: Bus
     ca: InternalCA
     signing_backend: FileBackend
     engine: AsyncEngine
@@ -134,7 +136,8 @@ async def build_app_state(settings: FleetSettings) -> AppState:
     - CA: bootstrap or load from data_dir/ca/
     - SigningBackend: bootstrap or load from data_dir/signing/
     - AsyncEngine and sessionmaker
-    - CommandDispatcher, SqlAuditChain, ResultHandler
+    - Bus: in-process event bus (singleton shared across components)
+    - CommandDispatcher, SqlAuditChain, ResultHandler with bus wired
     - RevocationService with CRL hydrated via load_from_db
     - EnrollmentService
 
@@ -164,9 +167,12 @@ async def build_app_state(settings: FleetSettings) -> AppState:
         await conn.run_sync(Base.metadata.create_all)
     sm = make_sessionmaker(engine)
 
+    # Setup event bus (singleton shared across all components)
+    bus = Bus()
+
     # Setup command dispatcher and audit chain
     dispatcher = CommandDispatcher()
-    audit_chain = SqlAuditChain(signing_backend)
+    audit_chain = SqlAuditChain(signing_backend, event_bus=bus)
 
     # Setup API command dispatcher with collaborators.
     queue = CommandQueue()
@@ -197,10 +203,11 @@ async def build_app_state(settings: FleetSettings) -> AppState:
         approval_engine=approval_engine,
         rbac_provider=rbac_provider,
         scope_evaluator=None,
+        event_bus=bus,
     )
 
     # Setup result handler
-    result_handler = ResultHandler(sm, audit_chain)
+    result_handler = ResultHandler(sm, audit_chain, event_bus=bus)
 
     # Setup revocation service and hydrate CRL
     revocation_service = RevocationService(dispatcher, audit_chain)
@@ -218,6 +225,7 @@ async def build_app_state(settings: FleetSettings) -> AppState:
     )
 
     return AppState(
+        bus=bus,
         ca=ca,
         signing_backend=signing_backend,
         engine=engine,

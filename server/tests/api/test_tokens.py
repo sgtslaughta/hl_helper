@@ -15,6 +15,7 @@ from server.app.api.app import create_app
 from server.app.auth.api_key import ApiKeyService
 from server.app.models.base import Base
 from server.app.settings.config import FleetSettings
+from server.tests._helpers.app_state import make_test_app_state
 from pydantic import SecretStr
 
 
@@ -39,7 +40,7 @@ async def client(async_session_maker):
 
     # This is a bit of a hack, but we need to override the sessionmaker
     # that the routes use. We'll store it in app.state.
-    app.state.sessionmaker = async_session_maker
+    app.state.app_state = make_test_app_state(sessionmaker=async_session_maker)
 
     # Mock load_settings to return a settings object with admin_token set
     mock_settings = FleetSettings(admin_token=SecretStr("test-admin-token"))
