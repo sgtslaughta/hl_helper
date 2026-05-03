@@ -18,6 +18,7 @@ from server.app.enrollment.service import (
     TokenNotFoundError,
 )
 from server.app.api.middleware.rate_limit import RateLimiter, rate_limit_dependency
+from server.app.api.state import get_app_state
 from server.app.errors import problem
 
 router = APIRouter(prefix="/v1", tags=["enrollment"])
@@ -49,7 +50,6 @@ class EnrollResponse(BaseModel):
 # Dependency providers (can be overridden in tests)
 async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
     """Get database session from app state."""
-    from server.app.api.state import get_app_state
 
     state = get_app_state(request)
     async with state.sessionmaker() as session:
@@ -58,7 +58,6 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
 
 def get_enrollment_service(request: Request) -> EnrollmentService:
     """Get enrollment service from app state."""
-    from server.app.api.state import get_app_state
 
     state = get_app_state(request)
     es: EnrollmentService = state.enrollment_service

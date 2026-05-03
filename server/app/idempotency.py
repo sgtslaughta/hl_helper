@@ -136,10 +136,15 @@ def _principal_id(request: Request) -> str:
     3. Authorization Bearer token (admin-only) → f"admin:{sha256[:16]}"
     4. ANONYMOUS (fail-closed; no caching)
     """
-    # First check: C3 user auth
+    # First check: C3 user auth. Accept either a plain str (current convention)
+    # or any object with a string `user_id` attr (future Principal type).
     principal = getattr(request.state, "principal_id", None)
     if isinstance(principal, str):
         return principal
+    if principal is not None:
+        uid = getattr(principal, "user_id", None)
+        if isinstance(uid, str) and uid:
+            return uid
 
     # Second check: X-Acting-Principal header (admin acting on behalf of user)
     acting = request.headers.get("X-Acting-Principal", "").strip()

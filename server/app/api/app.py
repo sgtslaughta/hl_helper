@@ -61,6 +61,3 @@ def create_app() -> FastAPI:
     return app
 
 
-# Re-export from server.app.api.state to keep backward compat for callers
-# that imported from this module before the split.
-from server.app.api.state import get_app_state as get_app_state  # noqa: E402, F401

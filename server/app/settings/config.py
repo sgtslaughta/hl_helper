@@ -12,6 +12,7 @@ SECRET_FIELDS: frozenset[str] = frozenset({
     "vault_token",
     "session_signing_key_ref",  # may carry inline key material in future
     "admin_token",
+    "bootstrap_admin_email",  # PII; redact from /v1/settings responses
 })
 
 # Per-key scope registry. Anything not listed defaults to RUNTIME_MUTABLE.

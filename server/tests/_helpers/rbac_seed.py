@@ -8,7 +8,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from server.app.api.v1.bindings import _compute_scope_hash
+from server.app.api.v1.bindings import compute_scope_hash
 from server.app.models import Binding, Role, User
 from server.app.models.binding import PrincipalType, ScopeKind
 
@@ -45,7 +45,7 @@ async def grant_admin(session: AsyncSession, *, user_id: str) -> str:
     # Pre-check for idempotency (avoid IntegrityError on aiosqlite).
     scope_kind = "global"
     scope_value: dict[str, object] = {}
-    scope_hash = _compute_scope_hash(scope_kind, scope_value)
+    scope_hash = compute_scope_hash(scope_kind, scope_value)
 
     existing = await session.scalar(
         select(Binding).where(
@@ -107,7 +107,7 @@ async def grant_role_on_group(
     # same session after a failed flush.
     scope_kind = "group"
     scope_value: dict[str, object] = {"group_id": group_id}
-    scope_hash = _compute_scope_hash(scope_kind, scope_value)
+    scope_hash = compute_scope_hash(scope_kind, scope_value)
 
     existing = await session.scalar(
         select(Binding).where(
@@ -166,7 +166,7 @@ async def grant_role_on_host_list(
     # Pre-check for idempotency (avoid IntegrityError on aiosqlite).
     scope_kind = "host_list"
     scope_value: dict[str, object] = {"host_ids": host_ids}
-    scope_hash = _compute_scope_hash(scope_kind, scope_value)
+    scope_hash = compute_scope_hash(scope_kind, scope_value)
 
     existing = await session.scalar(
         select(Binding).where(

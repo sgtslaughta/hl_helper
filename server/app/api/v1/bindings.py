@@ -20,7 +20,7 @@ from server.app.models.role import Role
 router = APIRouter(prefix="/v1/bindings", tags=["bindings"])
 
 
-def _compute_scope_hash(kind: str, value: dict[str, object]) -> str:
+def compute_scope_hash(kind: str, value: dict[str, object]) -> str:
     """Compute scope_hash from kind and value."""
     canon = json.dumps({"kind": kind, "value": value}, sort_keys=True)
     return hashlib.sha256(canon.encode()).hexdigest()
@@ -207,7 +207,7 @@ async def create_binding(req: Request, body: BindingCreate) -> BindingOut:
     _validate_scope_value(body.scope_kind, body.scope_value)
 
     # Compute scope_hash
-    scope_hash = _compute_scope_hash(body.scope_kind, body.scope_value)
+    scope_hash = compute_scope_hash(body.scope_kind, body.scope_value)
 
     sm = get_app_state(req).sessionmaker
     async with sm() as session:

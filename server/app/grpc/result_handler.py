@@ -278,7 +278,10 @@ class ResultHandler:
                 payload={
                     "sequence": env.sequence,
                     "status": _result_status_to_string(env.status),
-                    "exit_code": env.exit_code,
+                    # exit_code only meaningful for "ok"/"fail"; null for
+                    # rejected/timeout/capability_denied so subscribers don't
+                    # mistake proto's default-zero for a real exit value.
+                    "exit_code": env.exit_code if _result_status_to_string(env.status) in ("ok", "fail") else None,
                     "signature_hex": env.signature.hex()[:16],
                 },
                 timestamp=now,
@@ -295,7 +298,7 @@ class ResultHandler:
                         "command_id": env.command_id,
                         "host_id": expected_host_id,
                         "status": _result_status_to_string(env.status),
-                        "exit_code": env.exit_code,
+                        "exit_code": env.exit_code if _result_status_to_string(env.status) in ("ok", "fail") else None,
                     },
                 )
 
