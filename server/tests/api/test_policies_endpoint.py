@@ -172,6 +172,51 @@ async def test_update_policy_auth_required_post(client: httpx.AsyncClient):
     assert response.status_code == 401
 
 
+@pytest.mark.asyncio
+async def test_update_policy_get_single_requires_auth_401(client: httpx.AsyncClient):
+    """GET /v1/update-policies/{policy_id} without auth → 401."""
+    response = await client.get("/v1/update-policies/some-id")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_update_policy_patch_requires_auth_401(client: httpx.AsyncClient):
+    """PATCH /v1/update-policies/{policy_id} without auth → 401."""
+    response = await client.patch(
+        "/v1/update-policies/some-id",
+        json={"description": "updated"},
+    )
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_update_policy_delete_requires_auth_401(client: httpx.AsyncClient):
+    """DELETE /v1/update-policies/{policy_id} without auth → 401."""
+    response = await client.delete("/v1/update-policies/some-id")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_update_policy_patch_404(client: httpx.AsyncClient):
+    """PATCH /v1/update-policies/{nonexistent} → 404."""
+    response = await client.patch(
+        "/v1/update-policies/nonexistent-id",
+        json={"description": "updated"},
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_update_policy_delete_404(client: httpx.AsyncClient):
+    """DELETE /v1/update-policies/{nonexistent} → 404."""
+    response = await client.delete(
+        "/v1/update-policies/nonexistent-id",
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
+    assert response.status_code == 404
+
+
 # MaintenanceWindow Tests
 
 
@@ -190,6 +235,7 @@ async def test_maintenance_window_crud(client: httpx.AsyncClient):
             "target_selector": {"env": "prod"},
             "kind": "allow",
         },
+        headers={"Authorization": "Bearer test-admin-token"},
     )
     assert create_response.status_code == 201
     created = create_response.json()
@@ -199,7 +245,10 @@ async def test_maintenance_window_crud(client: httpx.AsyncClient):
     assert created["kind"] == "allow"
 
     # GET single
-    get_response = await client.get(f"/v1/maintenance-windows/{window_id}")
+    get_response = await client.get(
+        f"/v1/maintenance-windows/{window_id}",
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
     assert get_response.status_code == 200
     fetched = get_response.json()
     assert fetched["id"] == window_id
@@ -212,6 +261,7 @@ async def test_maintenance_window_crud(client: httpx.AsyncClient):
             "description": "Updated window",
             "kind": "blackout",
         },
+        headers={"Authorization": "Bearer test-admin-token"},
     )
     assert patch_response.status_code == 200
     patched = patch_response.json()
@@ -220,13 +270,15 @@ async def test_maintenance_window_crud(client: httpx.AsyncClient):
 
     # DELETE
     delete_response = await client.delete(
-        f"/v1/maintenance-windows/{window_id}"
+        f"/v1/maintenance-windows/{window_id}",
+        headers={"Authorization": "Bearer test-admin-token"},
     )
     assert delete_response.status_code == 204
 
     # GET after delete → 404
     get_after_delete = await client.get(
-        f"/v1/maintenance-windows/{window_id}"
+        f"/v1/maintenance-windows/{window_id}",
+        headers={"Authorization": "Bearer test-admin-token"},
     )
     assert get_after_delete.status_code == 404
 
@@ -243,6 +295,7 @@ async def test_maintenance_window_zero_duration_422(client: httpx.AsyncClient):
             "target_selector": {"env": "prod"},
             "kind": "allow",
         },
+        headers={"Authorization": "Bearer test-admin-token"},
     )
     assert response.status_code == 422
 
@@ -259,6 +312,7 @@ async def test_maintenance_window_invalid_cron_422(client: httpx.AsyncClient):
             "target_selector": {"env": "prod"},
             "kind": "allow",
         },
+        headers={"Authorization": "Bearer test-admin-token"},
     )
     assert response.status_code == 422
 
@@ -275,13 +329,14 @@ async def test_maintenance_window_kind_validated(client: httpx.AsyncClient):
             "target_selector": {"env": "prod"},
             "kind": "bogus",
         },
+        headers={"Authorization": "Bearer test-admin-token"},
     )
     assert response.status_code == 422
 
 
 @pytest.mark.asyncio
 async def test_maintenance_window_list(client: httpx.AsyncClient):
-    """GET /v1/maintenance-windows → list (no auth required)."""
+    """GET /v1/maintenance-windows → list (requires auth)."""
     # Create one
     create_response = await client.post(
         "/v1/maintenance-windows",
@@ -292,13 +347,61 @@ async def test_maintenance_window_list(client: httpx.AsyncClient):
             "target_selector": {"env": "staging"},
             "kind": "blackout",
         },
+        headers={"Authorization": "Bearer test-admin-token"},
     )
     assert create_response.status_code == 201
 
     # List
-    list_response = await client.get("/v1/maintenance-windows")
+    list_response = await client.get(
+        "/v1/maintenance-windows",
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
     assert list_response.status_code == 200
     items = list_response.json()
     assert isinstance(items, list)
     assert len(items) == 1
     assert items[0]["name"] == "window-1"
+
+
+@pytest.mark.asyncio
+async def test_maintenance_window_list_requires_auth_401(client: httpx.AsyncClient):
+    """GET /v1/maintenance-windows without auth → 401."""
+    response = await client.get("/v1/maintenance-windows")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_maintenance_window_create_requires_auth_401(client: httpx.AsyncClient):
+    """POST /v1/maintenance-windows without auth → 401."""
+    response = await client.post(
+        "/v1/maintenance-windows",
+        json={
+            "name": "window",
+            "start_cron": "0 2 * * 0",
+            "duration_minutes": 60,
+            "target_selector": {"env": "prod"},
+            "kind": "allow",
+        },
+    )
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_maintenance_window_patch_404(client: httpx.AsyncClient):
+    """PATCH /v1/maintenance-windows/{nonexistent} → 404."""
+    response = await client.patch(
+        "/v1/maintenance-windows/nonexistent-id",
+        json={"description": "updated"},
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_maintenance_window_delete_404(client: httpx.AsyncClient):
+    """DELETE /v1/maintenance-windows/{nonexistent} → 404."""
+    response = await client.delete(
+        "/v1/maintenance-windows/nonexistent-id",
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
+    assert response.status_code == 404

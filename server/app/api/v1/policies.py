@@ -26,62 +26,55 @@ maintenance_window_router = APIRouter(prefix="/v1/maintenance-windows", tags=["m
 class UpdatePolicyCreate(BaseModel):
     """Request to create an update policy."""
 
-    name: str
-    description: str | None = None
-    target_selector: dict[str, object]
-    auto_apply_classes: list[str]
-    reboot_policy: Literal["never", "if_required", "always"]
-    breaking_change_policy: Literal["block", "approve", "allow"]
-    approval_required: bool = False
+    name: str = Field(..., description="Unique policy name")
+    description: str | None = Field(None, description="Free-text description")
+    target_selector: dict[str, object] = Field(..., description="Selector matching hosts/groups this policy applies to")
+    auto_apply_classes: list[str] = Field(..., description='Update classes to auto-apply, e.g. ["security"]')
+    reboot_policy: Literal["never", "if_required", "always"] = Field(..., description="When to reboot after applying updates")
+    breaking_change_policy: Literal["block", "approve", "allow"] = Field(..., description="Behavior when an update is flagged as breaking")
+    approval_required: bool = Field(False, description="If true, dispatcher must request approval before applying")
 
 
 class UpdatePolicyPatch(BaseModel):
     """Request to update an update policy."""
 
-    name: str | None = None
-    description: str | None = None
-    target_selector: dict[str, object] | None = None
-    auto_apply_classes: list[str] | None = None
-    reboot_policy: Literal["never", "if_required", "always"] | None = None
-    breaking_change_policy: Literal["block", "approve", "allow"] | None = None
-    approval_required: bool | None = None
+    name: str | None = Field(None, description="Unique policy name")
+    description: str | None = Field(None, description="Free-text description")
+    target_selector: dict[str, object] | None = Field(None, description="Selector matching hosts/groups this policy applies to")
+    auto_apply_classes: list[str] | None = Field(None, description='Update classes to auto-apply, e.g. ["security"]')
+    reboot_policy: Literal["never", "if_required", "always"] | None = Field(None, description="When to reboot after applying updates")
+    breaking_change_policy: Literal["block", "approve", "allow"] | None = Field(None, description="Behavior when an update is flagged as breaking")
+    approval_required: bool | None = Field(None, description="If true, dispatcher must request approval before applying")
 
 
 class UpdatePolicyOut(BaseModel):
     """Response with update policy details."""
 
-    id: str
-    name: str
-    description: str | None
-    target_selector: dict[str, object]
-    auto_apply_classes: list[str]
-    reboot_policy: str
-    breaking_change_policy: str
-    approval_required: bool
-    created_at: datetime
-    updated_at: datetime
+    id: str = Field(..., description="Policy UUID")
+    name: str = Field(..., description="Unique policy name")
+    description: str | None = Field(None, description="Free-text description")
+    target_selector: dict[str, object] = Field(..., description="Selector matching hosts/groups this policy applies to")
+    auto_apply_classes: list[str] = Field(..., description='Update classes to auto-apply, e.g. ["security"]')
+    reboot_policy: str = Field(..., description="When to reboot after applying updates")
+    breaking_change_policy: str = Field(..., description="Behavior when an update is flagged as breaking")
+    approval_required: bool = Field(..., description="If true, dispatcher must request approval before applying")
+    created_at: datetime = Field(..., description="Creation timestamp")
+    updated_at: datetime = Field(..., description="Last update timestamp")
 
 
 # Pydantic models for MaintenanceWindow
 
 
-def _validate_cron(expr: str) -> None:
-    """Validate cron expression has exactly 5 fields."""
-    parts = expr.strip().split()
-    if len(parts) != 5:
-        raise ValueError(f"cron must have 5 fields, got {len(parts)}")
-
-
 class MaintenanceWindowCreate(BaseModel):
     """Request to create a maintenance window."""
 
-    name: str
-    description: str | None = None
-    start_cron: str = Field(..., min_length=1)
-    duration_minutes: int = Field(..., gt=0)
-    timezone: str = "UTC"
-    target_selector: dict[str, object]
-    kind: Literal["allow", "blackout"]
+    name: str = Field(..., description="Unique maintenance window name")
+    description: str | None = Field(None, description="Free-text description")
+    start_cron: str = Field(..., min_length=1, description="Cron expression (5 fields) for start time")
+    duration_minutes: int = Field(..., gt=0, description="Window duration in minutes")
+    timezone: str = Field("UTC", description="Timezone for cron evaluation")
+    target_selector: dict[str, object] = Field(..., description="Selector matching hosts/groups this window applies to")
+    kind: Literal["allow", "blackout"] = Field(..., description="Window type: allow or blackout")
 
     @field_validator("start_cron")
     @classmethod
@@ -99,13 +92,13 @@ class MaintenanceWindowCreate(BaseModel):
 class MaintenanceWindowPatch(BaseModel):
     """Request to update a maintenance window."""
 
-    name: str | None = None
-    description: str | None = None
-    start_cron: str | None = None
-    duration_minutes: int | None = Field(None, gt=0)
-    timezone: str | None = None
-    target_selector: dict[str, object] | None = None
-    kind: Literal["allow", "blackout"] | None = None
+    name: str | None = Field(None, description="Unique maintenance window name")
+    description: str | None = Field(None, description="Free-text description")
+    start_cron: str | None = Field(None, description="Cron expression (5 fields) for start time")
+    duration_minutes: int | None = Field(None, gt=0, description="Window duration in minutes")
+    timezone: str | None = Field(None, description="Timezone for cron evaluation")
+    target_selector: dict[str, object] | None = Field(None, description="Selector matching hosts/groups this window applies to")
+    kind: Literal["allow", "blackout"] | None = Field(None, description="Window type: allow or blackout")
 
     @field_validator("start_cron")
     @classmethod
@@ -124,16 +117,16 @@ class MaintenanceWindowPatch(BaseModel):
 class MaintenanceWindowOut(BaseModel):
     """Response with maintenance window details."""
 
-    id: str
-    name: str
-    description: str | None
-    start_cron: str
-    duration_minutes: int
-    timezone: str
-    target_selector: dict[str, object]
-    kind: str
-    created_at: datetime
-    updated_at: datetime
+    id: str = Field(..., description="Window UUID")
+    name: str = Field(..., description="Unique maintenance window name")
+    description: str | None = Field(None, description="Free-text description")
+    start_cron: str = Field(..., description="Cron expression (5 fields) for start time")
+    duration_minutes: int = Field(..., description="Window duration in minutes")
+    timezone: str = Field(..., description="Timezone for cron evaluation")
+    target_selector: dict[str, object] = Field(..., description="Selector matching hosts/groups this window applies to")
+    kind: str = Field(..., description="Window type: allow or blackout")
+    created_at: datetime = Field(..., description="Creation timestamp")
+    updated_at: datetime = Field(..., description="Last update timestamp")
 
 
 # UpdatePolicy endpoints
@@ -142,7 +135,7 @@ class MaintenanceWindowOut(BaseModel):
 @update_policy_router.post(
     "",
     response_model=UpdatePolicyOut,
-    status_code=201,
+    status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(admin_required)],
 )
 async def create_update_policy(
@@ -327,7 +320,7 @@ async def update_update_policy(
 
 @update_policy_router.delete(
     "/{policy_id}",
-    status_code=204,
+    status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(admin_required)],
 )
 async def delete_update_policy(req: Request, policy_id: str) -> None:
@@ -358,12 +351,16 @@ async def delete_update_policy(req: Request, policy_id: str) -> None:
 @maintenance_window_router.post(
     "",
     response_model=MaintenanceWindowOut,
-    status_code=201,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(admin_required)],
 )
 async def create_maintenance_window(
     req: Request, body: MaintenanceWindowCreate
 ) -> MaintenanceWindowOut:
-    """Create a new maintenance window."""
+    """Create a new maintenance window.
+
+    Requires admin authentication via Authorization: Bearer <FLEET_ADMIN_TOKEN>
+    """
     sm = req.app.state.sessionmaker
     async with sm() as session:
         window = MaintenanceWindow(
@@ -404,9 +401,13 @@ async def create_maintenance_window(
 @maintenance_window_router.get(
     "",
     response_model=list[MaintenanceWindowOut],
+    dependencies=[Depends(admin_required)],
 )
 async def list_maintenance_windows(req: Request) -> list[MaintenanceWindowOut]:
-    """List all maintenance windows."""
+    """List all maintenance windows.
+
+    Requires admin authentication via Authorization: Bearer <FLEET_ADMIN_TOKEN>
+    """
     sm = req.app.state.sessionmaker
     async with sm() as session:
         result = await session.execute(select(MaintenanceWindow))
@@ -432,9 +433,13 @@ async def list_maintenance_windows(req: Request) -> list[MaintenanceWindowOut]:
 @maintenance_window_router.get(
     "/{window_id}",
     response_model=MaintenanceWindowOut,
+    dependencies=[Depends(admin_required)],
 )
 async def get_maintenance_window(req: Request, window_id: str) -> MaintenanceWindowOut:
-    """Get a single maintenance window by id."""
+    """Get a single maintenance window by id.
+
+    Requires admin authentication via Authorization: Bearer <FLEET_ADMIN_TOKEN>
+    """
     sm = req.app.state.sessionmaker
     async with sm() as session:
         result = await session.execute(
@@ -465,11 +470,15 @@ async def get_maintenance_window(req: Request, window_id: str) -> MaintenanceWin
 @maintenance_window_router.patch(
     "/{window_id}",
     response_model=MaintenanceWindowOut,
+    dependencies=[Depends(admin_required)],
 )
 async def update_maintenance_window(
     req: Request, window_id: str, body: MaintenanceWindowPatch
 ) -> MaintenanceWindowOut:
-    """Update a maintenance window."""
+    """Update a maintenance window.
+
+    Requires admin authentication via Authorization: Bearer <FLEET_ADMIN_TOKEN>
+    """
     sm = req.app.state.sessionmaker
     async with sm() as session:
         result = await session.execute(
@@ -527,10 +536,14 @@ async def update_maintenance_window(
 
 @maintenance_window_router.delete(
     "/{window_id}",
-    status_code=204,
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(admin_required)],
 )
 async def delete_maintenance_window(req: Request, window_id: str) -> None:
-    """Delete a maintenance window."""
+    """Delete a maintenance window.
+
+    Requires admin authentication via Authorization: Bearer <FLEET_ADMIN_TOKEN>
+    """
     sm = req.app.state.sessionmaker
     async with sm() as session:
         result = await session.execute(
