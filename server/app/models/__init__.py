@@ -12,6 +12,7 @@ from server.app.models.enrollment_token import EnrollmentToken
 from server.app.models.group import Group
 from server.app.models.group_membership import GroupMembership
 from server.app.models.host import Host
+from server.app.models.host_sequence import HostSequence
 from server.app.models.maintenance_window import MaintenanceWindow
 from server.app.models.notification import Notification
 from server.app.models.result import Result
@@ -30,6 +31,7 @@ from server.app.models.webhook import Webhook
 __all__ = [
     "Base",
     "Host",
+    "HostSequence",
     "EnrollmentToken",
     "Command",
     "Result",
