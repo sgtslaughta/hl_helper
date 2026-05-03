@@ -174,7 +174,7 @@ async def test_filter_by_state(auth, sm, mock_settings):
                     headers=auth,
                 )
             # Approve only the first
-            approvals = (await c.get("/v1/approvals", headers=auth)).json()
+            approvals = (await c.get("/v1/approvals", headers=auth)).json()["items"]
             first_id = approvals[0]["id"]
             await c.post(
                 f"/v1/approvals/{first_id}/decisions",
@@ -182,7 +182,7 @@ async def test_filter_by_state(auth, sm, mock_settings):
                 headers=auth,
             )
             r = await c.get("/v1/approvals?state=approved", headers=auth)
-            states = {a["state"] for a in r.json()}
+            states = {a["state"] for a in r.json()["items"]}
             assert states == {"approved"}
 
 
@@ -236,3 +236,253 @@ async def test_ttl_minutes_minimum_clamps(auth, sm, mock_settings):
                 headers=auth,
             )
             assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_single_second_factor_pending_without_mfa(auth, sm, mock_settings):
+    """POST single_sf approval; decide without mfa_proof → 200 with state=pending, rejected_reason=mfa_required."""
+    app = create_app()
+    app.state.sessionmaker = sm
+    with mock.patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=mock_settings,
+    ):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://t"
+        ) as c:
+            r = await c.post(
+                "/v1/approvals",
+                json={
+                    "subject_type": "command",
+                    "subject_id": "c-sf-1",
+                    "policy": "single_second_factor",
+                    "requester_id": "u-r",
+                },
+                headers=auth,
+            )
+            aid = r.json()["id"]
+            r2 = await c.post(
+                f"/v1/approvals/{aid}/decisions",
+                json={"decider_id": "u-d", "decision": "approve"},
+                headers=auth,
+            )
+            assert r2.status_code == 200
+            assert r2.json()["state"] == "pending"
+            assert r2.json()["rejected_reason"] == "mfa_required"
+
+
+@pytest.mark.asyncio
+async def test_single_second_factor_approves_with_mfa(auth, sm, mock_settings):
+    """POST single_sf approval; decide with mfa_proof → 200 with state=approved."""
+    app = create_app()
+    app.state.sessionmaker = sm
+    with mock.patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=mock_settings,
+    ):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://t"
+        ) as c:
+            r = await c.post(
+                "/v1/approvals",
+                json={
+                    "subject_type": "command",
+                    "subject_id": "c-sf-2",
+                    "policy": "single_second_factor",
+                    "requester_id": "u-r",
+                },
+                headers=auth,
+            )
+            aid = r.json()["id"]
+            r2 = await c.post(
+                f"/v1/approvals/{aid}/decisions",
+                json={"decider_id": "u-d", "decision": "approve", "mfa_proof": "totp:123456"},
+                headers=auth,
+            )
+            assert r2.status_code == 200
+            assert r2.json()["state"] == "approved"
+            assert r2.json()["approved"] is True
+
+
+@pytest.mark.asyncio
+async def test_filter_by_subject_type(auth, sm, mock_settings):
+    """GET /v1/approvals?subject_type=command filters correctly."""
+    app = create_app()
+    app.state.sessionmaker = sm
+    with mock.patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=mock_settings,
+    ):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://t"
+        ) as c:
+            # Create two approvals with different subject_type
+            await c.post(
+                "/v1/approvals",
+                json={
+                    "subject_type": "command",
+                    "subject_id": "c-1",
+                    "policy": "single",
+                    "requester_id": "u-r",
+                },
+                headers=auth,
+            )
+            await c.post(
+                "/v1/approvals",
+                json={
+                    "subject_type": "task",
+                    "subject_id": "t-1",
+                    "policy": "single",
+                    "requester_id": "u-r",
+                },
+                headers=auth,
+            )
+            r = await c.get("/v1/approvals?subject_type=command", headers=auth)
+            items = r.json()["items"]
+            assert len(items) == 1
+            assert items[0]["subject_type"] == "command"
+
+
+@pytest.mark.asyncio
+async def test_mfa_proof_redacted_in_list(auth, sm, mock_settings):
+    """POST single_sf approval, decide+approve with mfa_proof; GET /v1/approvals; assert mfa_proof NOT in response."""
+    app = create_app()
+    app.state.sessionmaker = sm
+    with mock.patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=mock_settings,
+    ):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://t"
+        ) as c:
+            r = await c.post(
+                "/v1/approvals",
+                json={
+                    "subject_type": "command",
+                    "subject_id": "c-sf-redact",
+                    "policy": "single_second_factor",
+                    "requester_id": "u-r",
+                },
+                headers=auth,
+            )
+            aid = r.json()["id"]
+            await c.post(
+                f"/v1/approvals/{aid}/decisions",
+                json={"decider_id": "u-d", "decision": "approve", "mfa_proof": "totp:secret123"},
+                headers=auth,
+            )
+            r2 = await c.get("/v1/approvals", headers=auth)
+            items = r2.json()["items"]
+            assert len(items) == 1
+            assert "mfa_proof" not in items[0]
+
+
+@pytest.mark.asyncio
+async def test_mfa_proof_present_in_single_get(auth, sm, mock_settings):
+    """POST single_sf approval, approve with mfa_proof; GET /v1/approvals/{id}; assert mfa_proof present."""
+    app = create_app()
+    app.state.sessionmaker = sm
+    with mock.patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=mock_settings,
+    ):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://t"
+        ) as c:
+            r = await c.post(
+                "/v1/approvals",
+                json={
+                    "subject_type": "command",
+                    "subject_id": "c-sf-single",
+                    "policy": "single_second_factor",
+                    "requester_id": "u-r",
+                },
+                headers=auth,
+            )
+            aid = r.json()["id"]
+            await c.post(
+                f"/v1/approvals/{aid}/decisions",
+                json={"decider_id": "u-d", "decision": "approve", "mfa_proof": "totp:single123"},
+                headers=auth,
+            )
+            r2 = await c.get(f"/v1/approvals/{aid}", headers=auth)
+            assert r2.json()["mfa_proof"] == "totp:single123"
+
+
+@pytest.mark.asyncio
+async def test_get_single_approval_404(auth, sm, mock_settings):
+    """GET /v1/approvals/{id} with unknown id returns 404."""
+    app = create_app()
+    app.state.sessionmaker = sm
+    with mock.patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=mock_settings,
+    ):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://t"
+        ) as c:
+            r = await c.get("/v1/approvals/does-not-exist", headers=auth)
+            assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_pagination_returns_next_cursor(auth, sm, mock_settings):
+    """POST 3 approvals with limit=2; verify next_cursor present."""
+    app = create_app()
+    app.state.sessionmaker = sm
+    with mock.patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=mock_settings,
+    ):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://t"
+        ) as c:
+            # Create 3 approvals
+            for i in range(3):
+                await c.post(
+                    "/v1/approvals",
+                    json={
+                        "subject_type": "task",
+                        "subject_id": f"t-p-{i}",
+                        "policy": "single",
+                        "requester_id": "u-r",
+                    },
+                    headers=auth,
+                )
+            # Get first page with limit=2
+            r = await c.get("/v1/approvals?limit=2", headers=auth)
+            data = r.json()
+            assert len(data["items"]) == 2
+            assert data["next_cursor"] is not None
+
+
+@pytest.mark.asyncio
+async def test_reject_decision_records_reason(auth, sm, mock_settings):
+    """POST approval + decide reject with reason; verify reason stored."""
+    app = create_app()
+    app.state.sessionmaker = sm
+    with mock.patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=mock_settings,
+    ):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://t"
+        ) as c:
+            r = await c.post(
+                "/v1/approvals",
+                json={
+                    "subject_type": "command",
+                    "subject_id": "c-reject-reason",
+                    "policy": "single",
+                    "requester_id": "u-r",
+                },
+                headers=auth,
+            )
+            aid = r.json()["id"]
+            r2 = await c.post(
+                f"/v1/approvals/{aid}/decisions",
+                json={"decider_id": "u-d", "decision": "reject", "reason": "security concern"},
+                headers=auth,
+            )
+            assert r2.status_code == 200
+            assert r2.json()["rejected_reason"] == "security concern"

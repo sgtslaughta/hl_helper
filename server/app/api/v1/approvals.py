@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Literal
 from uuid import uuid4
 
@@ -12,6 +12,7 @@ from sqlalchemy import select
 
 from server.app.api.middleware.admin_auth import admin_required
 from server.app.models import Approval
+from server.app.pagination import apply_cursor, build_page
 from server.app.rbac.approvals import ApprovalEngine
 
 router = APIRouter(prefix="/v1/approvals", tags=["approvals"])
@@ -34,6 +35,23 @@ class ApprovalDecide(BaseModel):
     decision: Literal["approve", "reject"]
     mfa_proof: str | None = None
     reason: str | None = None
+
+
+class ApprovalListItemOut(BaseModel):
+    """Approval item in list responses (without mfa_proof for privacy)."""
+
+    id: str
+    subject_type: str
+    subject_id: str
+    policy: str
+    requester_id: str
+    state: str
+    decided_by_id: str | None
+    decided_at: datetime | None
+    rejected_reason: str | None
+    expires_at: datetime
+    created_at: datetime
+    # NOTE: mfa_proof intentionally redacted from list responses (privacy).
 
 
 class ApprovalOut(BaseModel):
@@ -61,20 +79,34 @@ class ApprovalDecisionOut(BaseModel):
     rejected_reason: str | None
 
 
+class ApprovalsPage(BaseModel):
+    """Paginated response for list approvals."""
+
+    items: list[ApprovalListItemOut]
+    next_cursor: str | None
+
+
 @router.get(
     "",
-    response_model=list[ApprovalOut],
+    response_model=ApprovalsPage,
     dependencies=[Depends(admin_required)],
 )
 async def list_approvals(
     request: Request,
     subject_type: str | None = None,
     state: str | None = None,
-) -> list[ApprovalOut]:
-    """List approvals, optionally filtered by subject_type and state.
+    cursor: str | None = None,
+    limit: int = 100,
+) -> ApprovalsPage:
+    """List approvals with cursor pagination, optionally filtered by subject_type and state.
 
     Requires admin authentication.
+    Supports ?cursor= and ?limit= query params (limit default 100, max 500).
+    Returns next_cursor if more items exist.
     """
+    # Clamp limit
+    limit = min(max(1, limit), 500)
+
     sm = request.app.state.sessionmaker
     async with sm() as session:
         query = select(Approval)
@@ -82,25 +114,40 @@ async def list_approvals(
             query = query.where(Approval.subject_type == subject_type)
         if state:
             query = query.where(Approval.state == state)
+
+        # Apply cursor pagination: sort by created_at desc, id desc
+        query = apply_cursor(
+            query,
+            sort_column=Approval.created_at,
+            id_column=Approval.id,
+            cursor=cursor,
+            limit=limit,
+            descending=True,
+        )
         rows = (await session.execute(query)).scalars().all()
 
-    return [
-        ApprovalOut(
-            id=r.id,
-            subject_type=r.subject_type,
-            subject_id=r.subject_id,
-            policy=r.policy,
-            requester_id=r.requester_id,
-            state=r.state,
-            decided_by_id=r.decided_by_id,
-            decided_at=r.decided_at,
-            mfa_proof=r.mfa_proof,
-            rejected_reason=r.rejected_reason,
-            expires_at=r.expires_at,
-            created_at=r.created_at,
-        )
-        for r in rows
-    ]
+    # Build page with next_cursor if needed
+    page = build_page(rows, limit=limit, sort_attr="created_at", id_attr="id")
+
+    return ApprovalsPage(
+        items=[
+            ApprovalListItemOut(
+                id=r.id,
+                subject_type=r.subject_type,
+                subject_id=r.subject_id,
+                policy=r.policy,
+                requester_id=r.requester_id,
+                state=r.state,
+                decided_by_id=r.decided_by_id,
+                decided_at=r.decided_at,
+                rejected_reason=r.rejected_reason,
+                expires_at=r.expires_at,
+                created_at=r.created_at,
+            )
+            for r in page.items
+        ],
+        next_cursor=page.next_cursor,
+    )
 
 
 @router.get(
@@ -151,8 +198,6 @@ async def create_approval(request: Request, body: ApprovalCreate) -> ApprovalOut
     Requires admin authentication.
     Returns 201 with the created approval.
     """
-    from datetime import timedelta
-
     sm = request.app.state.sessionmaker
     async with sm() as session:
         engine = ApprovalEngine(session, ttl=timedelta(minutes=body.ttl_minutes))
