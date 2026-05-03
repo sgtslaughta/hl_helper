@@ -17,6 +17,9 @@ packaging-test:
     - pytest tests/packaging/ -v
 
 go-leakcheck:
+  # goroutine leak verification via go.uber.org/goleak.VerifyTestMain.
+  # Every internal/* package registers a TestMain that fails the package
+  # if any non-allowlisted goroutine survives test completion.
   stage: test
   image: golang:1.25
   script:
@@ -27,6 +30,16 @@ go-race:
   image: golang:1.25
   script:
     - cd agent && go test -race -count=1 ./...
+
+go-memcheck:
+  # Heap-growth regression test. Runs the outbox hot path (Append/Ack) for
+  # many iterations and asserts runtime.MemStats.HeapInuse delta stays
+  # under a 2 MiB cap. Catches buffer/cursor accumulation a goroutine
+  # leak check would miss.
+  stage: test
+  image: golang:1.25
+  script:
+    - cd agent && go test -count=1 -run TestHeapStable ./internal/outbox/...
 
 agent-tpm:
   stage: test
@@ -57,12 +70,16 @@ py-test:
     expire_in: 1 week
 
 py-memcheck:
+  # tracemalloc snapshots across repeated audit-chain operations, plus
+  # pytest-memray allocation tracking on the full server suite to catch
+  # native-allocator (malloc) leaks tracemalloc cannot see.
   stage: test
   image: python:3.12
   before_script:
     - pip install -e '.[dev]'
   script:
     - pytest server/tests/test_memory_leaks.py server/tests/test_tracemalloc_smoke.py -v
+    - pytest server/tests/ --memray --most-allocations=10 -q
 
 py-migrations:
   stage: test
