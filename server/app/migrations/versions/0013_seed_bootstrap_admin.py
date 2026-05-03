@@ -53,7 +53,9 @@ def upgrade() -> None:
     )
     user_id = user_result.scalar()
 
-    # If not, insert user
+    # If not, insert user. Do NOT call connection.commit() — alembic owns the
+    # transaction; an explicit commit here breaks alembic_version tracking
+    # across upgrade/downgrade cycles.
     if not user_id:
         user_id = str(uuid4())
         connection.execute(
@@ -66,7 +68,6 @@ def upgrade() -> None:
                 "kind": "local",
             },
         )
-        connection.commit()
 
     # Compute scope_hash for global scope
     scope_hash = _compute_scope_hash("global", {})
@@ -111,7 +112,6 @@ def upgrade() -> None:
             "sh": scope_hash,
         },
     )
-    connection.commit()
 
 
 def downgrade() -> None:
@@ -152,5 +152,3 @@ def downgrade() -> None:
         sa.text("DELETE FROM users WHERE id = :uid"),
         {"uid": user_id},
     )
-
-    connection.commit()

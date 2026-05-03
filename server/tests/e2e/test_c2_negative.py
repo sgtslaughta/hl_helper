@@ -10,6 +10,7 @@ from pydantic import SecretStr
 
 from server.app.api.app import create_app
 from server.app.settings.config import FleetSettings
+from server.tests._helpers.app_state import make_test_app_state
 
 
 @pytest.fixture(autouse=True)
@@ -86,7 +87,7 @@ async def test_approvals_forbids_requester_id_field(auth, sm, mock_settings):
     not from the request body. Pydantic with 'forbid' extra should reject it.
     """
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
         return_value=mock_settings,
@@ -314,7 +315,7 @@ async def test_api_key_disallowed_ip_401(auth, sm, mock_settings):
 async def test_two_person_same_principal_reject_400(auth, sm, mock_settings):
     """Two-person approval with same principal as first decider → 400 same_principal; no exec."""
     app = create_app()
-    app.state.sessionmaker = sm
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
         return_value=mock_settings,

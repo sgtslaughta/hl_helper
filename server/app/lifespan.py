@@ -21,7 +21,8 @@ from server.app.enrollment.service import EnrollmentService
 from server.app.events.bus import Bus
 from server.app.grpc.dispatcher import CommandDispatcher
 from server.app.grpc.result_handler import ResultHandler
-from server.app.models import Base
+from server.app.models import Base, Approval
+from server.app.rbac.approvals import SubjectType, Policy
 from server.app.rbac.engine import BuiltinEngine
 from server.app.rbac.provider import Principal, AuthContext, Decision
 from server.app.rbac.scope import Resource
@@ -79,32 +80,48 @@ class _LifespanApprovalProxy:
     async def request(
         self,
         *,
-        subject_type: str,
+        subject_type: SubjectType,
         subject_id: str,
-        policy: str,
+        policy: Policy,
         requester_id: str,
         ttl: Any = None,
-    ) -> Any:
+    ) -> Approval:
         """Request an approval, creating a real Approval row.
 
         Args:
-            subject_type: Type of subject being approved (e.g., "command")
+            subject_type: Type of subject being approved (must be one of: command, task, policy_change)
             subject_id: ID of the subject (e.g., payload kind)
-            policy: Approval policy (e.g., "single_second_factor")
+            policy: Approval policy (must be one of: single, two_person, single_second_factor)
             requester_id: ID of the principal requesting approval
             ttl: Optional time-to-live for the approval (unused, kept for interface)
 
         Returns:
             Approval row (from the real ApprovalEngine)
+
+        Raises:
+            ValueError: If subject_type or policy is not in the allowed Literal values.
         """
         from server.app.rbac.approvals import ApprovalEngine
+
+        # Runtime validation: validate Literal values explicitly
+        valid_subject_types: tuple[SubjectType, ...] = ("command", "task", "policy_change")
+        valid_policies: tuple[Policy, ...] = ("single", "two_person", "single_second_factor")
+
+        if subject_type not in valid_subject_types:
+            raise ValueError(
+                f"subject_type must be one of {valid_subject_types!r}, got {subject_type!r}"
+            )
+        if policy not in valid_policies:
+            raise ValueError(
+                f"policy must be one of {valid_policies!r}, got {policy!r}"
+            )
 
         async with self._sm() as session:
             engine = ApprovalEngine(session)
             approval = await engine.request(
-                subject_type=subject_type,  # type: ignore[arg-type]
+                subject_type=subject_type,
                 subject_id=subject_id,
-                policy=policy,  # type: ignore[arg-type]
+                policy=policy,
                 requester_id=requester_id,
                 approval_id=str(uuid4()),
             )

@@ -46,6 +46,59 @@ async def test_lifespan_approval_proxy_creates_real_approval_row(sm: async_sessi
 
 
 @pytest.mark.asyncio
+async def test_proxy_rejects_invalid_subject_type(sm: async_sessionmaker[AsyncSession]) -> None:
+    """Verify _LifespanApprovalProxy.request rejects invalid subject_type with ValueError."""
+    proxy = _LifespanApprovalProxy(sm)
+
+    with pytest.raises(ValueError, match="subject_type must be one of"):
+        await proxy.request(
+            subject_type="bogus",  # type: ignore[arg-type]
+            subject_id="test",
+            policy="single",
+            requester_id="user-1",
+        )
+
+
+@pytest.mark.asyncio
+async def test_proxy_rejects_invalid_policy(sm: async_sessionmaker[AsyncSession]) -> None:
+    """Verify _LifespanApprovalProxy.request rejects invalid policy with ValueError."""
+    proxy = _LifespanApprovalProxy(sm)
+
+    with pytest.raises(ValueError, match="policy must be one of"):
+        await proxy.request(
+            subject_type="command",
+            subject_id="test",
+            policy="bogus",  # type: ignore[arg-type]
+            requester_id="user-1",
+        )
+
+
+@pytest.mark.asyncio
+async def test_proxy_accepts_valid_literals(sm: async_sessionmaker[AsyncSession]) -> None:
+    """Verify _LifespanApprovalProxy.request accepts all valid subject_type × policy combinations."""
+    from server.app.rbac.approvals import SubjectType, Policy
+
+    proxy = _LifespanApprovalProxy(sm)
+
+    valid_subject_types: list[SubjectType] = ["command", "task", "policy_change"]
+    valid_policies: list[Policy] = ["single", "two_person", "single_second_factor"]
+
+    for subject_type in valid_subject_types:
+        for policy in valid_policies:
+            approval = await proxy.request(
+                subject_type=subject_type,
+                subject_id=f"test-{subject_type}-{policy}",
+                policy=policy,
+                requester_id="user-1",
+            )
+            # Verify row was created
+            assert approval.id is not None
+            assert approval.subject_type == subject_type
+            assert approval.policy == policy
+            assert approval.state == ApprovalState.PENDING
+
+
+@pytest.mark.asyncio
 async def test_lifespan_wires_approval_engine(
     sm: async_sessionmaker[AsyncSession], tmp_path
 ) -> None:

@@ -20,6 +20,7 @@ from server.app.models.revoked_cert import RevokedCert
 from server.app.models.role import Role
 from server.app.models.schedule import Schedule
 from server.app.models.service_account import ServiceAccount
+from server.app.models.session import Session
 from server.app.models.setting import Setting
 from server.app.models.task import Task
 from server.app.models.task_run import TaskRun
@@ -46,6 +47,7 @@ __all__ = [
     "ServiceAccount",
     "Role",
     "Binding",
+    "Session",
     "Task",
     "TaskRun",
     "Schedule",

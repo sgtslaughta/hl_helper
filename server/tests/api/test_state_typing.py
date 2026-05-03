@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
+import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from server.app.api.state import AppStateProtocol
@@ -67,68 +66,20 @@ def test_protocol_satisfied_by_app_state() -> None:
     assert isinstance(state, AppStateProtocol)
 
 
-def test_simplenamespace_fallback_has_documented_attributes() -> None:
-    """SimpleNamespace fallback path has all documented attributes (may be None)."""
+
+
+def test_get_app_state_raises_when_uninitialized() -> None:
+    """get_app_state raises RuntimeError when app_state not initialized."""
     from unittest.mock import MagicMock
+    from server.app.api.state import get_app_state
 
-    # Simulate what get_app_state fallback returns: SimpleNamespace with attrs
-    mock_sm = MagicMock(spec=async_sessionmaker)
-    mock_chain = MagicMock(spec=SqlAuditChain)
+    # Create a mock request with an app.state that has no app_state attribute
+    request = MagicMock()
+    request.app.state = MagicMock(spec=[])  # Empty spec, no attributes
 
-    fallback = SimpleNamespace(
-        bus=MagicMock(spec=Bus),
-        sessionmaker=mock_sm,
-        audit_chain=mock_chain,
-        dispatcher=MagicMock(spec=CommandDispatcher),
-        api_dispatcher=MagicMock(spec=ApiCommandDispatcher),
-        signing_backend=MagicMock(spec=FileBackend),
-        enrollment_service=MagicMock(spec=EnrollmentService),
-        revocation_service=MagicMock(spec=RevocationService),
-        ca=MagicMock(spec=InternalCA),
-        engine=MagicMock(),
-        result_handler=MagicMock(spec=ResultHandler),
-    )
+    # Should raise RuntimeError with helpful message
+    with pytest.raises(RuntimeError) as exc_info:
+        get_app_state(request)
 
-    # Verify all required attributes exist
-    assert fallback.bus is not None
-    assert fallback.sessionmaker is not None
-    assert fallback.audit_chain is not None
-    assert fallback.dispatcher is not None
-    assert fallback.api_dispatcher is not None
-    assert fallback.signing_backend is not None
-    assert fallback.enrollment_service is not None
-    assert fallback.revocation_service is not None
-    assert fallback.ca is not None
-    assert fallback.engine is not None
-    assert fallback.result_handler is not None
-
-
-def test_simplenamespace_fallback_can_have_none_values() -> None:
-    """SimpleNamespace fallback can have None values (test-only escape hatch)."""
-    # Simulate app.state without app_state but with sparse attributes
-    fallback = SimpleNamespace(
-        bus=None,
-        sessionmaker=None,
-        audit_chain=None,
-        dispatcher=None,
-        api_dispatcher=None,
-        signing_backend=None,
-        enrollment_service=None,
-        revocation_service=None,
-        ca=None,
-        engine=None,
-        result_handler=None,
-    )
-
-    # All attributes exist but may be None
-    assert hasattr(fallback, "bus")
-    assert hasattr(fallback, "sessionmaker")
-    assert hasattr(fallback, "audit_chain")
-    assert hasattr(fallback, "dispatcher")
-    assert hasattr(fallback, "api_dispatcher")
-    assert hasattr(fallback, "signing_backend")
-    assert hasattr(fallback, "enrollment_service")
-    assert hasattr(fallback, "revocation_service")
-    assert hasattr(fallback, "ca")
-    assert hasattr(fallback, "engine")
-    assert hasattr(fallback, "result_handler")
+    assert "AppState not initialized" in str(exc_info.value)
+    assert "make_test_app_state" in str(exc_info.value)

@@ -91,6 +91,18 @@ py-migrations:
     - alembic downgrade base
     - alembic upgrade head
 
+py-bootstrap-admin:
+  stage: test
+  image: python:3.12
+  before_script:
+    - pip install -e '.[dev]'
+  script:
+    - export FLEET_BOOTSTRAP_ADMIN_EMAIL=ci-admin@example.test
+    - rm -f /tmp/ci-admin.db
+    - export FLEET_DB_URL=sqlite+aiosqlite:////tmp/ci-admin.db
+    - alembic upgrade head
+    - python -m server.tests._helpers.check_admin_seed --db-url "sqlite:////tmp/ci-admin.db" --email "$FLEET_BOOTSTRAP_ADMIN_EMAIL"
+
 sast:
   stage: test
 include:

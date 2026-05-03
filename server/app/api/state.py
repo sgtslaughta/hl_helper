@@ -6,7 +6,6 @@ includes v1 routers) and v1 routers (which need AppState).
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from typing import Any, Protocol, runtime_checkable
 
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, AsyncSession
@@ -27,8 +26,6 @@ class AppStateProtocol(Protocol):
     """Protocol for application state container.
 
     Defines the interface that consumers of get_app_state() expect.
-    Production path (AppState) is strictly typed; test fallback path
-    (SimpleNamespace) may have None values for attributes.
     """
 
     bus: Bus
@@ -45,30 +42,17 @@ class AppStateProtocol(Protocol):
 
 
 def get_app_state(request: Any) -> AppStateProtocol:
-    """Return AppState from app.state.app_state, or a SimpleNamespace shim.
+    """Return AppState from app.state.app_state.
 
     In production, lifespan stores AppState at app.state.app_state.
-    In tests that inject state attributes directly (legacy path), fall back
-    to synthesizing from individual attributes via a SimpleNamespace.
+    In tests, set app.state.app_state = make_test_app_state(...).
 
-    The SimpleNamespace fallback may contain None values for unset attributes.
-    This is a documented test-only escape hatch; production callers should handle
-    None gracefully or rely on full AppState initialization via lifespan.
+    Raises RuntimeError if AppState is not initialized.
     """
     state = getattr(request.app.state, "app_state", None)
-    if state is not None:
-        return state  # type: ignore[no-any-return]
-    ns = SimpleNamespace(
-        bus=getattr(request.app.state, "bus", None),
-        sessionmaker=getattr(request.app.state, "sessionmaker", None),
-        audit_chain=getattr(request.app.state, "audit_chain", None),
-        dispatcher=getattr(request.app.state, "dispatcher", None),
-        api_dispatcher=getattr(request.app.state, "api_dispatcher", None),
-        signing_backend=getattr(request.app.state, "signing_backend", None),
-        enrollment_service=getattr(request.app.state, "enrollment_service", None),
-        revocation_service=getattr(request.app.state, "revocation_service", None),
-        ca=getattr(request.app.state, "ca", None),
-        engine=getattr(request.app.state, "engine", None),
-        result_handler=getattr(request.app.state, "result_handler", None),
-    )
-    return ns
+    if state is None:
+        raise RuntimeError(
+            "AppState not initialized. Production: ensure lifespan_context ran. "
+            "Tests: set app.state.app_state = make_test_app_state(...)"
+        )
+    return state  # type: ignore[no-any-return]
