@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.app.crypto.signing import SigningBackend
 from server.app.events.bus import Bus
+from server.app.events.after_commit import publish_after_commit
 from server.app.models.audit import AuditCheckpoint as CheckpointModel
 from server.app.models.audit import AuditEntry as AuditEntryModel
 
@@ -151,7 +152,9 @@ class SqlAuditChain:
 
         # Publish audit event if bus is set (do not include full payload to avoid PII)
         if self._event_bus is not None:
-            await self._event_bus.publish(
+            publish_after_commit(
+                session,
+                self._event_bus,
                 "audit",
                 {
                     "sequence": entry.sequence,

@@ -2,8 +2,9 @@
 
 Provides CommandQueue with async methods for enqueueing, popping (FIFO),
 peeking, and expiring overdue commands. Uses the commands table directly
-without creating new tables. Idempotent enqueue is implemented via
-bounded process-local dictionary (not DB-backed) — see enqueue() docstring.
+without creating new tables. Idempotent enqueue is backed by a unique
+constraint on idempotency_key for cross-process deduplication, with a
+bounded process-local LRU cache for fast-path reads within the same process.
 """
 
 from __future__ import annotations
@@ -26,9 +27,10 @@ class CommandQueue:
     Status transitions: QUEUED -> IN_FLIGHT -> (ACKED/SUCCEEDED/FAILED/etc).
     expire_overdue marks QUEUED rows past expires_at as EXPIRED.
 
-    Idempotent enqueue is process-local: a bounded LRU caches the last N
-    `(idempotency_key -> command_id)` mappings. Cross-process idempotency
-    requires a DB-backed unique constraint; not implemented here.
+    Idempotent enqueue is DB-backed: a unique constraint on idempotency_key
+    ensures cross-process deduplication. A bounded process-local LRU cache
+    (size _DEFAULT_IDEMPOTENCY_CAPACITY) provides fast-path reads for repeat
+    requests within the same process.
     """
 
     def __init__(self, *, idempotency_capacity: int = _DEFAULT_IDEMPOTENCY_CAPACITY) -> None:
@@ -47,22 +49,48 @@ class CommandQueue:
     ) -> Command:
         """Persist command to queue; return cached row if idempotency_key matches.
 
-        If `idempotency_key` is supplied and was previously enqueued in this
-        process, the cached command_id is looked up via the current session
-        and returned. The supplied `command` is not added in that case.
+        If `idempotency_key` is supplied:
+        1. Check process-local LRU cache first (fast-path for same process).
+        2. If not in cache, query DB by unique idempotency_key to handle
+           cross-process deduplication. Return existing Command if found.
+        3. Else set idempotency_key on the new command and persist.
+
+        The DB unique constraint ensures idempotency is durable across restarts.
+        The process-local LRU provides a small read-through cache layer.
 
         Caller must commit the session for changes to persist.
         """
+        # Fast-path: check process-local cache
         if idempotency_key is not None and idempotency_key in self._idempotency_cache:
             cached_id = self._idempotency_cache[idempotency_key]
             self._idempotency_cache.move_to_end(idempotency_key)
             existing = await session.get(Command, cached_id)
             if existing is not None:
                 return existing
-            # Stale cache entry (row deleted) — fall through and re-enqueue.
+            # Stale cache entry (row deleted) — fall through to DB check.
             del self._idempotency_cache[idempotency_key]
 
+        # DB-backed check: look up by idempotency_key to handle cross-process dedup
+        if idempotency_key is not None:
+            result = await session.execute(
+                select(Command).where(Command.idempotency_key == idempotency_key)
+            )
+            existing_cmd: Command | None = result.scalar_one_or_none()
+            if existing_cmd is not None:
+                # Update cache and return existing command
+                self._idempotency_cache[idempotency_key] = existing_cmd.id
+                self._idempotency_cache.move_to_end(idempotency_key)
+                while len(self._idempotency_cache) > self._idempotency_capacity:
+                    self._idempotency_cache.popitem(last=False)
+                return existing_cmd
+
+        # New command: set idempotency_key before adding to session
+        if idempotency_key is not None:
+            command.idempotency_key = idempotency_key
+
         session.add(command)
+
+        # Update cache
         if idempotency_key is not None:
             self._idempotency_cache[idempotency_key] = command.id
             self._idempotency_cache.move_to_end(idempotency_key)

@@ -20,6 +20,9 @@ from server.app.enrollment.service import EnrollmentService
 from server.app.grpc.dispatcher import CommandDispatcher
 from server.app.grpc.result_handler import ResultHandler
 from server.app.models import Base
+from server.app.rbac.engine import BuiltinEngine
+from server.app.rbac.provider import Principal, AuthContext, Decision
+from server.app.rbac.scope import Resource
 from server.app.revocation.service import RevocationService
 from server.app.settings.config import FleetSettings
 
@@ -27,19 +30,36 @@ from server.app.settings.config import FleetSettings
 class _PermissiveRbacProvider:
     """Stub RBAC provider that allows all actions (fail-open).
 
-    Used when real RBAC provider is not yet wired. Admin auth gate upstream
+    Used when FLEET_ALLOW_PERMISSIVE_RBAC=1. Admin auth gate upstream
     provides the actual security boundary.
     """
 
-    async def is_authorized(self, principal: Any, action: str, resource: Any, ctx: Any) -> Any:
+    async def is_authorized(
+        self, principal: Principal, action: str, resource: Resource, ctx: AuthContext
+    ) -> Decision:
         """Always allow (fail-open)."""
-        from dataclasses import dataclass
+        return Decision(allow=True)
 
-        @dataclass
-        class AllowDecision:
-            allow: bool = True
 
-        return AllowDecision()
+class _RealRbacProvider:
+    """Wrapper around BuiltinEngine to inject sessions per-call.
+
+    BuiltinEngine requires a session for each authorization check.
+    This wrapper creates a fresh session from the sessionmaker for each call,
+    ensuring clean transaction isolation.
+    """
+
+    def __init__(self, sm: async_sessionmaker[AsyncSession]) -> None:
+        """Initialize with sessionmaker."""
+        self._sm = sm
+
+    async def is_authorized(
+        self, principal: Principal, action: str, resource: Resource, ctx: AuthContext
+    ) -> Decision:
+        """Check authorization using a fresh session."""
+        async with self._sm() as session:
+            engine = BuiltinEngine(session)
+            return await engine.is_authorized(principal, action, resource, ctx)
 
 
 @dataclass
@@ -100,28 +120,26 @@ async def build_app_state(settings: FleetSettings) -> AppState:
     audit_chain = SqlAuditChain(signing_backend)
 
     # Setup API command dispatcher with collaborators.
-    #
-    # NOTE: queue + capability_issuer are instantiated fresh on each restart.
-    # The CommandQueue is in-memory only (idempotency LRU rotates on restart);
-    # CapabilityIssuer.generate() rotates the biscuit signing key, invalidating
-    # outstanding capabilities. Both are intentional for the current dev
-    # iteration; durable persistence is a follow-up.
     queue = CommandQueue()
-    capability_issuer = CapabilityIssuer.generate()
+    capability_issuer = CapabilityIssuer.load_or_generate(
+        settings.data_dir / "keys" / "capability.key"
+    )
     approval_engine = None  # Will be created per-request; duck-typed
 
-    # Fail-open stub RBAC. Refuse to start in production unless explicitly
-    # acknowledged via FLEET_ALLOW_PERMISSIVE_RBAC=1 — prevents an accidental
-    # prod deploy from defaulting to "anyone wins every authorization check".
-    if os.environ.get("FLEET_ENV", "dev").lower() == "prod" and (
-        os.environ.get("FLEET_ALLOW_PERMISSIVE_RBAC") != "1"
-    ):
-        raise RuntimeError(
-            "Refusing to start: FLEET_ENV=prod with permissive RBAC stub. "
-            "Wire a real RBACProvider or set FLEET_ALLOW_PERMISSIVE_RBAC=1 "
-            "to acknowledge."
-        )
-    rbac_provider = _PermissiveRbacProvider()
+    # Wire RBAC provider.
+    # In production (FLEET_ENV=prod): wire real BuiltinEngine provider unless
+    # explicitly opted into permissive mode via FLEET_ALLOW_PERMISSIVE_RBAC=1.
+    # In dev: default to real provider, unless flag overrides to permissive stub.
+    allow_permissive = os.environ.get("FLEET_ALLOW_PERMISSIVE_RBAC") == "1"
+    is_prod = os.environ.get("FLEET_ENV", "dev").lower() == "prod"
+
+    rbac_provider: _RealRbacProvider | _PermissiveRbacProvider
+    if is_prod and not allow_permissive:
+        rbac_provider = _RealRbacProvider(sm)
+    elif allow_permissive:
+        rbac_provider = _PermissiveRbacProvider()
+    else:
+        rbac_provider = _RealRbacProvider(sm)
     api_dispatcher = ApiCommandDispatcher(
         queue=queue,
         audit=audit_chain,

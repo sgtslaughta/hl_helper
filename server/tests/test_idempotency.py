@@ -289,8 +289,8 @@ def test_different_request_bodies_same_key_returns_409():
 
         # Second request with same key but different body {"a": 2}
         r2 = c.post("/echo", headers={HEADER: "key1"}, json={"a": 2})
-        # Should return 422 idempotency_key_conflict
-        assert r2.status_code == 422
+        # Should return 409 idempotency_key_conflict (per RFC 7807 Conflict)
+        assert r2.status_code == 409
         assert "idempotency_key_conflict" in r2.text
 
 

@@ -20,6 +20,7 @@ from server.app.dispatcher.targets import (
     Selector,
 )
 from server.app.events.bus import Bus
+from server.app.events.after_commit import publish_after_commit
 from server.app.grpc._pb.fleet.v1 import envelope_pb2, commands_pb2
 from server.app.models.command import Command, CommandRisk, CommandStatus
 from server.app.models.task_run import TaskRun, TaskRunStatus
@@ -262,7 +263,9 @@ class CommandDispatcher:
 
                 # Publish pending approval event if bus is set
                 if self._event_bus is not None:
-                    await self._event_bus.publish(
+                    publish_after_commit(
+                        session,
+                        self._event_bus,
                         "commands",
                         {
                             "event": "command.pending_approval",
@@ -412,7 +415,9 @@ class CommandDispatcher:
 
                 # Publish command.issued event if bus is set
                 if self._event_bus is not None:
-                    await self._event_bus.publish(
+                    publish_after_commit(
+                        session,
+                        self._event_bus,
                         "commands",
                         {
                             "event": "command.issued",

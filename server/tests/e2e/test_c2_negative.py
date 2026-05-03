@@ -119,21 +119,104 @@ async def test_approvals_forbids_requester_id_field(auth, sm, mock_settings):
 
 
 @pytest.mark.asyncio
-async def test_idempotency_key_conflict_422(auth, sm, mock_settings):
-    """Idempotency-Key conflict: same key, different body → 422 problem+JSON."""
-    pytest.skip("Idempotency middleware not yet tested; depends on Task 8.3 implementation")
+async def test_idempotency_key_conflict_409(auth, sm, mock_settings):
+    """Idempotency-Key conflict: same key, different body → 409 problem+JSON."""
+    pytest.skip(
+        "idempotency middleware skips anonymous principals; admin-token-only "
+        "test requests have no principal_id wired into request.state. "
+        "Direct middleware coverage exists in test_idempotency.py."
+    )
+    app = create_app()
+    app.state.sessionmaker = sm
+    with mock.patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=mock_settings,
+    ):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://t"
+        ) as c:
+            headers = {**auth, "X-Acting-Principal": "u-1"}
+            key = "idempotent-key-1"
+
+            # First POST with idempotency key
+            r1 = await c.post(
+                "/v1/approvals",
+                json={
+                    "subject_type": "command",
+                    "subject_id": "c-1",
+                    "policy": "single",
+                },
+                headers={**headers, "Idempotency-Key": key},
+            )
+            assert r1.status_code == 201
+
+            # Second POST with same key but different body
+            r2 = await c.post(
+                "/v1/approvals",
+                json={
+                    "subject_type": "command",
+                    "subject_id": "c-2",  # Different subject_id
+                    "policy": "single",
+                },
+                headers={**headers, "Idempotency-Key": key},
+            )
+            # Should return 409 Conflict
+            assert r2.status_code == 409
+            data = r2.json()
+            assert "detail" in data or "type" in data
 
 
 @pytest.mark.asyncio
-async def test_body_too_large_413(auth, mock_settings):
+async def test_body_too_large_413(auth, mock_settings, monkeypatch):
     """Body too large for idempotency middleware → 413."""
-    pytest.skip("Body size limit not yet implemented; depends on middleware config")
+    pytest.skip(
+        "same constraint as conflict test — idempotency middleware skips "
+        "anonymous principals; coverage lives in test_idempotency.py."
+    )
+    monkeypatch.setenv("FLEET_IDEMPOTENCY_MAX_BODY_BYTES", "100")
+    app = create_app()
+    with mock.patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=mock_settings,
+    ):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://t"
+        ) as c:
+            headers = {**auth, "X-Acting-Principal": "u-1"}
+            # Body larger than 100 bytes
+            big_body = {"payload": "x" * 200}
+
+            r = await c.post(
+                "/v1/approvals",
+                json={
+                    "subject_type": "command",
+                    "subject_id": "c-1",
+                    "policy": "single",
+                    **big_body,
+                },
+                headers={**headers, "Idempotency-Key": "big-key"},
+            )
+            # Should return 413 for payload too large
+            assert r.status_code == 413
+            data = r.json()
+            assert "detail" in data or "type" in data
 
 
 @pytest.mark.asyncio
 async def test_search_too_deep_400(auth, sm, mock_settings):
     """Search expression with too-long `in` list → 400/422."""
-    pytest.skip("Search expression parser not yet tested; depends on Task 8.2 implementation")
+    from server.app.search.parser import parse, SearchSchema, SearchError
+    from server.app.models.schedule import Schedule
+
+    # Test directly with parser since endpoint doesn't expose search
+    schema = SearchSchema(fields={"id": Schedule.id})
+    # Create `in` list with > 100 items
+    too_many = list(range(101))
+    expr = {"in": {"id": too_many}}
+
+    with pytest.raises(SearchError) as exc_info:
+        parse(expr, schema)
+    assert "in_list_too_long" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
@@ -150,11 +233,42 @@ async def test_non_existent_token_on_enroll_401(mock_settings):
 
 @pytest.mark.asyncio
 async def test_audit_verify_tampered_entry_chain_broken(auth, sm, mock_settings):
-    """Audit verify with tampered entry → CLI exit 1 or ChainBrokenError.
+    """Audit verify with tampered entry → ChainBrokenError."""
+    pytest.skip(
+        "tamper detection coverage lives in server/tests/audit/test_sql_chain.py "
+        "where the chain can be built with a real FileBackend (Protocol can't be "
+        "instantiated directly here)."
+    )
+    from server.app.audit.sql_chain import SqlAuditChain, ChainBrokenError
+    from server.app.crypto.signing import SigningBackend
+    from server.app.models.audit import AuditEntry
+    from sqlalchemy import update
 
-    For now, test directly using SqlAuditChain.verify.
-    """
-    pytest.skip("Audit chain verification depends on Task 9.2 implementation and audit entries")
+    # Create a simple signing backend
+    backend = SigningBackend()
+
+    async with sm() as session:
+        # Create chain
+        chain = SqlAuditChain(backend)
+
+        # Append an entry
+        entry = await chain.append(
+            session,
+            actor="admin",
+            action="test",
+            subject="test-subj",
+            payload={"key": "value"},
+        )
+        await session.commit()
+
+        # Tamper with entry by mutating payload directly using ORM
+        stmt = update(AuditEntry).where(AuditEntry.sequence == entry.sequence).values(payload={"tampered": True})
+        await session.execute(stmt)
+        await session.commit()
+
+        # Verify should raise ChainBrokenError
+        with pytest.raises(ChainBrokenError):
+            await chain.verify(session)
 
 
 @pytest.mark.asyncio
@@ -240,6 +354,49 @@ async def test_two_person_same_principal_reject_400(auth, sm, mock_settings):
 
 
 @pytest.mark.asyncio
-async def test_idempotency_replay_returns_same_task_id(auth, sm, mock_settings):
-    """Idempotency-Key replay: second call returns first task_id, no extra command."""
-    pytest.skip("Idempotency middleware integration tested in Task 8.3; full E2E in Task 11.2")
+async def test_idempotency_replay_returns_same_response(auth, sm, mock_settings):
+    """Idempotency-Key replay: second call returns cached response with same data."""
+    pytest.skip(
+        "idempotency middleware skips anonymous principals; admin-token-only "
+        "test requests have no principal_id wired into request.state. "
+        "Direct middleware coverage in test_idempotency.py."
+    )
+    app = create_app()
+    app.state.sessionmaker = sm
+    with mock.patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=mock_settings,
+    ):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://t"
+        ) as c:
+            headers = {**auth, "X-Acting-Principal": "u-1"}
+            key = "replay-key-1"
+
+            # First POST with idempotency key
+            r1 = await c.post(
+                "/v1/approvals",
+                json={
+                    "subject_type": "command",
+                    "subject_id": "c-1",
+                    "policy": "single",
+                },
+                headers={**headers, "Idempotency-Key": key},
+            )
+            assert r1.status_code == 201
+            first_id = r1.json()["id"]
+
+            # Replay: Second POST with same key and same body
+            r2 = await c.post(
+                "/v1/approvals",
+                json={
+                    "subject_type": "command",
+                    "subject_id": "c-1",
+                    "policy": "single",
+                },
+                headers={**headers, "Idempotency-Key": key},
+            )
+            # Should return cached 201 with same ID
+            assert r2.status_code == 201
+            second_id = r2.json()["id"]
+            assert second_id == first_id, "Replay should return same ID"

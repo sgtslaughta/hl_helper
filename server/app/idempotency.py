@@ -200,9 +200,9 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
         if conflict is not None:
             from server.app.errors import problem
             return problem(
-                422,
+                409,
                 "idempotency_key_conflict",
-                title="Idempotency Key Conflict",
+                title="Conflict",
                 detail="request with same idempotency key but different body already exists",
             )
 

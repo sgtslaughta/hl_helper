@@ -34,6 +34,70 @@ async def _dispatch_fire(engine_id: str, schedule_id: str) -> None:
     await eng._fire(schedule_id)
 
 
+def _selectors_overlap(window_sel: dict[str, Any], schedule_sel: dict[str, Any]) -> bool:
+    """Check if maintenance window and schedule selectors overlap.
+
+    Conservative logic: when in doubt, treats overlap as True (block firing) so
+    admins are not surprised by a missed blackout.
+
+    Rules:
+    - If either is empty {} or contains {"type": "all"}, treat as universal → overlaps everything.
+    - If both name group_id → overlap iff equal.
+    - If one names group_id and other names host_id/host_ids → conservative overlap True.
+    - If both name host_id/host_ids → overlap iff intersection non-empty.
+    - Else → False.
+
+    Args:
+        window_sel: Maintenance window target_selector dict.
+        schedule_sel: Schedule target_selector dict.
+
+    Returns:
+        True if selectors overlap (block), False otherwise.
+    """
+    # Universal: empty dict or type: all
+    if not window_sel or window_sel.get("type") == "all":
+        return True
+    if not schedule_sel or schedule_sel.get("type") == "all":
+        return True
+
+    # Extract selector fields
+    window_group_id = window_sel.get("group_id")
+    schedule_group_id = schedule_sel.get("group_id")
+    window_host_id = window_sel.get("host_id")
+    schedule_host_id = schedule_sel.get("host_id")
+    window_host_ids = window_sel.get("host_ids")
+    schedule_host_ids = schedule_sel.get("host_ids")
+
+    # Both specify group_id
+    if window_group_id is not None and schedule_group_id is not None:
+        return bool(window_group_id == schedule_group_id)
+
+    # One specifies group_id, other specifies host (conservative: assume overlap)
+    if (window_group_id is not None and (schedule_host_id is not None or schedule_host_ids is not None)) or (
+        schedule_group_id is not None and (window_host_id is not None or window_host_ids is not None)
+    ):
+        return True
+
+    # Both specify host_id/host_ids
+    window_hosts: set[str] = set()
+    if window_host_id is not None:
+        window_hosts.add(window_host_id)
+    if window_host_ids is not None:
+        window_hosts.update(window_host_ids if isinstance(window_host_ids, list) else [window_host_ids])
+
+    schedule_hosts: set[str] = set()
+    if schedule_host_id is not None:
+        schedule_hosts.add(schedule_host_id)
+    if schedule_host_ids is not None:
+        schedule_hosts.update(schedule_host_ids if isinstance(schedule_host_ids, list) else [schedule_host_ids])
+
+    if window_hosts and schedule_hosts:
+        return bool(window_hosts & schedule_hosts)
+
+    # No overlap detected
+    return False
+
+
 class ScheduleEngine:
     """Async schedule engine using APScheduler with SQLAlchemy persistence."""
 
@@ -158,10 +222,8 @@ class ScheduleEngine:
                 logger.warning(f"Schedule {schedule_id} not found")
                 return
 
-            # Check for active maintenance windows (BLACKOUT kind).
-            # TODO(plan-c2): scope blackouts by intersection of window.target_selector
-            # and schedule.target_selector. Today, ANY active blackout silences
-            # ALL schedules — that is broader than the spec intends.
+            # Check for active maintenance windows (BLACKOUT kind) that overlap
+            # with this schedule's target_selector.
             now = datetime.now(timezone.utc)
             maint_stmt = select(MaintenanceWindow).where(
                 MaintenanceWindow.kind == MaintenanceWindowKind.BLACKOUT
@@ -169,8 +231,13 @@ class ScheduleEngine:
             maint_result = await session.execute(maint_stmt)
             windows = maint_result.scalars().all()
 
-            # Check if any window overlaps with now
+            # Check if any window overlaps with now AND with this schedule's selector
             for window in windows:
+                # First check selector overlap
+                if not _selectors_overlap(window.target_selector, schedule.target_selector):
+                    # Selectors don't overlap, so this blackout doesn't apply
+                    continue
+
                 try:
                     tz = ZoneInfo(window.timezone)
                 except Exception:

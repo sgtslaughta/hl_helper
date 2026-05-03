@@ -38,7 +38,9 @@ class Command(Base):
     __table_args__ = (
         Index("ix_command_task_run_id", "task_run_id"),
         Index("ix_command_host_id", "host_id"),
+        Index("ix_command_idempotency_key", "idempotency_key"),
         UniqueConstraint("host_id", "sequence", name="uq_command_host_sequence"),
+        UniqueConstraint("idempotency_key", name="uq_command_idempotency_key"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
@@ -56,3 +58,4 @@ class Command(Base):
         DateTime(timezone=True), nullable=True
     )
     status: Mapped[CommandStatus] = mapped_column(SQLEnum(CommandStatus))
+    idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True)

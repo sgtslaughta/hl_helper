@@ -1,9 +1,13 @@
 """Biscuit capability token issuance and verification."""
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
+
 from biscuit_auth import (
+    Algorithm,
     KeyPair,
     PrivateKey,
     PublicKey,
@@ -57,6 +61,57 @@ class CapabilityIssuer:
         """Generate a new issuer with random Ed25519 keypair."""
         kp = KeyPair()
         return cls(kp.private_key)
+
+    @classmethod
+    def load_or_generate(cls, path: Path | str) -> CapabilityIssuer:
+        """Load issuer from persistent key file, or generate and persist if missing.
+
+        On first call: generates a new Ed25519 keypair, writes raw bytes to `path`
+        with mode 0o600 (owner read+write only) using atomic write, then returns issuer.
+        On subsequent calls: loads key bytes from `path`, reconstructs issuer.
+
+        Parent directories are created if needed.
+
+        Args:
+            path: Filesystem path where to persist the key.
+
+        Returns:
+            CapabilityIssuer instance.
+
+        Raises:
+            ValueError: If path exists but contains invalid key data.
+        """
+        path = Path(path)
+
+        # Create parent directories if needed
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        if path.exists():
+            # Load existing key from file (raw 32 bytes Ed25519)
+            key_bytes = path.read_bytes()
+            try:
+                private_key = PrivateKey.from_bytes(  # type: ignore[call-arg]
+                    key_bytes, Algorithm.Ed25519  # type: ignore[attr-defined]
+                )
+            except Exception as e:
+                raise ValueError(f"Failed to load capability key from {path}: {e}")
+            return cls(private_key)
+        else:
+            # Generate new key and persist atomically
+            kp = KeyPair()
+            private_key = kp.private_key
+            key_bytes = private_key.to_bytes()
+
+            # Atomic write: write to temp file, then rename
+            tmp_path = path.parent / f"{path.name}.tmp"
+            fd = os.open(str(tmp_path), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+            try:
+                os.write(fd, key_bytes)
+            finally:
+                os.close(fd)
+            os.replace(str(tmp_path), str(path))
+
+            return cls(private_key)
 
     @property
     def public_key(self) -> PublicKey:
