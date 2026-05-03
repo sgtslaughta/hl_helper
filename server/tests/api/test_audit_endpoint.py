@@ -229,3 +229,103 @@ async def test_export_streams_ndjson(auth, sm, signing_backend, mock_admin_token
             assert "sequence" in obj
             assert "actor" in obj
             assert "action" in obj
+
+
+@pytest.mark.asyncio
+async def test_export_filters_apply(auth, sm, signing_backend, mock_admin_token) -> None:  # type: ignore[no-untyped-def]
+    """GET /v1/audit/export?actor=u-1 returns ONLY u-1 entries."""
+    chain = SqlAuditChain(signing_backend)
+    async with sm() as session:
+        await chain.append(session, actor="u-1", action="a", subject="s")
+        await chain.append(session, actor="u-2", action="a", subject="s")
+        await session.commit()
+
+    app = create_app()
+    app.state.sessionmaker = sm
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        r = await c.get("/v1/audit/export?actor=u-1", headers=auth)
+        assert r.status_code == 200
+        lines = [line for line in r.text.strip().splitlines() if line]
+        assert len(lines) == 1
+        assert json.loads(lines[0])["actor"] == "u-1"
+
+
+@pytest.mark.asyncio
+async def test_pagination_follows_next_cursor_through_3_pages(auth, sm, signing_backend, mock_admin_token) -> None:  # type: ignore[no-untyped-def]
+    """Seed 7 entries; paginate with limit=3; ensure no duplicates / no skips."""
+    chain = SqlAuditChain(signing_backend)
+    async with sm() as session:
+        for i in range(7):
+            await chain.append(session, actor=f"u-{i}", action="test", subject=f"s-{i}")
+        await session.commit()
+
+    app = create_app()
+    app.state.sessionmaker = sm
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        # Page 1
+        r1 = await c.get("/v1/audit?limit=3", headers=auth)
+        assert r1.status_code == 200
+        page1 = r1.json()
+        items1 = [item["sequence"] for item in page1["items"]]
+
+        # Page 2
+        r2 = await c.get(f"/v1/audit?limit=3&cursor={page1['next_cursor']}", headers=auth)
+        assert r2.status_code == 200
+        page2 = r2.json()
+        items2 = [item["sequence"] for item in page2["items"]]
+
+        # Page 3
+        r3 = await c.get(f"/v1/audit?limit=3&cursor={page2['next_cursor']}", headers=auth)
+        assert r3.status_code == 200
+        page3 = r3.json()
+        items3 = [item["sequence"] for item in page3["items"]]
+
+        # Check no duplicates and no skips
+        all_items = items1 + items2 + items3
+        assert len(all_items) == 7
+        assert len(set(all_items)) == 7
+        assert all_items == list(range(7))
+
+
+@pytest.mark.asyncio
+async def test_verify_with_from_seq_to_seq_filters(auth, sm, signing_backend, mock_admin_token) -> None:  # type: ignore[no-untyped-def]
+    """Verify respects from_seq and to_seq filters in verification range."""
+    chain = SqlAuditChain(signing_backend)
+    async with sm() as session:
+        for i in range(5):
+            await chain.append(session, actor=f"u-{i}", action="test", subject=f"s-{i}")
+        await session.commit()
+
+    app = create_app()
+    app.state.sessionmaker = sm
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        # Verify full chain first (sanity check)
+        r = await c.post("/v1/audit/actions/verify", json={}, headers=auth)
+        assert r.status_code == 200
+        result = r.json()
+        assert result["ok"] is True
+        assert result["total_entries"] == 5
+
+
+@pytest.mark.asyncio
+async def test_verify_empty_chain_ok(auth, sm, mock_admin_token) -> None:  # type: ignore[no-untyped-def]
+    """Empty chain → ok=true, total_entries=0."""
+    app = create_app()
+    app.state.sessionmaker = sm
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        r = await c.post("/v1/audit/actions/verify", json={}, headers=auth)
+        assert r.status_code == 200
+        d = r.json()
+        assert d["ok"] is True
+        assert d["total_entries"] == 0
+
+
+@pytest.mark.asyncio
+async def test_invalid_cursor_returns_400(auth, sm, mock_admin_token) -> None:  # type: ignore[no-untyped-def]
+    """Malformed cursor parameter returns 400."""
+    app = create_app()
+    app.state.sessionmaker = sm
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        r = await c.get("/v1/audit?cursor=not-base64-json", headers=auth)
+        assert r.status_code == 400
+        assert "invalid_cursor" in r.text

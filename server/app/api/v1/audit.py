@@ -1,20 +1,29 @@
-"""API endpoints for audit log queries and verification."""
+"""API endpoints for audit log queries and verification.
+
+The /v1/audit endpoint supports cursor-based pagination to stably page through
+audit entries under concurrent inserts. The /v1/audit/export endpoint streams
+all matching entries as NDJSON (newline-delimited JSON) ordered by sequence,
+without buffering — suitable for large audit chains (100K+ entries).
+
+The /v1/audit/actions/verify endpoint re-walks the SHA-256 hash chain and
+reports the first broken entry by sequence number, if any. An empty chain is
+considered valid and returns total_entries=0.
+"""
 
 from __future__ import annotations
 
+import binascii
 import json
-from datetime import datetime
-from typing import TYPE_CHECKING, AsyncGenerator
+from datetime import datetime, timezone
+from typing import AsyncGenerator
 
-from fastapi import APIRouter, Depends, Query, Request
-
-if TYPE_CHECKING:
-    from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import and_, select
 
 from server.app.api.middleware.admin_auth import admin_required
-from server.app.audit.chain import compute_entry_hash
+from server.app.audit.chain import GENESIS_HASH, compute_entry_hash
 from server.app.models.audit import AuditEntry
 from server.app.pagination import apply_cursor, build_page
 
@@ -111,13 +120,16 @@ async def list_audit(
         f = _build_filters(actor, action, subject, since, before)
         if f is not None:
             stmt = stmt.where(f)  # type: ignore[arg-type]
-        stmt = apply_cursor(
-            stmt,
-            sort_column=AuditEntry.sequence,
-            id_column=AuditEntry.sequence,
-            cursor=cursor,
-            limit=limit,
-        )
+        try:
+            stmt = apply_cursor(
+                stmt,
+                sort_column=AuditEntry.sequence,
+                id_column=AuditEntry.sequence,
+                cursor=cursor,
+                limit=limit,
+            )
+        except (binascii.Error, json.JSONDecodeError, KeyError, ValueError):
+            raise HTTPException(400, detail="invalid_cursor") from None
         rows = (await session.execute(stmt)).scalars().all()
         page = build_page(rows, limit=limit, sort_attr="sequence", id_attr="sequence")
 
@@ -132,21 +144,23 @@ async def export_audit(
     subject: str | None = None,
     since: datetime | None = None,
     before: datetime | None = None,
-) -> "StreamingResponse":
-    """Stream all matching entries as JSON Lines (NDJSON)."""
-    from fastapi.responses import StreamingResponse
+) -> StreamingResponse:
+    """Stream all matching entries as JSON Lines (NDJSON).
 
+    Uses stream_scalars() to avoid buffering large audit chains in memory.
+    Entries are ordered by sequence number (ascending).
+    """
     sm = req.app.state.sessionmaker
     f = _build_filters(actor, action, subject, since, before)
 
-    async def generate() -> "AsyncGenerator[bytes, None]":
-        """Generate JSON Lines from audit entries."""
+    async def generate() -> AsyncGenerator[bytes, None]:
+        """Generate JSON Lines from audit entries via streaming."""
         async with sm() as session:
             stmt = select(AuditEntry).order_by(AuditEntry.sequence.asc())
             if f is not None:
                 stmt = stmt.where(f)  # type: ignore[arg-type]
-            rows = (await session.execute(stmt)).scalars().all()
-            for e in rows:
+            result = await session.stream_scalars(stmt)
+            async for e in result:
                 yield json.dumps(_entry_to_out(e).model_dump(mode="json")).encode() + b"\n"
 
     return StreamingResponse(generate(), media_type="application/x-ndjson")
@@ -155,8 +169,6 @@ async def export_audit(
 @router.post("/actions/verify", response_model=AuditVerifyResult, dependencies=[Depends(admin_required)])
 async def verify_chain(req: Request, body: AuditVerifyRequest) -> AuditVerifyResult:
     """Re-walk the SHA-256 hash chain and report first break."""
-    from server.app.audit.chain import GENESIS_HASH
-
     sm = req.app.state.sessionmaker
     async with sm() as session:
         stmt = select(AuditEntry).order_by(AuditEntry.sequence.asc())
@@ -170,8 +182,6 @@ async def verify_chain(req: Request, body: AuditVerifyRequest) -> AuditVerifyRes
         return AuditVerifyResult(ok=True, break_at_seq=None, total_entries=0, message="empty chain in range")
 
     # Verify chain linkage
-    from datetime import timezone
-
     for i, e in enumerate(rows):
         # First entry must have prev_hash == GENESIS_HASH
         if i == 0:
