@@ -17,6 +17,7 @@ from server.app.api.v1.install import router as install_router
 from server.app.api.v1 import policies
 from server.app.api.v1.roles import router as roles_router
 from server.app.api.v1.settings import router as settings_router
+from server.app.api.v1.tasks import router as tasks_router
 from server.app.api.v1.tokens import router as tokens_router
 from server.app.api.v1.users import router as users_router
 from server.app.errors import http_exception_handler, validation_exception_handler
@@ -54,6 +55,7 @@ def create_app() -> FastAPI:
     app.include_router(policies.maintenance_window_router)
     app.include_router(roles_router)
     app.include_router(settings_router)
+    app.include_router(tasks_router)
     app.include_router(tokens_router)
     app.include_router(users_router)
     return app

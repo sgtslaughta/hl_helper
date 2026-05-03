@@ -5,9 +5,17 @@ from __future__ import annotations
 from typing import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.app.api.middleware.admin_auth import admin_required
+from server.app.dispatcher.dispatcher import (
+    RebootPayload,
+    ShellExecPayload,
+    PkgUpdatePayload,
+)
+from server.app.dispatcher.targets import HostListSelector
+from server.app.rbac.provider import Principal
 from server.app.revocation.service import (
     HostAlreadyRevokedError,
     HostNotFoundError,
@@ -17,7 +25,39 @@ from server.app.revocation.service import (
 router = APIRouter(prefix="/v1/hosts", tags=["hosts"])
 
 
-# Dependency providers (can be overridden in tests)
+# ===== Request/Response Models =====
+
+
+class RebootActionRequest(BaseModel):
+    """Request body for reboot action."""
+
+    delay_s: int = 0
+    reason: str = ""
+
+
+class ShellExecActionRequest(BaseModel):
+    """Request body for shell-exec action."""
+
+    command: str
+    timeout_s: int = 60
+
+
+class PkgUpdateActionRequest(BaseModel):
+    """Request body for pkg-update action."""
+
+    classes: list[str] = []
+
+
+class ActionResponse(BaseModel):
+    """Response for action dispatch endpoints."""
+
+    task_id: str
+    dispatched: list[str]
+    denied: list[str]
+    pending_approval_ids: list[str]
+
+
+# ===== Dependency providers (can be overridden in tests) =====
 async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
     """Get database session from app state."""
     from server.app.api.app import get_app_state
@@ -57,3 +97,141 @@ async def revoke_host(
             status_code=status.HTTP_409_CONFLICT,
             detail="host already revoked",
         )
+
+
+# ===== Action Endpoints =====
+
+
+@router.post(
+    "/{host_id}/actions/reboot",
+    response_model=ActionResponse,
+    dependencies=[Depends(admin_required)],
+)
+async def reboot_host(
+    request: Request,
+    host_id: str,
+    body: RebootActionRequest,
+    session: AsyncSession = Depends(get_session),
+) -> ActionResponse:
+    """Reboot a host.
+
+    Requires admin authentication and X-Acting-Principal header.
+    Returns 200 with dispatch result.
+    """
+    acting_principal = request.headers.get("X-Acting-Principal", "").strip()
+    if not acting_principal:
+        raise HTTPException(status_code=400, detail="acting_principal_required")
+
+    principal = Principal(user_id=acting_principal)
+    targets = HostListSelector(host_ids=[host_id])
+    payload = RebootPayload(delay_s=body.delay_s, reason=body.reason)
+    idempotency_key = request.headers.get("Idempotency-Key")
+
+    from server.app.api.app import get_app_state
+
+    state = get_app_state(request)
+    result = await state.api_dispatcher.dispatch(
+        session,
+        principal=principal,
+        targets=targets,
+        payload=payload,
+        idempotency_key=idempotency_key,
+    )
+    await session.commit()
+
+    return ActionResponse(
+        task_id=result.task_id,
+        dispatched=result.dispatched,
+        denied=result.denied,
+        pending_approval_ids=result.pending_approval_ids,
+    )
+
+
+@router.post(
+    "/{host_id}/actions/shell-exec",
+    response_model=ActionResponse,
+    dependencies=[Depends(admin_required)],
+)
+async def shell_exec_host(
+    request: Request,
+    host_id: str,
+    body: ShellExecActionRequest,
+    session: AsyncSession = Depends(get_session),
+) -> ActionResponse:
+    """Execute a shell command on a host.
+
+    Requires admin authentication and X-Acting-Principal header.
+    High-risk action requiring approval. Returns 200 with dispatch result.
+    """
+    acting_principal = request.headers.get("X-Acting-Principal", "").strip()
+    if not acting_principal:
+        raise HTTPException(status_code=400, detail="acting_principal_required")
+
+    principal = Principal(user_id=acting_principal)
+    targets = HostListSelector(host_ids=[host_id])
+    payload = ShellExecPayload(command=body.command, timeout_s=body.timeout_s)
+    idempotency_key = request.headers.get("Idempotency-Key")
+
+    from server.app.api.app import get_app_state
+
+    state = get_app_state(request)
+    result = await state.api_dispatcher.dispatch(
+        session,
+        principal=principal,
+        targets=targets,
+        payload=payload,
+        idempotency_key=idempotency_key,
+    )
+    await session.commit()
+
+    return ActionResponse(
+        task_id=result.task_id,
+        dispatched=result.dispatched,
+        denied=result.denied,
+        pending_approval_ids=result.pending_approval_ids,
+    )
+
+
+@router.post(
+    "/{host_id}/actions/pkg-update",
+    response_model=ActionResponse,
+    dependencies=[Depends(admin_required)],
+)
+async def pkg_update_host(
+    request: Request,
+    host_id: str,
+    body: PkgUpdateActionRequest,
+    session: AsyncSession = Depends(get_session),
+) -> ActionResponse:
+    """Update packages on a host.
+
+    Requires admin authentication and X-Acting-Principal header.
+    Returns 200 with dispatch result.
+    """
+    acting_principal = request.headers.get("X-Acting-Principal", "").strip()
+    if not acting_principal:
+        raise HTTPException(status_code=400, detail="acting_principal_required")
+
+    principal = Principal(user_id=acting_principal)
+    targets = HostListSelector(host_ids=[host_id])
+    payload = PkgUpdatePayload(classes=tuple(body.classes))
+    idempotency_key = request.headers.get("Idempotency-Key")
+
+    from server.app.api.app import get_app_state
+
+    state = get_app_state(request)
+    result = await state.api_dispatcher.dispatch(
+        session,
+        principal=principal,
+        targets=targets,
+        payload=payload,
+        idempotency_key=idempotency_key,
+    )
+    await session.commit()
+
+    return ActionResponse(
+        task_id=result.task_id,
+        dispatched=result.dispatched,
+        denied=result.denied,
+        pending_approval_ids=result.pending_approval_ids,
+    )

@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.app.crypto.signing import SigningBackend
+from server.app.events.bus import Bus
 from server.app.models.audit import AuditCheckpoint as CheckpointModel
 from server.app.models.audit import AuditEntry as AuditEntryModel
 
@@ -33,16 +34,22 @@ class SqlAuditChain:
     """
 
     def __init__(
-        self, signing_backend: SigningBackend, *, checkpoint_interval: int = 100
+        self,
+        signing_backend: SigningBackend,
+        *,
+        checkpoint_interval: int = 100,
+        event_bus: Bus | None = None,
     ) -> None:
         """Initialize DB-backed audit chain.
 
         Args:
             signing_backend: Backend for signing checkpoints.
             checkpoint_interval: Create checkpoint every N entries.
+            event_bus: Optional event bus for publishing audit events.
         """
         self._backend = signing_backend
         self._checkpoint_interval = checkpoint_interval
+        self._event_bus = event_bus
 
     async def append(
         self,
@@ -141,6 +148,18 @@ class SqlAuditChain:
         # Auto-checkpoint: if (sequence+1) % interval == 0
         if (sequence + 1) % self._checkpoint_interval == 0:
             await self._checkpoint_now(session, timestamp=datetime.now(timezone.utc))
+
+        # Publish audit event if bus is set (do not include full payload to avoid PII)
+        if self._event_bus is not None:
+            await self._event_bus.publish(
+                "audit",
+                {
+                    "sequence": entry.sequence,
+                    "actor": entry.actor,
+                    "action": entry.action,
+                    "subject": entry.subject,
+                },
+            )
 
         return entry
 

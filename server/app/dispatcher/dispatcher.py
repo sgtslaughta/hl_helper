@@ -19,6 +19,7 @@ from server.app.dispatcher.targets import (
     resolve_targets,
     Selector,
 )
+from server.app.events.bus import Bus
 from server.app.grpc._pb.fleet.v1 import envelope_pb2, commands_pb2
 from server.app.models.command import Command, CommandRisk, CommandStatus
 from server.app.models.task_run import TaskRun, TaskRunStatus
@@ -154,8 +155,20 @@ class CommandDispatcher:
         approval_engine: Any,  # ApprovalEngine-like; duck-typed for tests
         rbac_provider: Any,
         scope_evaluator: Any,  # reserved; not yet used
+        event_bus: Bus | None = None,
     ) -> None:
-        """Initialize dispatcher with collaborators."""
+        """Initialize dispatcher with collaborators.
+
+        Args:
+            queue: Durable command queue.
+            audit: Audit chain for logging.
+            capability_issuer: Biscuit capability issuer.
+            signing_backend: Signing backend for envelope signatures.
+            approval_engine: Approval engine (duck-typed).
+            rbac_provider: RBAC decision provider.
+            scope_evaluator: Reserved for future scope evaluation.
+            event_bus: Optional event bus for publishing dispatch events.
+        """
         self._queue = queue
         self._audit = audit
         self._capability_issuer = capability_issuer
@@ -163,6 +176,7 @@ class CommandDispatcher:
         self._approval_engine = approval_engine
         self._rbac_provider = rbac_provider
         self._scope_evaluator = scope_evaluator
+        self._event_bus = event_bus
 
     async def dispatch(
         self,
@@ -217,6 +231,9 @@ class CommandDispatcher:
             payload_metadata=self._extract_payload_metadata(payload),
         )
 
+        # Get principal identity early for approval event and audit
+        principal_id = _principal_identity(principal)
+
         # Step 4: Approval gating — high-risk dispatches require an approved row
         # before any host is enqueued. Pending approvals returned to caller.
         pending_approval_ids: list[str] = []
@@ -242,6 +259,19 @@ class CommandDispatcher:
                     requester_id=_principal_identity(principal),
                 )
                 pending_approval_ids.append(pending.id)
+
+                # Publish pending approval event if bus is set
+                if self._event_bus is not None:
+                    await self._event_bus.publish(
+                        "commands",
+                        {
+                            "event": "command.pending_approval",
+                            "approval_id": pending.id,
+                            "actor": principal_id,
+                            "payload_kind": payload_kind,
+                        },
+                    )
+
                 # Block dispatch when no approval is in hand
                 return DispatchResult(
                     task_id="",
@@ -289,8 +319,7 @@ class CommandDispatcher:
 
         commands_created = []
 
-        # Steps 7-11 per host. Refuse anonymous principal (no auditable identity).
-        principal_id = _principal_identity(principal)
+        # Steps 7-11 per host.
         now = datetime.now(timezone.utc)
 
         for host_id in dispatched_candidates:
@@ -377,8 +406,24 @@ class CommandDispatcher:
                         "task_run_id": task_run_id,
                         "risk": risk,
                         "payload_kind": payload_kind,
+                        "command_id": command_id,
                     },
                 )
+
+                # Publish command.issued event if bus is set
+                if self._event_bus is not None:
+                    await self._event_bus.publish(
+                        "commands",
+                        {
+                            "event": "command.issued",
+                            "command_id": command_id,
+                            "host_id": host_id,
+                            "task_run_id": task_run_id,
+                            "risk": risk,
+                            "payload_kind": payload_kind,
+                            "actor": principal_id,
+                        },
+                    )
 
         # Step 12: Return DispatchResult
         return DispatchResult(
