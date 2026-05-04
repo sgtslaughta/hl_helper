@@ -79,7 +79,7 @@ py-memcheck:
     - pip install -e '.[dev]'
   script:
     - pytest server/tests/test_memory_leaks.py server/tests/test_tracemalloc_smoke.py -v
-    - pytest server/tests/ --memray --most-allocations=10 -q
+    - pytest server/tests/ --memray --most-allocations=10 -q --ignore=server/tests/observability/
 
 py-migrations:
   stage: test

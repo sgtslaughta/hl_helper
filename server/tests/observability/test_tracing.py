@@ -110,15 +110,31 @@ def test_otel_endpoint_adds_otlp_exporter() -> None:
 
 
 def test_instrumentation_helpers_run_cleanly() -> None:
-    """FastAPI / SQLAlchemy / httpx / gRPC instrumentation entry points succeed."""
+    """FastAPI / SQLAlchemy / httpx / gRPC instrumentation entry points succeed.
+
+    Uninstruments after to avoid polluting C extensions for subsequent tests
+    (gRPC C-level patches interact badly with pytest-memray).
+    """
     from fastapi import FastAPI
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+    from opentelemetry.instrumentation.grpc import GrpcInstrumentorClient, GrpcInstrumentorServer
+    from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+    from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 
     tracing.configure_tracing()
-    tracing.instrument_fastapi(FastAPI())
+
+    app = FastAPI()
+    tracing.instrument_fastapi(app)
     engine = create_engine("sqlite+pysqlite:///:memory:")
     tracing.instrument_sqlalchemy(engine)
     tracing.instrument_httpx()
     tracing.instrument_grpc()
+
+    FastAPIInstrumentor.uninstrument_app(app)
+    SQLAlchemyInstrumentor().uninstrument()
+    HTTPXClientInstrumentor().uninstrument()
+    GrpcInstrumentorClient().uninstrument()
+    GrpcInstrumentorServer().uninstrument()
 
 
 def test_get_tracer_returns_sdk_tracer() -> None:
