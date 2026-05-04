@@ -91,8 +91,8 @@ def instrument_httpx() -> None:
 
 def instrument_grpc() -> None:
     """@brief Instrument gRPC client and server stubs with OpenTelemetry."""
-    GrpcInstrumentorClient().instrument()
-    GrpcInstrumentorServer().instrument()
+    GrpcInstrumentorClient().instrument()  # type: ignore[no-untyped-call]
+    GrpcInstrumentorServer().instrument()  # type: ignore[no-untyped-call]
 
 
 def get_tracer(name: str) -> Tracer:
