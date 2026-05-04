@@ -35,6 +35,7 @@ from server.app.models.user import User
 from server.app.models.user_group import UserGroup
 from server.app.models.webauthn_credential import WebAuthnCredential
 from server.app.models.webhook import Webhook
+from server.app.posture.model import PostureFindingRow
 
 __all__ = [
     "Base",
@@ -71,4 +72,5 @@ __all__ = [
     "WebAuthnCredential",
     "OidcProvider",
     "OidcAccountLink",
+    "PostureFindingRow",
 ]

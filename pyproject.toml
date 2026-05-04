@@ -38,6 +38,7 @@ dependencies = [
   "opentelemetry-instrumentation-sqlalchemy>=0.46b0",
   "opentelemetry-instrumentation-httpx>=0.46b0",
   "opentelemetry-instrumentation-grpc>=0.46b0",
+  "prometheus-client>=0.20",
 ]
 
 [project.optional-dependencies]

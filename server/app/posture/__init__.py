@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Awaitable, Callable
 
-from server.app.posture.model import Finding, SEVERITY_ORDER, Severity
+from server.app.posture.model import Finding, PostureFindingRow, SEVERITY_ORDER, Severity
 
 
 def _registry() -> list[Callable[..., Awaitable["Finding | None"]]]:
@@ -28,4 +28,4 @@ def _registry() -> list[Callable[..., Awaitable["Finding | None"]]]:
 ALL_FINDINGS: list[Callable[..., Awaitable["Finding | None"]]] = _registry()
 
 
-__all__ = ["Finding", "Severity", "ALL_FINDINGS", "SEVERITY_ORDER"]
+__all__ = ["Finding", "PostureFindingRow", "Severity", "ALL_FINDINGS", "SEVERITY_ORDER"]
