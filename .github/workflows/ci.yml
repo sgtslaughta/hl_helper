@@ -145,3 +145,33 @@ jobs:
             sbom-python.json
             sbom-agent.json
           retention-days: 90
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .[docs]
+      - run: mkdocs build --strict
+  docs-deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: [docs]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .[docs]
+      - name: Deploy docs with mike
+        run: |
+          git config user.name "ci-bot"
+          git config user.email "ci-bot@users.noreply.github.com"
+          mike deploy --push dev

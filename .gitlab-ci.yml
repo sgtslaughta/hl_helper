@@ -8,6 +8,7 @@
 stages:
 - test
 - secret-detection
+- deploy
 
 packaging-test:
   stage: test
@@ -102,6 +103,26 @@ py-bootstrap-admin:
     - export FLEET_DB_URL=sqlite+aiosqlite:////tmp/ci-admin.db
     - alembic upgrade head
     - python -m server.tests._helpers.check_admin_seed --db-url "sqlite:////tmp/ci-admin.db" --email "$FLEET_BOOTSTRAP_ADMIN_EMAIL"
+
+docs-build:
+  stage: test
+  image: python:3.12
+  script:
+    - pip install -e '.[docs]'
+    - mkdocs build --strict
+
+pages:
+  stage: deploy
+  image: python:3.12
+  script:
+    - pip install -e '.[docs]'
+    - mkdocs build --strict
+    - mv site public
+  artifacts:
+    paths:
+      - public
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
 
 sast:
   stage: test

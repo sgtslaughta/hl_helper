@@ -1,0 +1,74 @@
+site_name: HL Helper
+site_description: Self-hosted, security-focused fleet manager for Linux/Unix homelabs
+repo_url: https://github.com/hlhelper/hl_helper
+docs_dir: docs
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+  palette:
+    - scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [server]
+          options:
+            show_source: true
+            show_root_heading: true
+
+markdown_extensions:
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - pymdownx.details
+  - toc:
+      permalink: true
+
+extra:
+  version:
+    provider: mike
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Installation: getting-started/installation.md
+      - Quick Start: getting-started/quickstart.md
+  - User Guide:
+      - Overview: user-guide/overview.md
+  - API Reference:
+      - REST API: api/rest.md
+      - gRPC: api/grpc.md
+      - Enrollment: api/enrollment.md
+  - Security:
+      - Threat Model: security/threat-model.md
+      - Key Management: security/key-management.md
+      - Agent Privilege Model: security/agent-privilege-model.md
+      - Recovery: security/recovery.md
+      - Enrollment: security/enrollment.md
+  - Developer Guide:
+      - Architecture: developer/architecture.md
+      - Contributing: developer/contributing.md
+      - Python API: developer/python-api.md
