@@ -41,6 +41,7 @@ class PersistentReplayStore:
         *,
         nonce_window: int = 1024,
         skew_tolerance_s: int = DEFAULT_SKEW_TOLERANCE_S,
+        max_forward_gap: int = 0,
     ) -> None:
         """Initialize store with SQLite backend.
 
@@ -48,9 +49,13 @@ class PersistentReplayStore:
             db_path: Path to SQLite database file, or ":memory:" for in-memory.
             nonce_window: Maximum number of nonces to track per host.
             skew_tolerance_s: Tolerance window in seconds for issued_at/expires_at clock skew.
+            max_forward_gap: Reject envelopes whose sequence exceeds last+gap.
+                0 disables the check (default; preserves prior permissive behavior).
+                Recommended production value: 1000.
         """
         self.nonce_window = nonce_window
         self.skew_tolerance_s = skew_tolerance_s
+        self.max_forward_gap = max_forward_gap
         self._lock = threading.Lock()
         self._db_path = str(db_path)
         self._conn = sqlite3.connect(
@@ -174,6 +179,18 @@ class PersistentReplayStore:
                     cursor.execute("ROLLBACK")
                     raise SequenceRegressionError(
                         f"Host {host_id}: sequence {sequence} <= last {last_seq}"
+                    )
+                # Forward-gap policy: reject sequence jumps beyond MAX_GAP.
+                # last_seq=0 with no prior row is the bootstrap case; allow any
+                # initial sequence (agent restart with persisted seq).
+                if (
+                    self.max_forward_gap > 0
+                    and row is not None
+                    and sequence - last_seq > self.max_forward_gap
+                ):
+                    cursor.execute("ROLLBACK")
+                    raise SequenceRegressionError(
+                        f"Host {host_id}: forward gap {sequence - last_seq} exceeds max {self.max_forward_gap}"
                     )
 
                 # 2. Check nonce dedup

@@ -61,25 +61,44 @@ class TestReplayProtection:
 class TestSequenceGapPolicy:
     """Threat model: forward sequence jump detection (phase 8 policy)."""
 
-    @pytest.mark.xfail(
-        reason="forward-gap policy pending C2",
-        strict=False,
-    )
-    def test_forward_jumped_seq_rejected(self, tmp_path: Path) -> None:
-        """Record seq=1; attempt seq=100 → MAX_GAP enforcement (if implemented)."""
+    def test_forward_jumped_seq_rejected_when_policy_enabled(self, tmp_path: Path) -> None:
+        """seq=1 -> seq=100 with max_forward_gap=10 raises SequenceRegressionError."""
+        from server.app.crypto.replay_store import SequenceRegressionError
+
         db_path = tmp_path / "replay.db"
-        store = PersistentReplayStore(db_path)
+        store = PersistentReplayStore(db_path, max_forward_gap=10)
         now = datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
 
-        # Record seq=1
         env1 = make_envelope("host1", 1, b"nonce1", now=now)
         store.accept(env1, now=now)
         assert store.last_sequence("host1") == 1
 
-        # Attempt seq=100 (large forward jump)
         env2 = make_envelope("host1", 100, b"nonce100", now=now)
-        # If MAX_GAP enforcement exists, this should raise SequenceRegressionError
-        # or a similar error. Current implementation allows forward jumps.
-        store.accept(env2, now=now)
+        with pytest.raises(SequenceRegressionError):
+            store.accept(env2, now=now)
+
+        store.close()
+
+    def test_forward_gap_within_limit_accepted(self, tmp_path: Path) -> None:
+        """Gap within max_forward_gap should be allowed (agent restart scenario)."""
+        db_path = tmp_path / "replay.db"
+        store = PersistentReplayStore(db_path, max_forward_gap=10)
+        now = datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+
+        store.accept(make_envelope("host1", 1, b"n1", now=now), now=now)
+        store.accept(make_envelope("host1", 5, b"n5", now=now), now=now)
+        assert store.last_sequence("host1") == 5
+
+        store.close()
+
+    def test_forward_gap_disabled_by_default(self, tmp_path: Path) -> None:
+        """Default (max_forward_gap=0) preserves permissive behavior."""
+        db_path = tmp_path / "replay.db"
+        store = PersistentReplayStore(db_path)
+        now = datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+
+        store.accept(make_envelope("host1", 1, b"n1", now=now), now=now)
+        store.accept(make_envelope("host1", 1000000, b"n2", now=now), now=now)
+        assert store.last_sequence("host1") == 1000000
 
         store.close()

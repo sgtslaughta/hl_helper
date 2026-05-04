@@ -260,3 +260,94 @@ func TestStoreEnrollmentBundleDelegatesToFile(t *testing.T) {
 		}
 	}
 }
+
+// ----- failure-mode tests (do not require swtpm) -----
+
+func TestOpenTPMFallsBackOnUnavailableDevice(t *testing.T) {
+	// Nonexistent device path -- TPM transport open fails, but constructor
+	// must succeed (rw=nil) so caller can detect by checking subsequent ops.
+	tmpdir := t.TempDir()
+	ks, err := keystore.OpenTPM("/dev/nonexistent-tpm-xyz", tmpdir)
+	if err != nil {
+		t.Fatalf("OpenTPM should fall back gracefully when device missing: %v", err)
+	}
+	defer ks.Close()
+	if ks == nil {
+		t.Fatal("OpenTPM returned nil keystore")
+	}
+}
+
+func TestOpenTPMRejectsNonexistentDir(t *testing.T) {
+	_, err := keystore.OpenTPM("/dev/null", "/nonexistent/path/hl-tpm-test")
+	if err == nil {
+		t.Fatal("OpenTPM should fail for nonexistent dir")
+	}
+}
+
+func TestOpenTPMRejectsFilePathAsDir(t *testing.T) {
+	tmpdir := t.TempDir()
+	filePath := filepath.Join(tmpdir, "not-a-dir")
+	if err := os.WriteFile(filePath, []byte("x"), 0600); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	_, err := keystore.OpenTPM("/dev/null", filePath)
+	if err == nil {
+		t.Fatal("OpenTPM should reject file path as keystore dir")
+	}
+}
+
+func TestOpenTPMHandleFileCorruptDetected(t *testing.T) {
+	// Pre-seed the dir with a corrupt handle file (wrong byte count).
+	// After OpenTPM the handle should remain unset (loadTPMHandle returns
+	// internal error but does not crash); further Sign/SigningPub are nil/0.
+	tmpdir := t.TempDir()
+	corrupt := []byte{0x01, 0x02, 0x03} // 3 bytes, expected 4
+	if err := os.WriteFile(filepath.Join(tmpdir, keystore.TPMHandleFile), corrupt, 0600); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	ks, err := keystore.OpenTPM("/dev/null", tmpdir)
+	if err != nil {
+		t.Fatalf("OpenTPM should not fail outright on corrupt handle: %v", err)
+	}
+	defer ks.Close()
+	if ks.SigningPub() != nil {
+		t.Errorf("expected SigningPub() == nil after corrupt handle load, got %x", ks.SigningPub())
+	}
+}
+
+func TestOpenTPMBadPubKeyFile(t *testing.T) {
+	// Valid handle (4 bytes) + corrupt pub PEM file -> graceful fallback
+	tmpdir := t.TempDir()
+	handleBytes := []byte{0x81, 0x00, 0x00, 0x01}
+	if err := os.WriteFile(filepath.Join(tmpdir, keystore.TPMHandleFile), handleBytes, 0600); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpdir, keystore.TPMPubFile), []byte("NOT A PEM"), 0600); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	ks, err := keystore.OpenTPM("/dev/null", tmpdir)
+	if err != nil {
+		t.Fatalf("OpenTPM should not fail on bad PEM (graceful load): %v", err)
+	}
+	defer ks.Close()
+	// pub stays nil -- caller can detect and decide to regenerate or fail closed
+	if ks.SigningPub() != nil {
+		t.Errorf("expected nil SigningPub after bad pub PEM, got non-nil")
+	}
+}
+
+func TestSignWithoutGenerateReturnsError(t *testing.T) {
+	tmpdir := t.TempDir()
+	ks, err := keystore.OpenTPM("/dev/nonexistent", tmpdir)
+	if err != nil {
+		t.Fatalf("OpenTPM: %v", err)
+	}
+	defer ks.Close()
+
+	if _, err := ks.Sign([]byte("payload")); err == nil {
+		t.Fatal("Sign should fail when no key has been generated/loaded")
+	}
+}
+
+// ensure ed25519 import isn't dropped if other tests in this file ever stop using it
+var _ = ed25519.PublicKey(nil)
