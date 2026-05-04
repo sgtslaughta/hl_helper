@@ -68,6 +68,9 @@ nav:
       - Agent Privilege Model: security/agent-privilege-model.md
       - Recovery: security/recovery.md
       - Enrollment: security/enrollment.md
+  - Operations:
+      - HA Topology and Scaling: operations/ha-topology.md
+      - Key Compromise Recovery: operations/key-compromise-recovery.md
   - Developer Guide:
       - Architecture: developer/architecture.md
       - Contributing: developer/contributing.md

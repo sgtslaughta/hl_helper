@@ -1,0 +1,36 @@
+[Unit]
+Description=hl_helper FastAPI server
+Documentation=https://gitlab.com/richardsoto1010/hl_helper
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hl-helper
+Group=hl-helper
+ExecStart=/usr/local/bin/uvicorn server.app.main:app --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=30
+TimeoutStopSec=30
+
+# Security hardening (compatible with majority of distros)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+# State and configuration directories
+StateDirectory=hl-helper
+ConfigurationDirectory=hl-helper
+
+# Capabilities — none by default
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target
