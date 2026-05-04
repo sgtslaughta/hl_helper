@@ -108,6 +108,13 @@ class FleetSettings(BaseSettings):
     # Lockout settings
     lockout_window_s: int = Field(default=300)
 
+    # Cookie and CSRF settings
+    csrf_cookie_name: str = Field(default="hls_csrf")
+    session_cookie_name: str = Field(default="hls_session")
+    # Set FLEET_COOKIE_SECURE=false in dev/HTTP environments; enabled by default for production
+    cookie_secure: bool = Field(default=True)
+    bootstrap_token_ttl_minutes: int = Field(default=60)
+
     # RBAC permissive mode (boot-only, config-file-only for safety)
     # If enabled, RBAC defaults to fail-open. Must not be set via env var.
     allow_permissive_rbac: bool = Field(default=False)

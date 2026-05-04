@@ -157,7 +157,7 @@ async def events_ws(
     if isinstance(direct_bus, Bus):
         bus = direct_bus
     else:
-        state = get_app_state(ws)
+        state = get_app_state(ws)  # type: ignore[arg-type]
         bus = state.bus if state.bus is not None else Bus()
         if direct_bus is None:
             ws.app.state.bus = bus

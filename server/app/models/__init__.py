@@ -17,6 +17,7 @@ from server.app.models.host_sequence import HostSequence
 from server.app.models.lockout import LockoutRecord
 from server.app.models.maintenance_window import MaintenanceWindow
 from server.app.models.notification import Notification
+from server.app.models.recovery_code import RecoveryCode
 from server.app.models.result import Result
 from server.app.models.revoked_cert import RevokedCert
 from server.app.models.role import Role
@@ -26,6 +27,7 @@ from server.app.models.session import Session
 from server.app.models.setting import Setting
 from server.app.models.task import Task
 from server.app.models.task_run import TaskRun
+from server.app.models.totp_secret import TotpSecret
 from server.app.models.update_policy import UpdatePolicy
 from server.app.models.user import User
 from server.app.models.user_group import UserGroup
@@ -61,4 +63,6 @@ __all__ = [
     "Webhook",
     "Setting",
     "LockoutRecord",
+    "RecoveryCode",
+    "TotpSecret",
 ]

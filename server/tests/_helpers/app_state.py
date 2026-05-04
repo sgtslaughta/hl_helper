@@ -77,6 +77,7 @@ def make_test_app_state(
     tmp_path: Path | None = None,
     session_service: Any | None = None,
     secrets_broker: Any | None = None,
+    create_session_service: bool = True,
 ) -> AppState:
     """Build a minimal AppState for tests with sensible defaults.
 
@@ -139,6 +140,16 @@ def make_test_app_state(
 
     # Build result_handler (always noop for tests)
     result_handler = _NopResultHandler()  # type: ignore[assignment]
+
+    # Build session_service if not provided and create_session_service=True
+    if session_service is None and create_session_service:
+        from server.app.auth.sessions import SessionService
+        session_service = SessionService(
+            sessionmaker=sessionmaker,
+            bus=bus,
+            idle_ttl_seconds=1800,
+            absolute_ttl_seconds=43200,
+        )
 
     return AppState(
         bus=bus,

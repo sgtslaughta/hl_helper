@@ -216,3 +216,23 @@ class LocalEncryptedFileBackend:
         async with self._lock:
             for f in self._secrets_dir.glob(f"{path}.v*.bin"):
                 f.unlink()
+
+    async def enumerate_paths(self) -> list[str]:
+        """Enumerate all secret paths stored in backend.
+
+        Walks the .secrets directory, extracts unique secret paths from
+        versioned filenames (e.g., 'foo.v1.bin' -> 'foo').
+
+        Returns:
+            List of unique secret paths
+        """
+        if not self._secrets_dir.exists():
+            return []
+
+        paths: set[str] = set()
+        for f in self._secrets_dir.glob("*.v*.bin"):
+            match = re.match(r"^(?P<name>.+)\.v(?P<ver>\d+)\.bin$", f.name)
+            if match:
+                paths.add(match.group("name"))
+
+        return sorted(list(paths))

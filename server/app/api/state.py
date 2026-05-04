@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Any, Protocol, runtime_checkable
 
+from fastapi import Request
+
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, AsyncSession
 
 from server.app.audit.sql_chain import SqlAuditChain
@@ -48,7 +50,7 @@ class AppStateProtocol(Protocol):
     secrets_broker: SecretsBackend | None
 
 
-def get_app_state(request: Any) -> AppStateProtocol:
+def get_app_state(request: Request) -> AppStateProtocol:
     """Return AppState from app.state.app_state.
 
     In production, lifespan stores AppState at app.state.app_state.
