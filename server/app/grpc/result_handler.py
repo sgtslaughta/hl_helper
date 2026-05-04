@@ -269,7 +269,17 @@ class ResultHandler:
             session.add(result)
             await session.flush()
 
-            # 6. Audit: acceptance
+            # 6. Audit: acceptance + metric
+            try:
+                from server.app.observability.metrics import (
+                    fleet_command_completed_total,
+                )
+                fleet_command_completed_total.labels(
+                    verb="result",
+                    result=_result_status_to_string(env.status),
+                ).inc()
+            except Exception:
+                pass
             await self._audit.append(
                 session,
                 actor=expected_host_id,

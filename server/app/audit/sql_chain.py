@@ -156,6 +156,14 @@ class SqlAuditChain:
             session.add(entry)
             await session.flush()
 
+        # Metric: chain length gauge
+        try:
+            from server.app.observability.metrics import fleet_audit_chain_length
+
+            fleet_audit_chain_length.set(sequence + 1)
+        except Exception:
+            pass
+
         # Auto-checkpoint: if (sequence+1) % interval == 0
         if (sequence + 1) % self._checkpoint_interval == 0:
             await self._checkpoint_now(session, timestamp=datetime.now(timezone.utc))

@@ -79,6 +79,11 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
                 await context.abort(grpc.StatusCode.ALREADY_EXISTS, str(e))
                 return
 
+            try:
+                from server.app.observability.metrics import fleet_agent_reconnects_total
+                fleet_agent_reconnects_total.inc()
+            except Exception:
+                pass
             log.info("agent.connected", host_id=host_id, spiffe=spiffe_uri)
 
             recv_task = asyncio.create_task(

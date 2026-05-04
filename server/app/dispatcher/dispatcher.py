@@ -406,6 +406,16 @@ class CommandDispatcher:
 
             # Step 11: Audit append — only if this is a new command
             if enqueued_cmd.id == command_id:
+                # Metric: command dispatched (verb, risk)
+                try:
+                    from server.app.observability.metrics import (
+                        fleet_command_dispatched_total,
+                    )
+                    fleet_command_dispatched_total.labels(
+                        verb=payload_kind, risk=risk
+                    ).inc()
+                except Exception:
+                    pass
                 await self._audit.append(
                     session,
                     actor=principal_id,

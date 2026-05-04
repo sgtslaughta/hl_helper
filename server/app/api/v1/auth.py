@@ -126,6 +126,11 @@ async def login(
             user = await db_session.scalar(select(User).where(User.email == body.username))
 
     if not user:
+        try:
+            from server.app.observability.metrics import fleet_auth_failures_total
+            fleet_auth_failures_total.labels(kind="user_not_found").inc()
+        except Exception:
+            pass
         log.info("login_failed", reason="user_not_found", identifier=body.email or body.username)
         # Emit audit event (user not found)
         meta = _request_meta(request)
@@ -147,6 +152,11 @@ async def login(
     lockout_tracker = LockoutTrackerPersistent(sessionmaker=app_state.sessionmaker)
     lockout_key = f"user:{user.id}"
     if await lockout_tracker.is_locked(lockout_key):
+        try:
+            from server.app.observability.metrics import fleet_auth_failures_total
+            fleet_auth_failures_total.labels(kind="lockout").inc()
+        except Exception:
+            pass
         log.warning("login_locked", user_id=user.id)
         # Emit audit event (lockout)
         meta = _request_meta(request)
@@ -173,6 +183,11 @@ async def login(
 
     if not user.password_hash or not hasher.verify(user.password_hash, body.password):
         await lockout_tracker.record_failure(lockout_key)
+        try:
+            from server.app.observability.metrics import fleet_auth_failures_total
+            fleet_auth_failures_total.labels(kind="invalid_password").inc()
+        except Exception:
+            pass
         log.info("login_failed", user_id=user.id, reason="invalid_password")
         # Emit audit event (wrong password)
         meta = _request_meta(request)
