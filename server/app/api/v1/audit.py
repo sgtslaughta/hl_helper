@@ -155,26 +155,37 @@ async def export_audit(
     subject: str | None = None,
     since: datetime | None = None,
     before: datetime | None = None,
+    format: str = "json",
 ) -> StreamingResponse:
-    """Stream all matching entries as JSON Lines (NDJSON).
+    """Stream matching entries in the requested format.
 
+    Supported formats: json (NDJSON, default), cef, syslog (RFC 5424), otlp.
     Uses stream_scalars() to avoid buffering large audit chains in memory.
     Entries are ordered by sequence number (ascending).
     """
+    from server.app.audit.export import VALID_FORMATS, format_entry, media_type_for
+
+    if format not in VALID_FORMATS:
+        from fastapi import HTTPException
+
+        raise HTTPException(
+            status_code=422,
+            detail=f"unsupported_format: {format}. valid={VALID_FORMATS}",
+        )
+
     sm = get_app_state(req).sessionmaker
     f = _build_filters(actor, action, subject, since, before)
 
     async def generate() -> AsyncGenerator[bytes, None]:
-        """Generate JSON Lines from audit entries via streaming."""
         async with sm() as session:
             stmt = select(AuditEntry).order_by(AuditEntry.sequence.asc())
             if f is not None:
                 stmt = stmt.where(f)  # type: ignore[arg-type]
             result = await session.stream_scalars(stmt)
             async for e in result:
-                yield json.dumps(_entry_to_out(e).model_dump(mode="json")).encode() + b"\n"
+                yield format_entry(e, format)
 
-    return StreamingResponse(generate(), media_type="application/x-ndjson")
+    return StreamingResponse(generate(), media_type=media_type_for(format))
 
 
 @router.post("/actions/verify", response_model=AuditVerifyResult, dependencies=[Depends(admin_required)])
