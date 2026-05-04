@@ -8,8 +8,9 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest import mock
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 from httpx import ASGITransport, AsyncClient
 from pydantic import SecretStr
@@ -187,3 +188,106 @@ async def test_health_response_shape(sm: async_sessionmaker) -> None:
     for comp in body["components"]:
         assert "status" in comp
         assert comp["status"] in ("ok", "degraded", "unreachable", "not_configured")
+
+
+@pytest.mark.asyncio
+async def test_health_egress_proxy_not_configured(sm: async_sessionmaker) -> None:
+    """@brief No egress_proxy setting -> component reports 'not_configured'."""
+    with _patch_admin_auth():
+        app = _build_app(sm)
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://t") as c:
+            r = await c.get("/v1/observability/health", headers=_auth_headers())
+
+    body = r.json()
+    proxy_comp = next(c for c in body["components"] if c["name"] == "egress_proxy")
+    assert proxy_comp["status"] == "not_configured"
+
+
+@pytest.mark.asyncio
+async def test_health_egress_proxy_reachable(sm: async_sessionmaker) -> None:
+    """@brief Configured egress_proxy with successful HEAD -> component 'ok'."""
+    settings_with_proxy = FleetSettings(
+        admin_token=SecretStr(ADMIN_TOKEN),
+        egress_proxy="http://proxy:8080",
+    )
+
+    with (
+        _patch_admin_auth(),
+        patch(
+            "server.app.observability.health.load_settings",
+            return_value=settings_with_proxy,
+        ),
+        patch.object(
+            httpx.AsyncClient,
+            "head",
+            new_callable=AsyncMock,
+            return_value=httpx.Response(200),
+        ),
+    ):
+        app = _build_app(sm)
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://t") as c:
+            r = await c.get("/v1/observability/health", headers=_auth_headers())
+
+    body = r.json()
+    proxy_comp = next(c for c in body["components"] if c["name"] == "egress_proxy")
+    assert proxy_comp["status"] == "ok"
+    assert proxy_comp["latency_ms"] is not None
+
+
+@pytest.mark.asyncio
+async def test_health_egress_proxy_unreachable(sm: async_sessionmaker) -> None:
+    """@brief Egress proxy HEAD raises ConnectError -> 'unreachable', overall 'unhealthy'."""
+    settings_with_proxy = FleetSettings(
+        admin_token=SecretStr(ADMIN_TOKEN),
+        egress_proxy="http://proxy:8080",
+    )
+
+    with (
+        _patch_admin_auth(),
+        patch(
+            "server.app.observability.health.load_settings",
+            return_value=settings_with_proxy,
+        ),
+        patch.object(
+            httpx.AsyncClient,
+            "head",
+            new_callable=AsyncMock,
+            side_effect=httpx.ConnectError("connection refused"),
+        ),
+    ):
+        app = _build_app(sm)
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://t") as c:
+            r = await c.get("/v1/observability/health", headers=_auth_headers())
+
+    body = r.json()
+    proxy_comp = next(c for c in body["components"] if c["name"] == "egress_proxy")
+    assert proxy_comp["status"] == "unreachable"
+    assert body["status"] == "unhealthy"
+
+
+@pytest.mark.asyncio
+async def test_health_db_unreachable_vs_degraded(sm: async_sessionmaker) -> None:
+    """@brief ConnectionRefusedError -> DB component 'unreachable', overall 'unhealthy'."""
+    with _patch_admin_auth():
+        app = _build_app(sm)
+
+        session_ctx = MagicMock()
+        session_ctx.__aenter__ = AsyncMock(
+            side_effect=ConnectionRefusedError("conn refused")
+        )
+        session_ctx.__aexit__ = AsyncMock(return_value=False)
+        failing_sm = MagicMock(return_value=session_ctx)
+
+        app.state.app_state.sessionmaker = failing_sm
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://t") as c:
+            r = await c.get("/v1/observability/health", headers=_auth_headers())
+
+    body = r.json()
+    db_comp = next(c for c in body["components"] if c["name"] == "db")
+    assert db_comp["status"] == "unreachable"
+    assert body["status"] == "unhealthy"

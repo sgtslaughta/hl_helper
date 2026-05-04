@@ -26,6 +26,20 @@ log = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/v1/observability", tags=["observability"])
 
+_MAX_ERROR_LEN = 200
+
+
+def _sanitize_error(exc: Exception) -> str:
+    """@brief Truncate exception messages to avoid leaking internal details.
+
+    @param  exc  The caught exception.
+    @return A string safe for inclusion in health responses.
+    """
+    raw = str(exc)
+    if len(raw) > _MAX_ERROR_LEN:
+        raw = raw[:_MAX_ERROR_LEN] + "..."
+    return raw
+
 
 # ----------------------------------------------------------------------- #
 # Response models
@@ -68,7 +82,7 @@ async def _check_db(app_state: Any) -> ComponentHealth:
     """@brief Probe the database with ``SELECT 1``.
 
     @param  app_state  Application state containing the sessionmaker.
-    @return ComponentHealth with ``ok`` or ``degraded`` status.
+    @return ComponentHealth with ``ok``, ``degraded``, or ``unreachable`` status.
     """
     start = time.monotonic()
     try:
@@ -76,13 +90,22 @@ async def _check_db(app_state: Any) -> ComponentHealth:
             await session.execute(text("SELECT 1"))
         elapsed = (time.monotonic() - start) * 1000
         return ComponentHealth(name="db", status="ok", latency_ms=round(elapsed, 2))
+    except (OSError, ConnectionError, ConnectionRefusedError) as exc:
+        elapsed = (time.monotonic() - start) * 1000
+        log.warning("health_check_db_failed", error=str(exc))
+        return ComponentHealth(
+            name="db",
+            status="unreachable",
+            message=_sanitize_error(exc),
+            latency_ms=round(elapsed, 2),
+        )
     except Exception as exc:
         elapsed = (time.monotonic() - start) * 1000
         log.warning("health_check_db_failed", error=str(exc))
         return ComponentHealth(
             name="db",
             status="degraded",
-            message=str(exc),
+            message=_sanitize_error(exc),
             latency_ms=round(elapsed, 2),
         )
 
@@ -136,7 +159,7 @@ async def _check_vault(app_state: Any) -> ComponentHealth:
         return ComponentHealth(
             name="vault",
             status="unreachable",
-            message=str(exc),
+            message=_sanitize_error(exc),
             latency_ms=round(elapsed, 2),
         )
 
@@ -181,7 +204,7 @@ async def _check_egress_proxy() -> ComponentHealth:
         return ComponentHealth(
             name="egress_proxy",
             status="unreachable",
-            message=str(exc),
+            message=_sanitize_error(exc),
             latency_ms=round(elapsed, 2),
         )
 

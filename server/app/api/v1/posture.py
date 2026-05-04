@@ -1,14 +1,13 @@
 """Posture API: findings list, suppress, and unsuppress endpoints.
 
-@brief Provides GET /v1/posture for ranked findings, and POST actions to
-suppress or unsuppress individual findings.
+@brief Provides GET /v1/posture for ranked findings (backed by the
+persistent store), and POST actions to suppress or unsuppress
+individual findings.
 """
 
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime
-from typing import Any
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -16,19 +15,14 @@ from pydantic import BaseModel, Field
 
 from server.app.api.middleware.admin_auth import admin_required
 from server.app.api.state import get_app_state
-from server.app.posture import ALL_FINDINGS, SEVERITY_ORDER
-from server.app.posture.model import Finding
-from server.app.posture.store import suppress_finding, unsuppress_finding
+from server.app.posture.inspector import run_inspection
+from server.app.posture.model import PostureFindingRow
+from server.app.posture.store import list_findings, suppress_finding, unsuppress_finding
 from server.app.settings.config import load_settings
 
 log = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/v1/posture", tags=["posture"])
-
-
-# ---------------------------------------------------------------------------
-# Response / request schemas
-# ---------------------------------------------------------------------------
 
 
 class FindingOut(BaseModel):
@@ -70,9 +64,28 @@ class UnsuppressRequest(BaseModel):
     finding_id: str
 
 
-# ---------------------------------------------------------------------------
-# Endpoints
-# ---------------------------------------------------------------------------
+def _row_to_out(row: PostureFindingRow) -> FindingOut:
+    """@brief Convert a PostureFindingRow ORM object to a FindingOut response.
+
+    @param row Persisted posture finding row.
+    @return Serializable Pydantic model.
+    """
+    return FindingOut(
+        id=row.id,
+        severity=row.severity,
+        title=row.title,
+        summary=row.summary,
+        fix_action_url=row.fix_action_url,
+        docs_url=row.docs_url,
+        rule=row.rule,
+        subject_kind=row.subject_kind,
+        subject_id=row.subject_id,
+        first_seen=row.first_seen,
+        last_seen=row.last_seen,
+        suppressed_until=row.suppressed_until,
+        suppressed_by=row.suppressed_by,
+        suppressed_reason=row.suppressed_reason,
+    )
 
 
 @router.get("", response_model=PostureResponse)
@@ -81,57 +94,29 @@ async def get_posture(
     _: str = Depends(admin_required),
     include_suppressed: bool = Query(default=False),
 ) -> PostureResponse:
-    """@brief Run all posture finding functions in parallel and return ranked list.
+    """@brief Run posture inspection, persist results, return from store.
 
-    @param request              The incoming HTTP request.
-    @param include_suppressed   If True, include suppressed findings in the response.
+    Delegates to ``run_inspection`` to execute finding functions and
+    persist results, then reads back from the store so suppression
+    filters operate on persisted state.
+
+    @param request            The incoming HTTP request.
+    @param include_suppressed If True, include suppressed findings.
     @return PostureResponse with sorted findings.
     """
     app_state = get_app_state(request)
     settings = load_settings()
 
-    ctx: dict[str, Any] = {
-        "broker": app_state.secrets_broker,
-        "settings": settings,
-    }
-
-    results = await asyncio.gather(
-        *(fn(app_state.sessionmaker, **ctx) for fn in ALL_FINDINGS),
-        return_exceptions=True,
+    await run_inspection(
+        app_state.sessionmaker,
+        broker=app_state.secrets_broker,
+        settings=settings,
     )
 
-    findings: list[Finding] = []
-    for r in results:
-        if isinstance(r, Finding):
-            if not include_suppressed and r.suppressed_until is not None:
-                continue
-            findings.append(r)
-        elif isinstance(r, Exception):
-            log.warning("posture_finding_failed", exc=str(r))
+    suppressed_filter = None if include_suppressed else False
+    rows = await list_findings(app_state.sessionmaker, suppressed=suppressed_filter)
 
-    findings.sort(key=lambda f: SEVERITY_ORDER.get(f.severity, 99))
-
-    return PostureResponse(
-        findings=[
-            FindingOut(
-                id=f.id,
-                severity=f.severity,
-                title=f.title,
-                summary=f.summary,
-                fix_action_url=f.fix_action_url,
-                docs_url=f.docs_url,
-                rule=f.rule,
-                subject_kind=f.subject_kind,
-                subject_id=f.subject_id,
-                first_seen=f.first_seen,
-                last_seen=f.last_seen,
-                suppressed_until=f.suppressed_until,
-                suppressed_by=f.suppressed_by,
-                suppressed_reason=f.suppressed_reason,
-            )
-            for f in findings
-        ]
-    )
+    return PostureResponse(findings=[_row_to_out(r) for r in rows])
 
 
 @router.post("/actions/suppress", response_model=FindingOut)
@@ -158,22 +143,7 @@ async def suppress_posture_finding(
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Finding not found")
-    return FindingOut(
-        id=row.id,
-        severity=row.severity,
-        title=row.title,
-        summary=row.summary,
-        fix_action_url=row.fix_action_url,
-        docs_url=row.docs_url,
-        rule=row.rule,
-        subject_kind=row.subject_kind,
-        subject_id=row.subject_id,
-        first_seen=row.first_seen,
-        last_seen=row.last_seen,
-        suppressed_until=row.suppressed_until,
-        suppressed_by=row.suppressed_by,
-        suppressed_reason=row.suppressed_reason,
-    )
+    return _row_to_out(row)
 
 
 @router.post("/actions/unsuppress", response_model=FindingOut)
@@ -193,19 +163,4 @@ async def unsuppress_posture_finding(
     row = await unsuppress_finding(app_state.sessionmaker, body.finding_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Finding not found")
-    return FindingOut(
-        id=row.id,
-        severity=row.severity,
-        title=row.title,
-        summary=row.summary,
-        fix_action_url=row.fix_action_url,
-        docs_url=row.docs_url,
-        rule=row.rule,
-        subject_kind=row.subject_kind,
-        subject_id=row.subject_id,
-        first_seen=row.first_seen,
-        last_seen=row.last_seen,
-        suppressed_until=row.suppressed_until,
-        suppressed_by=row.suppressed_by,
-        suppressed_reason=row.suppressed_reason,
-    )
+    return _row_to_out(row)
