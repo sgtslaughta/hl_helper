@@ -25,6 +25,7 @@ from server.app.observability.prom_endpoint import router as prom_router
 from server.app.api.v1.roles import router as roles_router
 from server.app.api.v1.secrets import router as secrets_router
 from server.app.api.v1.settings import router as settings_router
+from server.app.api.v1.task_actions import router as task_actions_router
 from server.app.api.v1.tasks import router as tasks_router
 from server.app.api.v1.tokens import router as tokens_router
 from server.app.api.v1.user_groups import router as user_groups_router
@@ -74,6 +75,7 @@ def create_app() -> FastAPI:
     app.include_router(secrets_router)
     app.include_router(settings_router)
     app.include_router(tasks_router)
+    app.include_router(task_actions_router)
     app.include_router(tokens_router)
     app.include_router(users_router)
     app.include_router(user_groups_router)

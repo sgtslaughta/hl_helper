@@ -1,4 +1,4 @@
-"""OIDC HTTP endpoints (Phase 4.4).
+"""OIDC HTTP endpoint routes (Phase 4.4).
 
 Routes:
   GET    /v1/oidc/providers           — public list of enabled providers
@@ -7,6 +7,8 @@ Routes:
   GET    /v1/auth/oidc/{id}/start     — start authorization code flow
   GET    /v1/auth/oidc/{id}/callback  — finish authorization code flow
   POST   /v1/auth/oidc/link           — authenticated user begins link flow
+
+Shared schemas + helpers live in ``_oidc_common``.
 """
 
 from __future__ import annotations
@@ -14,26 +16,32 @@ from __future__ import annotations
 import secrets
 import time
 from datetime import datetime, timezone
-from typing import Annotated, Any
+from typing import Annotated
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel
 from sqlalchemy import select
 
 from server.app.api.middleware.admin_auth import admin_required
 from server.app.api.state import get_app_state
+from server.app.api.v1._oidc_common import (
+    LinkStartRequest,
+    LinkStartResponse,
+    ProviderCreate,
+    ProviderPublic,
+    ProviderTestResult,
+    audit,
+    default_redirect_uri,
+    get_client,
+    get_state_store,
+    resolve_endpoints,
+)
 from server.app.auth.oidc.claims import (
     OidcLinkError,
     apply_claim_mappings,
     jit_provision,
 )
-from server.app.auth.oidc.client import (
-    OidcClient,
-    OidcError,
-    OidcStateStore,
-    StateRecord,
-)
+from server.app.auth.oidc.client import OidcError, StateRecord
 from server.app.auth.sessions import make_request_meta
 from server.app.deps import current_principal
 from server.app.models import OidcProvider, User
@@ -43,114 +51,6 @@ from server.app.settings.config import load_settings
 log = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/v1", tags=["oidc"])
-
-
-# --------------------------------------------------------------------------- #
-# Pydantic
-# --------------------------------------------------------------------------- #
-
-
-class ProviderPublic(BaseModel):
-    id: str
-    name: str
-    button_asset: str | None = None
-    preset_kind: str | None = None
-
-
-class ProviderCreate(BaseModel):
-    model_config = {"extra": "forbid"}
-    name: str
-    issuer: str
-    client_id: str
-    client_secret_ref: str | None = None
-    scopes: list[str] | None = None
-    claim_mappings: dict[str, Any] | None = None
-    enabled: bool = True
-    preset_kind: str | None = None
-    oauth2_only: bool = False
-    authorization_endpoint: str | None = None
-    token_endpoint: str | None = None
-    userinfo_endpoint: str | None = None
-    jwks_uri: str | None = None
-    button_asset: str | None = None
-
-
-class ProviderTestResult(BaseModel):
-    discovery_ok: bool
-    jwks_ok: bool
-    issuer: str | None = None
-    n_keys: int = 0
-    error: str | None = None
-
-
-class LinkStartRequest(BaseModel):
-    model_config = {"extra": "forbid"}
-    provider_id: str
-    redirect_uri: str | None = None
-
-
-class LinkStartResponse(BaseModel):
-    auth_url: str
-
-
-# --------------------------------------------------------------------------- #
-# Helpers
-# --------------------------------------------------------------------------- #
-
-
-def _get_client(request: Request) -> OidcClient:
-    """Lazy singleton OidcClient bound to app.state."""
-    app = request.app
-    client = getattr(app.state, "oidc_client", None)
-    if client is None:
-        client = OidcClient()
-        app.state.oidc_client = client
-    return client
-
-
-def _get_state_store(request: Request) -> OidcStateStore:
-    app = request.app
-    store = getattr(app.state, "oidc_state_store", None)
-    if store is None:
-        store = OidcStateStore()
-        app.state.oidc_state_store = store
-    return store
-
-
-async def _audit(
-    app_state: Any, *, actor: str, action: str, subject: str, payload: dict[str, Any]
-) -> None:
-    if app_state.audit_chain is None:
-        return
-    async with app_state.sessionmaker() as s:
-        try:
-            await app_state.audit_chain.append(
-                s, actor=actor, action=action, subject=subject, payload=payload
-            )
-            await s.commit()
-        except Exception as e:  # pragma: no cover
-            log.exception("audit_append_failed", exc=e)
-
-
-async def _resolve_endpoints(client: OidcClient, provider: OidcProvider) -> dict[str, Any]:
-    """Return discovery doc dict (synthetic for oauth2_only)."""
-    return await client.discover(provider)
-
-
-def _default_redirect_uri(request: Request, provider_id: str) -> str:
-    """Build the OIDC callback URL.
-
-    Pin the host from ``settings.public_url`` if configured to avoid
-    Host-header injection (an attacker setting ``Host:`` on the start
-    request would otherwise control the redirect_uri the IdP receives,
-    which is part of the security boundary of the auth code flow).
-    """
-    settings = load_settings()
-    base = (settings.public_url or "").rstrip("/")
-    if not base:
-        log.warning("oidc_redirect_uri_uses_request_base_url")
-        base = f"{request.base_url}".rstrip("/")
-    return f"{base}/v1/auth/oidc/{provider_id}/callback"
 
 
 # --------------------------------------------------------------------------- #
@@ -207,7 +107,7 @@ async def create_provider(body: ProviderCreate, request: Request) -> ProviderPub
         s.add(prov)
         await s.commit()
         await s.refresh(prov)
-    await _audit(
+    await audit(
         app_state,
         actor="admin",
         action="oidc.provider.create",
@@ -231,7 +131,7 @@ async def test_provider(provider_id: str, request: Request) -> ProviderTestResul
         prov = await s.scalar(select(OidcProvider).where(OidcProvider.id == provider_id))
     if prov is None:
         raise HTTPException(status_code=404, detail="provider_not_found")
-    client = _get_client(request)
+    client = get_client(request)
     try:
         doc = await client.discover(prov, force=True)
         if prov.oauth2_only:
@@ -267,11 +167,11 @@ async def auth_start(provider_id: str, request: Request) -> Response:
     if prov is None:
         raise HTTPException(status_code=404, detail="provider_not_found")
 
-    client = _get_client(request)
-    store = _get_state_store(request)
+    client = get_client(request)
+    store = get_state_store(request)
 
     try:
-        doc = await _resolve_endpoints(client, prov)
+        doc = await resolve_endpoints(client, prov)
     except OidcError as e:
         raise HTTPException(status_code=502, detail=f"discovery_failed:{e}") from e
 
@@ -281,7 +181,7 @@ async def auth_start(provider_id: str, request: Request) -> Response:
 
     state = secrets.token_urlsafe(24)
     nonce = secrets.token_urlsafe(24)
-    redirect_uri = _default_redirect_uri(request, prov.id)
+    redirect_uri = default_redirect_uri(request, prov.id)
     url, code_verifier = client.auth_url(
         prov,
         state=state,
@@ -315,7 +215,7 @@ async def auth_callback(
     state = qs.get("state")
     err = qs.get("error")
     if err:
-        await _audit(
+        await audit(
             app_state, actor="anonymous", action="auth.oidc.failed", subject=provider_id,
             payload={"reason": "idp_error", "error": err},
         )
@@ -323,11 +223,11 @@ async def auth_callback(
     if not code or not state:
         raise HTTPException(status_code=400, detail="missing_code_or_state")
 
-    store = _get_state_store(request)
+    store = get_state_store(request)
     try:
         rec = await store.consume(state)
     except OidcError as e:
-        await _audit(
+        await audit(
             app_state, actor="anonymous", action="auth.oidc.failed", subject=provider_id,
             payload={"reason": str(e)},
         )
@@ -341,9 +241,9 @@ async def auth_callback(
     if prov is None:
         raise HTTPException(status_code=404, detail="provider_not_found")
 
-    client = _get_client(request)
+    client = get_client(request)
     try:
-        doc = await _resolve_endpoints(client, prov)
+        doc = await resolve_endpoints(client, prov)
         token_endpoint = doc.get("token_endpoint") or prov.token_endpoint
         # Resolve confidential-client secret if the provider has a SecretRef.
         # Public clients (PKCE-only) leave client_secret_ref unset.
@@ -406,7 +306,7 @@ async def auth_callback(
                 )
             except OidcLinkError as e:
                 raise HTTPException(status_code=409, detail=str(e)) from e
-            await _audit(
+            await audit(
                 app_state, actor=user.id, action="auth.oidc.link", subject=user.id,
                 payload={"provider_id": prov.id, "subject": str(sub)},
             )
@@ -415,13 +315,13 @@ async def auth_callback(
         # Login mode — JIT provision + issue session
         user = await jit_provision(app_state.sessionmaker, prov, claims, mapped)
     except OidcError as e:
-        await _audit(
+        await audit(
             app_state, actor="anonymous", action="auth.oidc.failed", subject=provider_id,
             payload={"reason": str(e)},
         )
         raise HTTPException(status_code=400, detail=str(e)) from e
     except OidcLinkError as e:
-        await _audit(
+        await audit(
             app_state, actor="anonymous", action="auth.oidc.failed", subject=provider_id,
             payload={"reason": str(e)},
         )
@@ -436,7 +336,7 @@ async def auth_callback(
     )
     issue = await app_state.session_service.issue(user, "oidc", meta)
     csrf = secrets.token_urlsafe(32)
-    await _audit(
+    await audit(
         app_state, actor=user.id, action="auth.oidc.success", subject=user.id,
         payload={"provider_id": prov.id, "subject": str(sub)},
     )
@@ -487,16 +387,16 @@ async def auth_link(
     if prov is None:
         raise HTTPException(status_code=404, detail="provider_not_found")
 
-    client = _get_client(request)
-    store = _get_state_store(request)
-    doc = await _resolve_endpoints(client, prov)
+    client = get_client(request)
+    store = get_state_store(request)
+    doc = await resolve_endpoints(client, prov)
     auth_endpoint = doc.get("authorization_endpoint") or prov.authorization_endpoint
     if not auth_endpoint:
         raise HTTPException(status_code=500, detail="no_authorization_endpoint")
 
     state = secrets.token_urlsafe(24)
     nonce = secrets.token_urlsafe(24)
-    redirect_uri = body.redirect_uri or _default_redirect_uri(request, prov.id)
+    redirect_uri = body.redirect_uri or default_redirect_uri(request, prov.id)
     url, code_verifier = client.auth_url(
         prov,
         state=state,

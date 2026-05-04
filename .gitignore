@@ -41,5 +41,8 @@ vendor/
 data/
 /data/
 
+# MkDocs build output
+site/
+
 # Internal design docs (kept locally, out of VCS)
 docs/superpowers/
