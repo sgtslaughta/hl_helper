@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 from urllib.parse import urlparse
 
 import structlog
@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from server.app.api.state import get_app_state
+from server.app.auth.mfa.plugin import _registry as _mfa_plugin_registry
 from server.app.auth.mfa.recovery import RecoveryCooldown, RecoveryService
 from server.app.auth.mfa.totp import TotpService
 from server.app.deps import current_principal
@@ -71,7 +72,7 @@ class WebAuthnEnrollBeginRequest(BaseModel):
 
 class ChallengeRequest(BaseModel):
     model_config = {"extra": "forbid"}
-    method: Literal["totp", "webauthn", "recovery"]
+    method: str
     proof: Any
 
 
@@ -402,6 +403,22 @@ async def challenge(
             raise HTTPException(
                 status_code=401, detail="webauthn_signcount_regression"
             )
+    else:
+        # Plugin path: route via MfaPluginRegistry.
+        plugin = _mfa_plugin_registry.get(body.method)
+        if plugin is None:
+            await _audit_failed("unknown_method")
+            raise HTTPException(status_code=401, detail="mfa_verification_failed")
+        if not isinstance(body.proof, dict):
+            await _audit_failed("proof_must_be_object")
+            raise HTTPException(status_code=400, detail="proof_must_be_object")
+        try:
+            verified = bool(await plugin.verify(user, body.proof))
+        except Exception:
+            await _audit_failed("plugin_error")
+            raise HTTPException(status_code=502, detail="mfa_plugin_error")
+        # Plugin path relies on global rate-limiter for brute-force protection.
+        # Per-method cooldowns are the plugin's responsibility.
 
     if not verified:
         await _audit_failed("verification_failed")
