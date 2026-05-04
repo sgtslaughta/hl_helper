@@ -32,6 +32,10 @@ class User(Base):
     oidc_issuer: Mapped[str | None] = mapped_column(String, nullable=True)
     password_hash: Mapped[str | None] = mapped_column(String, nullable=True)
     disabled: Mapped[bool] = mapped_column(default=False)
+    last_mfa_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+        doc="Timestamp of the most recent successful MFA challenge (used for step-up).",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

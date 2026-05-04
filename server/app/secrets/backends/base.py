@@ -15,17 +15,20 @@ class IntegrityError(Exception):
 class SecretsBackend(Protocol):
     """Protocol for secrets backends."""
 
-    async def get(self, path: str) -> bytes:
+    async def get(self, path: str, version: int | None = None) -> bytes:
         """Retrieve secret value by path.
 
         Args:
             path: Secret path
+            version: Optional specific version to retrieve. If ``None``,
+                returns the latest version. Backends that don't support
+                versioned reads may ignore this kwarg or raise.
 
         Returns:
             Secret value as bytes
 
         Raises:
-            KeyError: If secret not found
+            KeyError: If secret (or specific version) not found
             IntegrityError: If AEAD verification fails
         """
         ...
@@ -56,10 +59,13 @@ class SecretsBackend(Protocol):
         """
         ...
 
-    async def delete(self, path: str) -> None:
-        """Delete all versions of a secret.
+    async def delete(self, path: str, version: int | None = None) -> None:
+        """Delete a secret.
 
         Args:
             path: Secret path
+            version: Optional specific version to delete. If ``None``,
+                delete all versions / metadata. Backends that don't
+                support versioned deletes may ignore this kwarg.
         """
         ...

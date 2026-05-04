@@ -58,7 +58,7 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> Respon
     except ValueError:
         title = "HTTP error"
     detail = exc.detail if isinstance(exc.detail, str) else None
-    return problem(
+    resp = problem(
         exc.status_code,
         type_slug=str(exc.status_code),
         title=title,
@@ -66,6 +66,12 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> Respon
         instance=str(request.url.path),
         trace_id=getattr(request.state, "trace_id", None),
     )
+    # Propagate any headers the raiser set (e.g. X-MFA-Required, WWW-Authenticate).
+    extra_headers = getattr(exc, "headers", None)
+    if extra_headers:
+        for k, v in extra_headers.items():
+            resp.headers[k] = v
+    return resp
 
 
 async def validation_exception_handler(

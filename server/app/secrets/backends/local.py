@@ -107,24 +107,27 @@ class LocalEncryptedFileBackend:
         for old_file, _ in files_with_versions[:-10]:
             old_file.unlink()
 
-    async def get(self, path: str) -> bytes:
-        """Retrieve secret from latest version only.
+    async def get(self, path: str, version: int | None = None) -> bytes:
+        """Retrieve secret from latest version (or a specific version if requested).
 
         Args:
             path: Secret path
+            version: Optional specific version. If ``None``, returns latest.
 
         Returns:
             Decrypted secret value
 
         Raises:
-            KeyError: If secret not found
+            KeyError: If secret (or requested version) not found
             IntegrityError: If AEAD verification fails
         """
         self._validate_path(path)
         versions = await self.versions(path)
 
-        # Only attempt latest version, no fallback
-        version = versions[-1]
+        if version is None:
+            version = versions[-1]
+        elif version not in versions:
+            raise KeyError(f"Secret version not found: {path} v{version}")
         try:
             fpath = self._path(path, version)
             blob = fpath.read_bytes()
@@ -206,16 +209,23 @@ class LocalEncryptedFileBackend:
             raise KeyError(f"Secret not found: {path}")
         return versions
 
-    async def delete(self, path: str) -> None:
-        """Delete all versions of a secret.
+    async def delete(self, path: str, version: int | None = None) -> None:
+        """Delete a secret.
 
         Args:
             path: Secret path
+            version: Optional specific version to delete. If ``None``,
+                deletes all versions of the secret.
         """
         self._validate_path(path)
         async with self._lock:
-            for f in self._secrets_dir.glob(f"{path}.v*.bin"):
-                f.unlink()
+            if version is None:
+                for f in self._secrets_dir.glob(f"{path}.v*.bin"):
+                    f.unlink()
+            else:
+                fpath = self._path(path, version)
+                if fpath.exists():
+                    fpath.unlink()
 
     async def enumerate_paths(self) -> list[str]:
         """Enumerate all secret paths stored in backend.

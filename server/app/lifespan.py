@@ -152,6 +152,11 @@ class AppState:
     lockout_tracker: Any | None = None
     session_service: Any | None = None
     secrets_broker: Any | None = None
+    webauthn_service: Any | None = None
+    webauthn_challenges: Any | None = None
+    webauthn_rp_id: str | None = None
+    webauthn_origin: str | None = None
+    public_url: str | None = None
 
 
 async def build_app_state(settings: FleetSettings) -> AppState:

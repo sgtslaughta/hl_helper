@@ -21,6 +21,7 @@ import structlog
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy import select
 
+from server.app.auth.mfa.policy import MfaPolicy, StepUpRequired
 from server.app.deps import current_principal as default_principal_dep
 from server.app.models.user import User
 from server.app.models.user_group import UserGroup, user_group_members
@@ -34,6 +35,19 @@ from server.app.rbac import (
 )
 
 ResourceLoader = Callable[[Request], Resource | Awaitable[Resource]]
+
+
+def _normalize_verb(action: str) -> str:
+    """Normalize an RBAC action ("host:delete") to MFA verb form ("host.delete").
+
+    Only the LAST ":" is treated as the verb separator; any earlier ":" (e.g. in
+    namespaced actions like "ns:foo:read") is preserved as ".", matching MFA
+    policy convention.
+    """
+    if ":" not in action:
+        return action
+    head, _, verb = action.rpartition(":")
+    return head.replace(":", ".") + "." + verb
 
 
 def _build_principal(raw: object | None) -> Principal | None:
@@ -89,6 +103,34 @@ def require(
             decision = await engine.is_authorized(
                 principal, action, resource, AuthContext.empty()
             )
+
+        # MFA step-up gate for high-risk verbs. Action uses ":" separator
+        # (e.g. "host:delete"); MFA policy uses "." (e.g. "host.delete").
+        if decision.allow:
+            verb = _normalize_verb(action)
+            policy = MfaPolicy()
+            if policy.recency_required_seconds(verb) is not None:
+                user: User | None = None
+                last_mfa_at = None
+                if principal.user_id:
+                    async with sm() as mfa_session:
+                        user = await mfa_session.scalar(
+                            select(User).where(User.id == principal.user_id)
+                        )
+                        if user is not None:
+                            last_mfa_at = getattr(user, "last_mfa_at", None)
+                try:
+                    policy.assert_recency(
+                        user,  # type: ignore[arg-type]
+                        verb,
+                        last_mfa_at,
+                    )
+                except StepUpRequired:
+                    raise HTTPException(
+                        status_code=401,
+                        detail="mfa_step_up_required",
+                        headers={"X-MFA-Required": "true"},
+                    )
 
         if not decision.allow:
             audit = getattr(request.app.state, "audit_chain", None)

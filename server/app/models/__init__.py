@@ -17,6 +17,8 @@ from server.app.models.host_sequence import HostSequence
 from server.app.models.lockout import LockoutRecord
 from server.app.models.maintenance_window import MaintenanceWindow
 from server.app.models.notification import Notification
+from server.app.models.oidc_account_link import OidcAccountLink
+from server.app.models.oidc_provider import OidcProvider
 from server.app.models.recovery_code import RecoveryCode
 from server.app.models.result import Result
 from server.app.models.revoked_cert import RevokedCert
@@ -31,6 +33,7 @@ from server.app.models.totp_secret import TotpSecret
 from server.app.models.update_policy import UpdatePolicy
 from server.app.models.user import User
 from server.app.models.user_group import UserGroup
+from server.app.models.webauthn_credential import WebAuthnCredential
 from server.app.models.webhook import Webhook
 
 __all__ = [
@@ -65,4 +68,7 @@ __all__ = [
     "LockoutRecord",
     "RecoveryCode",
     "TotpSecret",
+    "WebAuthnCredential",
+    "OidcProvider",
+    "OidcAccountLink",
 ]
