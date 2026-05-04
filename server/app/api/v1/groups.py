@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -15,6 +16,8 @@ from server.app.api.state import get_app_state
 from server.app.api.middleware.admin_auth import admin_required
 from server.app.models.group import Group
 from server.app.models.group_membership import GroupMembership
+
+log = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/v1/groups", tags=["groups"])
 
@@ -130,6 +133,21 @@ async def create_group(req: Request, body: GroupCreate) -> GroupOut:
                 detail="Group with this name already exists",
             )
         await session.refresh(group)
+
+        # Emit audit event
+        app_state = get_app_state(req)
+        async with app_state.sessionmaker() as audit_session:
+            try:
+                await app_state.audit_chain.append(
+                    audit_session,
+                    actor="admin",
+                    action="group.created",
+                    subject=str(group.id),
+                    payload={"name": group.name},
+                )
+                await audit_session.commit()
+            except Exception as e:
+                log.exception("audit_append_failed", exc=e)
 
     return GroupOut(
         id=str(group.id),
@@ -293,6 +311,21 @@ async def update_group(
             )
         await session.refresh(group)
 
+        # Emit audit event
+        app_state = get_app_state(req)
+        async with app_state.sessionmaker() as audit_session:
+            try:
+                await app_state.audit_chain.append(
+                    audit_session,
+                    actor="admin",
+                    action="group.updated",
+                    subject=str(group.id),
+                    payload={"name": group.name, "fields_changed": list(data.keys())},
+                )
+                await audit_session.commit()
+            except Exception as e:
+                log.exception("audit_append_failed", exc=e)
+
     return GroupOut(
         id=str(group.id),
         name=group.name,
@@ -333,6 +366,7 @@ async def delete_group(req: Request, group_id: str) -> None:
                 detail="Group not found",
             )
 
+        group_name = group.name
         try:
             await session.delete(group)
             await session.commit()
@@ -342,6 +376,21 @@ async def delete_group(req: Request, group_id: str) -> None:
                 status_code=status.HTTP_409_CONFLICT,
                 detail="group_has_dependents",
             )
+
+        # Emit audit event
+        app_state = get_app_state(req)
+        async with app_state.sessionmaker() as audit_session:
+            try:
+                await app_state.audit_chain.append(
+                    audit_session,
+                    actor="admin",
+                    action="group.deleted",
+                    subject=group_id,
+                    payload={"name": group_name},
+                )
+                await audit_session.commit()
+            except Exception as e:
+                log.exception("audit_append_failed", exc=e)
 
 
 @router.post(

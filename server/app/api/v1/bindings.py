@@ -7,6 +7,7 @@ import json
 from datetime import datetime
 from typing import Literal
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -16,6 +17,8 @@ from server.app.api.state import get_app_state
 from server.app.api.middleware.admin_auth import admin_required
 from server.app.models.binding import Binding
 from server.app.models.role import Role
+
+log = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/v1/bindings", tags=["bindings"])
 
@@ -241,6 +244,26 @@ async def create_binding(req: Request, body: BindingCreate) -> BindingOut:
 
         await session.refresh(binding)
 
+        # Emit audit event
+        app_state = get_app_state(req)
+        async with app_state.sessionmaker() as audit_session:
+            try:
+                await app_state.audit_chain.append(
+                    audit_session,
+                    actor="admin",
+                    action="binding.created",
+                    subject=binding.id,
+                    payload={
+                        "principal_type": binding.principal_type.value,
+                        "principal_id": binding.principal_id,
+                        "role_id": binding.role_id,
+                        "scope_kind": binding.scope_kind.value,
+                    },
+                )
+                await audit_session.commit()
+            except Exception as e:
+                log.exception("audit_append_failed", exc=e)
+
     return BindingOut(
         id=binding.id,
         principal_type=binding.principal_type.value,
@@ -274,5 +297,21 @@ async def delete_binding(req: Request, binding_id: str) -> None:
                 detail="Binding not found",
             )
 
+        binding_id = binding.id
         await session.delete(binding)
         await session.commit()
+
+        # Emit audit event
+        app_state = get_app_state(req)
+        async with app_state.sessionmaker() as audit_session:
+            try:
+                await app_state.audit_chain.append(
+                    audit_session,
+                    actor="admin",
+                    action="binding.deleted",
+                    subject=binding_id,
+                    payload={},
+                )
+                await audit_session.commit()
+            except Exception as e:
+                log.exception("audit_append_failed", exc=e)

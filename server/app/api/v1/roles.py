@@ -147,7 +147,22 @@ async def create_role(
 
         await session.refresh(role)
         # TODO(T2.4): bump engine perm-cache version on role mutate
-        # TODO: emit audit event action="role.created" if audit chain available
+
+        # Emit audit event
+        app_state = get_app_state(request)
+        async with app_state.sessionmaker() as audit_session:
+            try:
+                await app_state.audit_chain.append(
+                    audit_session,
+                    actor=actor,
+                    action="role.created",
+                    subject=role.id,
+                    payload={"name": role.name, "permissions": role.permissions},
+                )
+                await audit_session.commit()
+            except Exception as e:
+                log.exception("audit_append_failed", exc=e)
+
         return RoleOut.model_validate(role)
 
 
@@ -205,7 +220,22 @@ async def update_role(
 
         await session.commit()
         # TODO(T2.4): bump engine perm-cache version on role mutate
-        # TODO: emit audit event action="role.updated" if audit chain available
+
+        # Emit audit event
+        app_state = get_app_state(request)
+        async with app_state.sessionmaker() as audit_session:
+            try:
+                await app_state.audit_chain.append(
+                    audit_session,
+                    actor=actor,
+                    action="role.updated",
+                    subject=role.id,
+                    payload={"name": role.name, "permissions": role.permissions, "fields_changed": list(data.keys())},
+                )
+                await audit_session.commit()
+            except Exception as e:
+                log.exception("audit_append_failed", exc=e)
+
         await session.refresh(role)
         return RoleOut.model_validate(role)
 
@@ -254,7 +284,25 @@ async def delete_role(
                 detail=f"Cannot delete role with {binding_count} active bindings",
             )
 
+        # Capture role info before deletion for audit
+        role_name = role.name
+        role_id = role.id
+
         await session.delete(role)
         await session.commit()
         # TODO(T2.4): bump engine perm-cache version on role mutate
-        # TODO: emit audit event action="role.deleted" if audit chain available
+
+        # Emit audit event
+        app_state = get_app_state(request)
+        async with app_state.sessionmaker() as audit_session:
+            try:
+                await app_state.audit_chain.append(
+                    audit_session,
+                    actor=actor,
+                    action="role.deleted",
+                    subject=role_id,
+                    payload={"name": role_name},
+                )
+                await audit_session.commit()
+            except Exception as e:
+                log.exception("audit_append_failed", exc=e)

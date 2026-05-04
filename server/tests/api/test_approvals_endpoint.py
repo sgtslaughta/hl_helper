@@ -9,6 +9,8 @@ from httpx import AsyncClient, ASGITransport
 from pydantic import SecretStr
 
 from server.app.api.app import create_app
+from server.app.deps import current_principal
+from server.app.rbac.provider import Principal
 from server.app.settings.config import FleetSettings
 from server.tests._helpers.app_state import make_test_app_state
 
@@ -41,8 +43,8 @@ async def test_list_approvals_admin_gated_401():
 
 
 @pytest.mark.asyncio
-async def test_create_approval_missing_header_400(auth, sm, mock_settings):
-    """POST /v1/approvals without X-Acting-Principal header returns 400."""
+async def test_create_approval_missing_header_401(auth, sm, mock_settings):
+    """POST /v1/approvals without current_principal returns 401."""
     app = create_app()
     app.state.app_state = make_test_app_state(sessionmaker=sm)
     with mock.patch(
@@ -61,15 +63,16 @@ async def test_create_approval_missing_header_400(auth, sm, mock_settings):
                 },
                 headers=auth,
             )
-            assert r.status_code == 400
-            assert "acting_principal_required" in r.json()["detail"]
+            assert r.status_code == 401
+            assert "unauthenticated" in r.json()["detail"]
 
 
 @pytest.mark.asyncio
-async def test_decide_approval_missing_header_400(auth, sm, mock_settings):
-    """POST /v1/approvals/{id}/decisions without X-Acting-Principal header returns 400."""
+async def test_decide_approval_missing_header_401(auth, sm, mock_settings):
+    """POST /v1/approvals/{id}/decisions without current_principal returns 401."""
     app = create_app()
     app.state.app_state = make_test_app_state(sessionmaker=sm)
+    app.dependency_overrides[current_principal] = lambda: Principal(user_id="u-r")
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
         return_value=mock_settings,
@@ -88,13 +91,15 @@ async def test_decide_approval_missing_header_400(auth, sm, mock_settings):
                 headers=headers,
             )
             aid = r.json()["id"]
+            # Without current_principal override, should return 401
+            del app.dependency_overrides[current_principal]
             r2 = await c.post(
                 f"/v1/approvals/{aid}/decisions",
                 json={"decision": "approve"},
                 headers=auth,
             )
-            assert r2.status_code == 400
-            assert "acting_principal_required" in r2.json()["detail"]
+            assert r2.status_code == 401
+            assert "unauthenticated" in r2.json()["detail"]
 
 
 @pytest.mark.asyncio
@@ -102,6 +107,7 @@ async def test_create_approval_201(auth, sm, mock_settings):
     """POST /v1/approvals returns 201 with created approval."""
     app = create_app()
     app.state.app_state = make_test_app_state(sessionmaker=sm)
+    app.dependency_overrides[current_principal] = lambda: Principal(user_id="u-1")
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
         return_value=mock_settings,
@@ -128,6 +134,7 @@ async def test_two_person_same_principal_rejected_200(auth, sm, mock_settings):
     """Two-person approval with same principal rejected; returns 200 with decision."""
     app = create_app()
     app.state.app_state = make_test_app_state(sessionmaker=sm)
+    app.dependency_overrides[current_principal] = lambda: Principal(user_id="u-1")
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
         return_value=mock_settings,
@@ -161,6 +168,7 @@ async def test_two_person_first_approve_goes_to_pending_second(auth, sm, mock_se
     """Two-person approval first approve transitions to pending_second."""
     app = create_app()
     app.state.app_state = make_test_app_state(sessionmaker=sm)
+    app.dependency_overrides[current_principal] = lambda: Principal(user_id="u-r")
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
         return_value=mock_settings,
@@ -179,6 +187,8 @@ async def test_two_person_first_approve_goes_to_pending_second(auth, sm, mock_se
                 headers=headers,
             )
             aid = r.json()["id"]
+            # Switch the override to u-d for the second request
+            app.dependency_overrides[current_principal] = lambda: Principal(user_id="u-d")
             headers_d = {**auth, "X-Acting-Principal": "u-d"}
             r2 = await c.post(
                 f"/v1/approvals/{aid}/decisions",
@@ -194,6 +204,7 @@ async def test_two_person_second_approve_different_principal_approves(auth, sm, 
     """Two-person approval second approve from different principal approves."""
     app = create_app()
     app.state.app_state = make_test_app_state(sessionmaker=sm)
+    app.dependency_overrides[current_principal] = lambda: Principal(user_id="u-r")
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
         return_value=mock_settings,
@@ -213,6 +224,7 @@ async def test_two_person_second_approve_different_principal_approves(auth, sm, 
             )
             aid = r.json()["id"]
             # First approve
+            app.dependency_overrides[current_principal] = lambda: Principal(user_id="u-d1")
             headers_d1 = {**auth, "X-Acting-Principal": "u-d1"}
             r2 = await c.post(
                 f"/v1/approvals/{aid}/decisions",
@@ -221,6 +233,7 @@ async def test_two_person_second_approve_different_principal_approves(auth, sm, 
             )
             assert r2.json()["state"] == "pending_second"
             # Second approve from different principal
+            app.dependency_overrides[current_principal] = lambda: Principal(user_id="u-d2")
             headers_d2 = {**auth, "X-Acting-Principal": "u-d2"}
             r3 = await c.post(
                 f"/v1/approvals/{aid}/decisions",
@@ -236,6 +249,7 @@ async def test_decide_unknown_id_404(auth, sm, mock_settings):
     """POST /v1/approvals/{id}/decisions with unknown id returns 404."""
     app = create_app()
     app.state.app_state = make_test_app_state(sessionmaker=sm)
+    app.dependency_overrides[current_principal] = lambda: Principal(user_id="u-d")
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
         return_value=mock_settings,
@@ -257,6 +271,7 @@ async def test_filter_by_state(auth, sm, mock_settings):
     """GET /v1/approvals?state=approved filters by state."""
     app = create_app()
     app.state.app_state = make_test_app_state(sessionmaker=sm)
+    app.dependency_overrides[current_principal] = lambda: Principal(user_id="u-r")
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
         return_value=mock_settings,
@@ -279,6 +294,7 @@ async def test_filter_by_state(auth, sm, mock_settings):
             # Approve only the first
             approvals = (await c.get("/v1/approvals", headers=auth)).json()["items"]
             first_id = approvals[0]["id"]
+            app.dependency_overrides[current_principal] = lambda: Principal(user_id="u-d")
             headers_d = {**auth, "X-Acting-Principal": "u-d"}
             await c.post(
                 f"/v1/approvals/{first_id}/decisions",
@@ -295,6 +311,7 @@ async def test_ttl_minutes_clamps_to_max(auth, sm, mock_settings):
     """ttl_minutes > 1440 returns 422."""
     app = create_app()
     app.state.app_state = make_test_app_state(sessionmaker=sm)
+    app.dependency_overrides[current_principal] = lambda: Principal(user_id="u-r")
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
         return_value=mock_settings,
@@ -321,6 +338,7 @@ async def test_ttl_minutes_minimum_clamps(auth, sm, mock_settings):
     """ttl_minutes <= 0 returns 422."""
     app = create_app()
     app.state.app_state = make_test_app_state(sessionmaker=sm)
+    app.dependency_overrides[current_principal] = lambda: Principal(user_id="u-r")
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
         return_value=mock_settings,
@@ -347,6 +365,7 @@ async def test_single_second_factor_pending_without_mfa(auth, sm, mock_settings)
     """POST single_sf approval; decide without mfa_proof → 200 with state=pending, rejected_reason=mfa_required."""
     app = create_app()
     app.state.app_state = make_test_app_state(sessionmaker=sm)
+    app.dependency_overrides[current_principal] = lambda: Principal(user_id="u-r")
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
         return_value=mock_settings,
@@ -365,6 +384,7 @@ async def test_single_second_factor_pending_without_mfa(auth, sm, mock_settings)
                 headers=headers,
             )
             aid = r.json()["id"]
+            app.dependency_overrides[current_principal] = lambda: Principal(user_id="u-d")
             headers_d = {**auth, "X-Acting-Principal": "u-d"}
             r2 = await c.post(
                 f"/v1/approvals/{aid}/decisions",
@@ -381,6 +401,7 @@ async def test_single_second_factor_approves_with_mfa(auth, sm, mock_settings):
     """POST single_sf approval; decide with mfa_proof → 200 with state=approved."""
     app = create_app()
     app.state.app_state = make_test_app_state(sessionmaker=sm)
+    app.dependency_overrides[current_principal] = lambda: Principal(user_id="u-r")
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
         return_value=mock_settings,
@@ -399,6 +420,7 @@ async def test_single_second_factor_approves_with_mfa(auth, sm, mock_settings):
                 headers=headers,
             )
             aid = r.json()["id"]
+            app.dependency_overrides[current_principal] = lambda: Principal(user_id="u-d")
             headers_d = {**auth, "X-Acting-Principal": "u-d"}
             r2 = await c.post(
                 f"/v1/approvals/{aid}/decisions",
@@ -415,6 +437,7 @@ async def test_filter_by_subject_type(auth, sm, mock_settings):
     """GET /v1/approvals?subject_type=command filters correctly."""
     app = create_app()
     app.state.app_state = make_test_app_state(sessionmaker=sm)
+    app.dependency_overrides[current_principal] = lambda: Principal(user_id="u-r")
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
         return_value=mock_settings,
@@ -453,6 +476,7 @@ async def test_mfa_proof_redacted_in_list(auth, sm, mock_settings):
     """POST single_sf approval, decide+approve with mfa_proof; GET /v1/approvals; assert mfa_proof NOT in response."""
     app = create_app()
     app.state.app_state = make_test_app_state(sessionmaker=sm)
+    app.dependency_overrides[current_principal] = lambda: Principal(user_id="u-r")
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
         return_value=mock_settings,
@@ -488,6 +512,7 @@ async def test_mfa_proof_not_in_single_get(auth, sm, mock_settings):
     """POST single_sf approval, approve with mfa_proof; GET /v1/approvals/{id}; assert mfa_proof NOT in response."""
     app = create_app()
     app.state.app_state = make_test_app_state(sessionmaker=sm)
+    app.dependency_overrides[current_principal] = lambda: Principal(user_id="u-r")
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
         return_value=mock_settings,
@@ -506,6 +531,7 @@ async def test_mfa_proof_not_in_single_get(auth, sm, mock_settings):
                 headers=headers,
             )
             aid = r.json()["id"]
+            app.dependency_overrides[current_principal] = lambda: Principal(user_id="u-d")
             headers_d = {**auth, "X-Acting-Principal": "u-d"}
             await c.post(
                 f"/v1/approvals/{aid}/decisions",
@@ -537,6 +563,7 @@ async def test_pagination_returns_next_cursor(auth, sm, mock_settings):
     """POST 3 approvals with limit=2; verify next_cursor present."""
     app = create_app()
     app.state.app_state = make_test_app_state(sessionmaker=sm)
+    app.dependency_overrides[current_principal] = lambda: Principal(user_id="u-r")
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
         return_value=mock_settings,
@@ -568,6 +595,7 @@ async def test_reject_decision_records_reason(auth, sm, mock_settings):
     """POST approval + decide reject with reason; verify reason stored."""
     app = create_app()
     app.state.app_state = make_test_app_state(sessionmaker=sm)
+    app.dependency_overrides[current_principal] = lambda: Principal(user_id="u-r")
     with mock.patch(
         "server.app.api.middleware.admin_auth.load_settings",
         return_value=mock_settings,
@@ -586,6 +614,7 @@ async def test_reject_decision_records_reason(auth, sm, mock_settings):
                 headers=headers,
             )
             aid = r.json()["id"]
+            app.dependency_overrides[current_principal] = lambda: Principal(user_id="u-d")
             headers_d = {**auth, "X-Acting-Principal": "u-d"}
             r2 = await c.post(
                 f"/v1/approvals/{aid}/decisions",

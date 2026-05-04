@@ -31,8 +31,16 @@ async def async_session_maker(tmp_path: Path):
         connect_args={"check_same_thread": False},
         echo_pool=False,
     )
+
+    from sqlalchemy import event
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def _fk_pragma_on_connect(dbapi_connection, _record):  # type: ignore[no-untyped-def]
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
     async with engine.begin() as conn:
-        # Enable foreign key constraints for SQLite
         await conn.execute(text("PRAGMA foreign_keys = ON"))
         await conn.run_sync(Base.metadata.create_all)
     return sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)

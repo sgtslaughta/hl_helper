@@ -14,6 +14,7 @@ from server.app.models.group import Group
 from server.app.models.group_membership import GroupMembership
 from server.app.models.host import Host
 from server.app.models.host_sequence import HostSequence
+from server.app.models.lockout import LockoutRecord
 from server.app.models.maintenance_window import MaintenanceWindow
 from server.app.models.notification import Notification
 from server.app.models.result import Result
@@ -59,4 +60,5 @@ __all__ = [
     "Notification",
     "Webhook",
     "Setting",
+    "LockoutRecord",
 ]

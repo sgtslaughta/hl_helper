@@ -9,13 +9,17 @@ bounded process-local LRU cache for fast-path reads within the same process.
 
 from __future__ import annotations
 
+import structlog
 from collections import OrderedDict
 from datetime import datetime, timezone
 
 from sqlalchemy import Select, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.app.models.command import Command, CommandStatus
+
+logger = structlog.get_logger()
 
 _DEFAULT_IDEMPOTENCY_CAPACITY = 4096
 
@@ -71,11 +75,12 @@ class CommandQueue:
             del self._idempotency_cache[idempotency_key]
 
         # DB-backed check: look up by idempotency_key to handle cross-process dedup
+        existing_cmd: Command | None = None
         if idempotency_key is not None:
             result = await session.execute(
                 select(Command).where(Command.idempotency_key == idempotency_key)
             )
-            existing_cmd: Command | None = result.scalar_one_or_none()
+            existing_cmd = result.scalar_one_or_none()
             if existing_cmd is not None:
                 # Update cache and return existing command
                 self._idempotency_cache[idempotency_key] = existing_cmd.id
@@ -88,9 +93,61 @@ class CommandQueue:
         if idempotency_key is not None:
             command.idempotency_key = idempotency_key
 
+        # Try to add to session and flush. If a concurrent request inserted
+        # the same idempotency_key, IntegrityError is raised on flush.
+        # We catch it, rollback, and re-read the existing row.
         session.add(command)
+        try:
+            await session.flush()
+        except IntegrityError as e:
+            if idempotency_key is not None and "idempotency_key" in str(e):
+                logger.warning(
+                    "idempotency_race_caught",
+                    idempotency_key=idempotency_key,
+                    error=str(e),
+                )
+                # Rollback to clean the session state
+                await session.rollback()
+                # Query for the existing row
+                logger.debug(
+                    "querying_for_existing_row",
+                    idempotency_key=idempotency_key,
+                )
+                result = await session.execute(
+                    select(Command).where(Command.idempotency_key == idempotency_key)
+                )
+                existing_cmd = result.scalar_one_or_none()
+                logger.debug(
+                    "query_result",
+                    found=existing_cmd is not None,
+                    idempotency_key=idempotency_key,
+                )
+                if existing_cmd is not None:
+                    # Update cache and return the existing command
+                    self._idempotency_cache[idempotency_key] = existing_cmd.id
+                    self._idempotency_cache.move_to_end(idempotency_key)
+                    while len(self._idempotency_cache) > self._idempotency_capacity:
+                        self._idempotency_cache.popitem(last=False)
+                    logger.info(
+                        "idempotency_race_resolved",
+                        idempotency_key=idempotency_key,
+                        command_id=existing_cmd.id,
+                    )
+                    return existing_cmd
+                logger.exception(
+                    "idempotency_race_row_not_found",
+                    idempotency_key=idempotency_key,
+                )
+                raise
+            else:
+                # Not an idempotency_key constraint violation — re-raise
+                logger.exception(
+                    "integrity_error_non_idempotency",
+                    idempotency_key=idempotency_key,
+                )
+                raise
 
-        # Update cache
+        # Update cache for newly added command
         if idempotency_key is not None:
             self._idempotency_cache[idempotency_key] = command.id
             self._idempotency_cache.move_to_end(idempotency_key)

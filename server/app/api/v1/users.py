@@ -17,6 +17,8 @@ from server.app.models.user import User, UserKind
 from server.app.models.user_group import UserGroup, user_group_members
 from server.app.models.service_account import ServiceAccount
 
+log = structlog.get_logger(__name__)
+
 router = APIRouter(prefix="/v1", tags=["users"])
 log = structlog.get_logger(__name__)
 
@@ -171,6 +173,21 @@ async def create_user(req: Request, body: UserCreate) -> UserOut:
                 detail=f"Email {body.email} already exists",
             ) from None
 
+        # Emit audit event
+        app_state = get_app_state(req)
+        async with app_state.sessionmaker() as audit_session:
+            try:
+                await app_state.audit_chain.append(
+                    audit_session,
+                    actor="admin",
+                    action="user.created",
+                    subject=user.id,
+                    payload={"email": user.email, "kind": user.kind.value},
+                )
+                await audit_session.commit()
+            except Exception as e:
+                log.exception("audit_append_failed", exc=e)
+
     return UserOut(
         id=user.id,
         email=user.email,
@@ -255,6 +272,21 @@ async def update_user(req: Request, user_id: str, body: UserUpdate) -> UserOut:
             user.disabled = body.disabled
         await session.commit()
 
+        # Emit audit event
+        app_state = get_app_state(req)
+        async with app_state.sessionmaker() as audit_session:
+            try:
+                await app_state.audit_chain.append(
+                    audit_session,
+                    actor="admin",
+                    action="user.updated",
+                    subject=user.id,
+                    payload={"email": user.email, "fields_changed": list(body.model_dump(exclude_unset=True).keys())},
+                )
+                await audit_session.commit()
+            except Exception as e:
+                log.exception("audit_append_failed", exc=e)
+
     return UserOut(
         id=user.id,
         email=user.email,
@@ -280,6 +312,8 @@ async def delete_user(req: Request, user_id: str) -> None:
         user = await session.scalar(select(User).where(User.id == user_id))
         if user is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+        user_email = user.email
         try:
             await session.delete(user)
             await session.commit()
@@ -289,6 +323,21 @@ async def delete_user(req: Request, user_id: str) -> None:
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Cannot delete user with existing bindings",
             ) from None
+
+        # Emit audit event
+        app_state = get_app_state(req)
+        async with app_state.sessionmaker() as audit_session:
+            try:
+                await app_state.audit_chain.append(
+                    audit_session,
+                    actor="admin",
+                    action="user.deleted",
+                    subject=user_id,
+                    payload={"email": user_email},
+                )
+                await audit_session.commit()
+            except Exception as e:
+                log.exception("audit_append_failed", exc=e)
 
 
 # ============================================================================

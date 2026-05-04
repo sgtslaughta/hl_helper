@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -12,9 +12,11 @@ from sqlalchemy import select
 
 from server.app.api.state import get_app_state
 from server.app.api.middleware.admin_auth import admin_required
+from server.app.deps_rbac import acting_principal
 from server.app.models import Approval
 from server.app.pagination import apply_cursor, build_page
 from server.app.rbac.approvals import ApprovalEngine
+from server.app.rbac.provider import Principal
 
 router = APIRouter(prefix="/v1/approvals", tags=["approvals"])
 
@@ -195,16 +197,21 @@ async def get_approval(request: Request, approval_id: str) -> ApprovalOut:
     status_code=201,
     dependencies=[Depends(admin_required)],
 )
-async def create_approval(request: Request, body: ApprovalCreate) -> ApprovalOut:
+async def create_approval(
+    request: Request,
+    body: ApprovalCreate,
+    principal: Annotated[Principal, Depends(acting_principal)],
+) -> ApprovalOut:
     """Create an approval request.
 
-    Requires admin authentication and X-Acting-Principal header.
+    Requires admin authentication.
+    Principal (acting or authenticated) derived from acting_principal dependency.
     Returns 201 with the created approval.
     """
-    # TODO(C3): replace X-Acting-Principal header with current_principal once user auth is wired
-    requester_id = request.headers.get("X-Acting-Principal", "").strip()
+    # acting_principal always returns a principal with user_id set
+    requester_id = principal.user_id or ""
     if not requester_id:
-        raise HTTPException(status_code=400, detail="acting_principal_required")
+        raise HTTPException(status_code=500, detail="principal_missing_user_id")
 
     sm = get_app_state(request).sessionmaker
     async with sm() as session:
@@ -239,18 +246,22 @@ async def create_approval(request: Request, body: ApprovalCreate) -> ApprovalOut
     dependencies=[Depends(admin_required)],
 )
 async def decide_approval(
-    request: Request, approval_id: str, body: ApprovalDecide
+    request: Request,
+    approval_id: str,
+    body: ApprovalDecide,
+    principal: Annotated[Principal, Depends(acting_principal)],
 ) -> ApprovalDecisionOut:
     """Decide on an approval.
 
-    Requires admin authentication and X-Acting-Principal header.
+    Requires admin authentication.
+    Principal (acting or authenticated) derived from acting_principal dependency.
     Returns 404 if approval not found.
     Returns 200 with decision result.
     """
-    # TODO(C3): replace X-Acting-Principal header with current_principal once user auth is wired
-    decider_id = request.headers.get("X-Acting-Principal", "").strip()
+    # acting_principal always returns a principal with user_id set
+    decider_id = principal.user_id or ""
     if not decider_id:
-        raise HTTPException(status_code=400, detail="acting_principal_required")
+        raise HTTPException(status_code=500, detail="principal_missing_user_id")
 
     sm = get_app_state(request).sessionmaker
     async with sm() as session:

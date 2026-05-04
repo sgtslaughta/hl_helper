@@ -149,6 +149,7 @@ class AppState:
     result_handler: ResultHandler
     revocation_service: RevocationService
     enrollment_service: EnrollmentService
+    lockout_tracker: Any | None = None
     session_service: Any | None = None
     secrets_broker: Any | None = None
 
@@ -270,6 +271,10 @@ async def build_app_state(settings: FleetSettings) -> AppState:
         grpc_endpoint=grpc_endpoint,
     )
 
+    # Setup lockout tracker with DB persistence
+    from server.app.auth.lockout import LockoutTrackerPersistent
+    lockout_tracker = LockoutTrackerPersistent(sessionmaker=sm)
+
     return AppState(
         bus=bus,
         ca=ca,
@@ -282,6 +287,7 @@ async def build_app_state(settings: FleetSettings) -> AppState:
         result_handler=result_handler,
         revocation_service=revocation_service,
         enrollment_service=enrollment_service,
+        lockout_tracker=lockout_tracker,
         session_service=session_service,
         secrets_broker=secrets_broker,
     )

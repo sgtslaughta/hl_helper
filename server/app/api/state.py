@@ -43,6 +43,7 @@ class AppStateProtocol(Protocol):
     result_handler: ResultHandler
     revocation_service: RevocationService
     enrollment_service: EnrollmentService
+    lockout_tracker: Any | None  # LockoutTrackerPersistent | None
     session_service: Any | None  # SessionService | None, but lazily imported to avoid circular deps
     secrets_broker: SecretsBackend | None
 
