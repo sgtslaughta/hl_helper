@@ -8,7 +8,7 @@ from typing import Any, Callable, cast
 from server.app.secrets.cache import BrokerCache
 from server.app.secrets.handle import HandleStore, SecretHandle
 from server.app.secrets.ref import SecretRef
-from server.app.secrets.backends.base import SecretsBackend
+from server.app.secrets.backends.base import BackendSealed, SecretsBackend
 
 log = structlog.get_logger(__name__)
 
@@ -49,6 +49,9 @@ class SecretsBroker:
         self.handle_store = handle_store
         self.audit_chain = audit_chain
         self.mfa_recency_check = mfa_recency_check
+        # SealedModeMonitor attaches itself here (Optional["SealedModeMonitor"]).
+        # Avoid import cycle by typing as Any.
+        self.sealed_monitor: Any = None
 
     async def get(self, ref: SecretRef, requester: Any) -> SecretHandle:
         """Retrieve secret and return opaque handle.
@@ -68,18 +71,27 @@ class SecretsBroker:
         """
         # Try cache first
         cached_value = self.cache.get(ref)
-        if cached_value is not None:
-            handle = self.handle_store.issue(ref, cached_value, requester)
-            return handle
+        from_cache = cached_value is not None
 
-        # Miss: fetch from backend
-        value = await self._raw_get(ref)
+        if cached_value is None:
+            cached_value = await self._raw_get(ref)
+            self.cache.put(ref, cached_value, ttl_s=30)
 
-        # Cache for 30 seconds
-        self.cache.put(ref, value, ttl_s=30)
+        handle = self.handle_store.issue(ref, cached_value, requester)
 
-        # Issue handle
-        handle = self.handle_store.issue(ref, value, requester)
+        # Audit handle issuance (without logging plaintext)
+        if self.audit_chain is not None:
+            try:
+                await self.audit_chain.append(
+                    session=None,
+                    actor=requester.user_id,
+                    action="secret.handle_issued",
+                    subject=str(ref),
+                    payload={"ref": str(ref), "cached": from_cache},
+                )
+            except Exception as e:
+                log.exception("audit_failed", exc=e)
+
         return handle
 
     async def _raw_get(self, ref: SecretRef) -> bytes:
@@ -96,6 +108,11 @@ class SecretsBroker:
         """
         if ref.backend not in self.backends:
             raise KeyError(f"Backend not configured: {ref.backend}")
+
+        # Sealed-mode gate: when monitor reports degraded, only cached refs
+        # (handled by get()) may be served — raw backend lookups are blocked.
+        if self.sealed_monitor is not None and self.sealed_monitor.is_degraded():
+            raise BackendSealed("vault sealed; degraded read-only")
 
         backend = self.backends[ref.backend]
         path = ref.path

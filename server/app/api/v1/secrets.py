@@ -15,6 +15,7 @@ from server.app.deps import current_principal
 from server.app.rbac.provider import Principal
 from server.app.secrets.ref import SecretRef
 from server.app.secrets.broker import ReAuthRequired
+from server.app.secrets.backends.base import BackendSealed
 
 log = structlog.get_logger(__name__)
 
@@ -142,7 +143,9 @@ async def put_secret(
         )
 
     broker: Any = app_state.secrets_broker
-    requester = principal or Principal(user_id="unknown")
+    if principal is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="authentication_required")
+    requester = principal
 
     try:
         version = await broker.put(ref, value, requester)
@@ -186,7 +189,9 @@ async def rotate_secret(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
     broker: Any = app_state.secrets_broker
-    requester = principal or Principal(user_id="unknown")
+    if principal is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="authentication_required")
+    requester = principal
 
     try:
         version = await broker.rotate(ref, requester)
@@ -203,6 +208,7 @@ async def rotate_secret(
 async def reveal_secret(
     request: Request,
     body: SecretRevealRequest,
+    _: str = Depends(admin_required),
     principal: Principal | None = Depends(current_principal),
 ) -> SecretRevealResponse:
     """Reveal secret plaintext (requires X-MFA-Proof header).
@@ -237,11 +243,14 @@ async def reveal_secret(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
     broker: Any = app_state.secrets_broker
-    requester = principal or Principal(user_id="anonymous")
+    if principal is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="authentication_required")
+    requester = principal
 
     try:
-        # For stub: verify_mfa_proof accepts any non-empty proof
-        if not _verify_mfa_proof(mfa_proof, requester):
+        verifier = getattr(app_state, "mfa_proof_verifier", None)
+        mfa_ok = verifier(mfa_proof, requester) if verifier else _verify_mfa_proof(mfa_proof, requester)
+        if not mfa_ok:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Invalid MFA proof",
@@ -257,6 +266,13 @@ async def reveal_secret(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Fresh MFA required",
         )
+    except BackendSealed:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="vault_sealed_degraded",
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         log.exception("secret_reveal_failed", exc=e)
         raise HTTPException(
@@ -301,7 +317,9 @@ async def migrate_secret(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
     broker: Any = app_state.secrets_broker
-    requester = principal or Principal(user_id="unknown")
+    if principal is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="authentication_required")
+    requester = principal
 
     try:
         # Read from source
@@ -340,16 +358,15 @@ async def migrate_secret(
 
 
 def _verify_mfa_proof(proof: str, principal: Any) -> bool:
-    """Verify MFA proof (stub implementation).
+    """Verify MFA proof -- FAIL-CLOSED stub.
 
-    For now, accepts any non-empty proof.
-    TODO: Wire to real MFA verification.
+    Always returns False until wired to real MFA verification.
+    Production must configure a real verifier before enabling reveal.
 
-    Args:
-        proof: MFA proof string
-        principal: Requester principal
-
-    Returns:
-        True if proof is valid
+    @param proof: MFA proof string
+    @param principal: Requester principal
+    @return: Always False (fail-closed)
     """
-    return bool(proof and proof.strip())
+    # TODO(security): Wire to real MFA verification (TOTP challenge, session step-up).
+    # Until then, reveal is blocked by design.
+    return False

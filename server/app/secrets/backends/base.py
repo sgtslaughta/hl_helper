@@ -11,6 +11,28 @@ class IntegrityError(Exception):
     pass
 
 
+class BackendError(RuntimeError):
+    """Raised by a backend on transport / protocol errors.
+
+    Backend-agnostic so the broker can catch failures from any backend
+    (file, Vault, plugin, ...) without importing each implementation.
+    """
+
+    pass
+
+
+class BackendSealed(Exception):
+    """Raised when a backend is in degraded read-only / sealed state.
+
+    Backend-agnostic (also surfaced from broker when the SealedModeMonitor
+    has flagged the broker as degraded). Distinct from
+    ``server.app.secrets.backends.vault.SealedError`` which represents the
+    immediate Vault sealed-API condition during a single op.
+    """
+
+    pass
+
+
 @runtime_checkable
 class SecretsBackend(Protocol):
     """Protocol for secrets backends."""

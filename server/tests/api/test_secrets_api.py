@@ -9,6 +9,8 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from server.app.api.app import create_app
+from server.app.deps import current_principal
+from server.app.rbac.provider import Principal
 from server.app.secrets.broker import SecretsBroker
 from server.app.secrets.handle import HandleStore
 from server.app.secrets.cache import BrokerCache
@@ -130,7 +132,6 @@ async def test_no_broker_returns_503(auth, sm, mock_admin_token) -> None:  # typ
 @pytest.mark.asyncio
 async def test_put_reveal_roundtrip(auth, sm, mock_admin_token) -> None:  # type: ignore[no-untyped-def]
     """Happy-path: put secret, then reveal with valid X-MFA-Proof."""
-    # Create broker with mock backend and mfa_recency_check
     mock_backend = mock.AsyncMock()
     mock_backend.put = mock.AsyncMock(return_value=1)
     mock_backend.get = mock.AsyncMock(return_value=b"secret-value")
@@ -144,9 +145,14 @@ async def test_put_reveal_roundtrip(auth, sm, mock_admin_token) -> None:  # type
         handle_store=HandleStore(),
         mfa_recency_check=lambda r: True,
     )
+    # C1: set test MFA verifier (production stub is fail-closed)
+    app_state.mfa_proof_verifier = lambda proof, principal: bool(proof)
     app.state.app_state = app_state
 
-    # Put secret
+    # C3: endpoints require authenticated principal; override FastAPI dependency
+    fake_principal = Principal(user_id="admin-test-user")
+    app.dependency_overrides[current_principal] = lambda: fake_principal
+
     put_body = {
         "ref": "secret://local/test-secret",
         "value": base64.b64encode(b"my-secret-value").decode(),
@@ -156,7 +162,6 @@ async def test_put_reveal_roundtrip(auth, sm, mock_admin_token) -> None:  # type
         assert put_response.status_code == 201
         assert put_response.json()["version"] == 1
 
-        # Reveal with valid X-MFA-Proof
         reveal_body = {"ref": "secret://local/test-secret"}
         reveal_response = await c.post(
             "/v1/secrets/actions/reveal",
@@ -169,6 +174,8 @@ async def test_put_reveal_roundtrip(auth, sm, mock_admin_token) -> None:  # type
         assert reveal_response.status_code == 200
         revealed_value = reveal_response.json()["value"]
         assert base64.b64decode(revealed_value) == b"secret-value"
+
+    app.dependency_overrides.clear()
 
 
 @pytest.mark.asyncio

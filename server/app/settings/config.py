@@ -105,6 +105,10 @@ class FleetSettings(BaseSettings):
     secrets_root_dir: str | None = Field(default=None)
     secrets_root_key_b64: str | None = Field(default=None)
 
+    # Egress proxy applied to outbound calls from plugin backends and
+    # other untrusted-egress clients. ``None`` = direct.
+    egress_proxy: str | None = Field(default=None)
+
     # Lockout settings
     lockout_window_s: int = Field(default=300)
 
