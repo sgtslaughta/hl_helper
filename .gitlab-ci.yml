@@ -112,6 +112,10 @@ py-bootstrap-admin:
 docs-build:
   stage: test
   image: python:3.12
+  variables:
+    # Suppress mkdocs-material 9.7.2+ banner about MkDocs 2.0 fork (Material is
+    # incompatible; we stay on MkDocs 1.x or migrate to Zensical when 2.0 ships).
+    NO_MKDOCS_2_WARNING: "1"
   script:
     - pip install -e '.[docs]'
     - mkdocs build --strict
@@ -119,6 +123,8 @@ docs-build:
 pages:
   stage: deploy
   image: python:3.12
+  variables:
+    NO_MKDOCS_2_WARNING: "1"
   script:
     - pip install -e '.[docs]'
     - mkdocs build --strict

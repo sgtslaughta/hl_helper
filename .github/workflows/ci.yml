@@ -147,6 +147,11 @@ jobs:
           retention-days: 90
   docs:
     runs-on: ubuntu-latest
+    env:
+      # Suppress mkdocs-material 9.7.2+ runtime banner about MkDocs 2.0 fork.
+      # MkDocs 2.0 is incompatible with Material; we stay on 1.x indefinitely
+      # (or migrate to Zensical when 2.0 ships).
+      NO_MKDOCS_2_WARNING: "1"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -162,6 +167,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      NO_MKDOCS_2_WARNING: "1"
     steps:
       - uses: actions/checkout@v4
         with:
