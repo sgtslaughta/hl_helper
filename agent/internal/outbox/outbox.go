@@ -4,9 +4,11 @@ package outbox
 import (
 	"bytes"
 	"crypto/cipher"
+	"crypto/rand"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"os"
 	"sync"
 
 	bolt "go.etcd.io/bbolt"
@@ -27,6 +29,8 @@ var (
 	ErrChainReordered = errors.New("outbox: chain reordered")
 	// ErrBadKey is returned when the master key length is not 32 bytes.
 	ErrBadKey = errors.New("outbox: bad master key")
+	// ErrKeyFilePermission is returned when the key file has incorrect permissions.
+	ErrKeyFilePermission = errors.New("outbox: key file permissions too wide")
 )
 
 // Entry represents a single encrypted message in the outbox with its sequence ID.
@@ -85,6 +89,65 @@ func Open(path string, opts Options) (*Outbox, error) {
 	}
 
 	return ob, nil
+}
+
+// OpenWithKeyFile creates or opens an Outbox, using a separate per-install root key file.
+// If the key file does not exist, a new 32-byte key is generated and written with mode 0o600.
+// If the key file exists, it is read and validated (must not have mode wider than 0o600).
+// The AEAD key is derived from this root key using HKDF with info="outbox-aead-v1".
+func OpenWithKeyFile(dbPath string, keyFilePath string, opts Options) (*Outbox, error) {
+	// Load or create the root key file
+	rootKey, err := loadOrCreateKeyFile(keyFilePath)
+	if err != nil {
+		return nil, err
+	}
+
+	// Set the root key in options
+	opts.MasterKey = rootKey
+
+	// Proceed as normal
+	return Open(dbPath, opts)
+}
+
+// loadOrCreateKeyFile loads a 32-byte key from keyFilePath, or creates one if missing.
+// If the file exists, validates that its mode is not wider than 0o600.
+func loadOrCreateKeyFile(keyFilePath string) ([]byte, error) {
+	stat, err := os.Stat(keyFilePath)
+	if err == nil {
+		// File exists; check permissions
+		mode := stat.Mode().Perm()
+		if mode > 0o600 {
+			return nil, ErrKeyFilePermission
+		}
+
+		// Read and return
+		keyData, err := os.ReadFile(keyFilePath)
+		if err != nil {
+			return nil, err
+		}
+		if len(keyData) != 32 {
+			return nil, fmt.Errorf("outbox: key file size is %d, expected 32", len(keyData))
+		}
+		return keyData, nil
+	}
+
+	if !errors.Is(err, os.ErrNotExist) {
+		// Some other error
+		return nil, err
+	}
+
+	// File does not exist; create a new key
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		return nil, err
+	}
+
+	// Write with secure permissions
+	if err := os.WriteFile(keyFilePath, key, 0o600); err != nil {
+		return nil, err
+	}
+
+	return key, nil
 }
 
 func (o *Outbox) init() error {

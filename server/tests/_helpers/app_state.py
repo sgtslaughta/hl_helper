@@ -75,6 +75,8 @@ def make_test_app_state(
     engine: AsyncEngine | None = None,
     bus: Bus | None = None,
     tmp_path: Path | None = None,
+    session_service: Any | None = None,
+    secrets_broker: Any | None = None,
 ) -> AppState:
     """Build a minimal AppState for tests with sensible defaults.
 
@@ -94,6 +96,8 @@ def make_test_app_state(
         engine: AsyncEngine (defaults to None)
         bus: Event bus (defaults to noop Bus)
         tmp_path: Temp path for bootstrapping signing/CA (optional, used if signing_backend not provided)
+        session_service: SessionService (defaults to None)
+        secrets_broker: SecretsBackend (defaults to None)
 
     Returns:
         AppState dataclass with all required fields populated
@@ -148,4 +152,6 @@ def make_test_app_state(
         result_handler=result_handler,
         revocation_service=revocation_service,
         enrollment_service=enrollment_service,
+        session_service=session_service,
+        secrets_broker=secrets_broker,
     )

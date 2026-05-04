@@ -2,8 +2,10 @@ package outbox_test
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -965,5 +967,121 @@ func TestPersistedChainTipUnchangedAfterReopen(t *testing.T) {
 
 	if !bytes.Equal(chainTip1, chainTip2) {
 		t.Errorf("chain_tip changed after reopen")
+	}
+}
+
+func TestOutboxRootKeyFileCreatedOnInit(t *testing.T) {
+	tmpdir := t.TempDir()
+	dbPath := filepath.Join(tmpdir, "outbox.db")
+	keyPath := filepath.Join(tmpdir, "outbox.key")
+
+	ob, err := outbox.OpenWithKeyFile(dbPath, keyPath, outbox.Options{
+		MaxBytes:   1 << 30,
+		MaxEntries: 1000,
+	})
+	if err != nil {
+		t.Fatalf("OpenWithKeyFile: %v", err)
+	}
+	defer ob.Close()
+
+	// Verify key file exists and has correct permissions
+	stat, err := os.Stat(keyPath)
+	if err != nil {
+		t.Fatalf("stat key file: %v", err)
+	}
+
+	mode := stat.Mode().Perm()
+	expectedMode := os.FileMode(0o600)
+	if mode != expectedMode {
+		t.Errorf("key file mode = %#o, want %#o", mode, expectedMode)
+	}
+
+	// Verify key file is 32 bytes
+	if stat.Size() != 32 {
+		t.Errorf("key file size = %d, want 32", stat.Size())
+	}
+}
+
+func TestOutboxRootKeyFileReloadedOnOpen(t *testing.T) {
+	tmpdir := t.TempDir()
+	dbPath := filepath.Join(tmpdir, "outbox.db")
+	keyPath := filepath.Join(tmpdir, "outbox.key")
+
+	// First open: create key
+	ob1, err := outbox.OpenWithKeyFile(dbPath, keyPath, outbox.Options{
+		MaxBytes:   1 << 30,
+		MaxEntries: 1000,
+	})
+	if err != nil {
+		t.Fatalf("OpenWithKeyFile 1: %v", err)
+	}
+
+	// Append entry with first key
+	id1, err := ob1.Append(testPayload(0))
+	if err != nil {
+		t.Fatalf("Append 1: %v", err)
+	}
+	ob1.Close()
+
+	// Read the key file
+	keyData1, err := os.ReadFile(keyPath)
+	if err != nil {
+		t.Fatalf("ReadFile key: %v", err)
+	}
+
+	// Second open: should reload same key
+	ob2, err := outbox.OpenWithKeyFile(dbPath, keyPath, outbox.Options{
+		MaxBytes:   1 << 30,
+		MaxEntries: 1000,
+	})
+	if err != nil {
+		t.Fatalf("OpenWithKeyFile 2: %v", err)
+	}
+	defer ob2.Close()
+
+	// Verify entry from first session is readable
+	entries, err := ob2.Peek(10)
+	if err != nil {
+		t.Fatalf("Peek: %v", err)
+	}
+
+	if len(entries) != 1 || entries[0].ID != id1 {
+		t.Errorf("Entry not found after reopen with same key")
+	}
+
+	// Verify key file unchanged
+	keyData2, err := os.ReadFile(keyPath)
+	if err != nil {
+		t.Fatalf("ReadFile key 2: %v", err)
+	}
+
+	if !bytes.Equal(keyData1, keyData2) {
+		t.Errorf("Key file changed between opens")
+	}
+}
+
+func TestOutboxRootKeyFileWrongPermissionsFails(t *testing.T) {
+	tmpdir := t.TempDir()
+	dbPath := filepath.Join(tmpdir, "outbox.db")
+	keyPath := filepath.Join(tmpdir, "outbox.key")
+
+	// Create a key file with wrong permissions
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatalf("rand.Read: %v", err)
+	}
+
+	if err := os.WriteFile(keyPath, key, 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	// Try to open: should fail or warn due to overly-permissive file
+	_, err := outbox.OpenWithKeyFile(dbPath, keyPath, outbox.Options{
+		MaxBytes:   1 << 30,
+		MaxEntries: 1000,
+	})
+
+	if err == nil {
+		t.Errorf("Expected error for key file with mode 0o644, got nil")
 	}
 }

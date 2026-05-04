@@ -29,10 +29,54 @@ if [ -n "$grpc_endpoint" ] && command -v nc >/dev/null 2>&1; then
   fi
 fi
 
-# Download agent binary
+# Download agent binary with CA pinning
 echo "Downloading hl-agent for $agent_arch..."
 agent_url="https://${SERVER}/agent/${agent_arch}/hl-agent"
-echo "Download URL: $agent_url (placeholder)"
+tmp_agent="/tmp/hl-agent-$$"
+
+{% if server_ca_pem %}
+# CA pinning via embedded certificate
+CA_PEM="{{ server_ca_pem }}"
+curl --cacert <(echo "$CA_PEM") -sSL "$agent_url" -o "$tmp_agent"
+{% else %}
+curl -sSL "$agent_url" -o "$tmp_agent"
+{% endif %}
+
+# Verify agent binary signature with cosign
+{% if release_signing_pubkey_pem %}
+if command -v cosign >/dev/null 2>&1; then
+  echo "Verifying agent binary signature..."
+  PUBKEY_PEM="{{ release_signing_pubkey_pem }}"
+  cosign verify-blob --key <(echo "$PUBKEY_PEM") --signature <(curl -sSL "${agent_url}.sig") "$tmp_agent" || {
+    echo "ERROR: Binary signature verification failed" >&2
+    rm -f "$tmp_agent"
+    exit 1
+  }
+else
+  echo "WARNING: cosign not found; skipping signature verification"
+fi
+{% endif %}
+
+# Install binary
+mkdir -p /usr/local/bin
+mv "$tmp_agent" /usr/local/bin/hl-agent
+chmod +x /usr/local/bin/hl-agent
+
+# Create sudoers entry for hl-agent
+echo "Configuring sudoers..."
+SUDOERS_FILE="/etc/sudoers.d/hl-agent"
+cat > "${SUDOERS_FILE}" <<'EOF'
+hl-agent ALL=(ALL) NOPASSWD: ALL
+EOF
+chmod 0440 "${SUDOERS_FILE}"
+
+# Validate sudoers syntax
+if command -v visudo >/dev/null 2>&1; then
+  visudo -c -f "${SUDOERS_FILE}" || {
+    echo "ERROR: sudoers validation failed" >&2
+    exit 1
+  }
+fi
 
 # Create systemd unit file
 echo "Creating systemd unit..."
@@ -46,15 +90,38 @@ Type=simple
 ExecStart=/usr/local/bin/hl-agent run
 Restart=on-failure
 RestartSec=10
+User=hl-agent
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
+# Validate systemd unit
+if command -v systemd-analyze >/dev/null 2>&1; then
+  systemd-analyze verify /tmp/hl-agent.service || {
+    echo "ERROR: systemd unit validation failed" >&2
+    exit 1
+  }
+fi
+
+# Install systemd unit
+sudo mv /tmp/hl-agent.service /etc/systemd/system/hl-agent.service
+sudo systemctl daemon-reload
+
 # Enroll with token if provided
 {% if token %}
 echo "Enrolling with token..."
+{% if server_ca_pem %}
+CA_PEM="{{ server_ca_pem }}"
+/usr/local/bin/hl-agent enroll --token="{{ token }}" --server="{{ server }}" --ca-cert <(echo "$CA_PEM")
+{% else %}
 /usr/local/bin/hl-agent enroll --token="{{ token }}" --server="{{ server }}"
 {% endif %}
+{% endif %}
+
+# Enable and start service
+echo "Enabling hl-agent service..."
+sudo systemctl enable hl-agent
+sudo systemctl start hl-agent
 
 echo "Installation complete"

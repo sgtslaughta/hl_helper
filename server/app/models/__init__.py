@@ -7,6 +7,7 @@ from server.app.models.approval import Approval
 from server.app.models.audit import AuditCheckpoint, AuditEntry
 from server.app.models.base import Base
 from server.app.models.binding import Binding
+from server.app.models.bootstrap_token import BootstrapToken
 from server.app.models.command import Command
 from server.app.models.enrollment_token import EnrollmentToken
 from server.app.models.group import Group
@@ -48,6 +49,7 @@ __all__ = [
     "Role",
     "Binding",
     "Session",
+    "BootstrapToken",
     "Task",
     "TaskRun",
     "Schedule",

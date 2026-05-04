@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest import mock
 
 import pytest
 
@@ -25,10 +23,10 @@ async def test_bus_is_shared_across_components() -> None:
             db_url="sqlite+aiosqlite:///:memory:",
             data_dir=Path(tmpdir),
             public_url="https://localhost",
+            allow_permissive_rbac=True,
         )
 
-        with mock.patch.dict(os.environ, {"FLEET_ALLOW_PERMISSIVE_RBAC": "1"}):
-            state = await build_app_state(settings)
+        state = await build_app_state(settings)
 
         # Verify bus exists on state
         assert isinstance(state.bus, Bus)
@@ -47,10 +45,10 @@ async def test_dispatcher_publishes_to_shared_bus() -> None:
             db_url="sqlite+aiosqlite:///:memory:",
             data_dir=Path(tmpdir),
             public_url="https://localhost",
+            allow_permissive_rbac=True,
         )
 
-        with mock.patch.dict(os.environ, {"FLEET_ALLOW_PERMISSIVE_RBAC": "1"}):
-            state = await build_app_state(settings)
+        state = await build_app_state(settings)
 
         # Subscribe to commands channel
         sub = state.bus.subscribe("commands")

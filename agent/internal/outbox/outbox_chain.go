@@ -34,7 +34,7 @@ func computeChainTip(id uint64, blob []byte, prevChainTip []byte) []byte {
 }
 
 func buildAEAD(master []byte) (cipher.AEAD, error) {
-	h := hkdf.New(sha256.New, master, nil, []byte("hl-agent/outbox/v1"))
+	h := hkdf.New(sha256.New, master, nil, []byte("outbox-aead-v1"))
 	key := make([]byte, 32)
 	if _, err := io.ReadFull(h, key); err != nil {
 		return nil, err

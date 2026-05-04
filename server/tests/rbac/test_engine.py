@@ -293,3 +293,56 @@ async def test_engine_grants_via_self_scope(sm) -> None:
         resource_other = Resource(owner_user_id="u-2")
         decision_other = await engine.is_authorized(principal, "host:read", resource_other, ctx)
         assert not decision_other.allow
+
+
+@pytest.mark.asyncio
+async def test_engine_grants_via_group_scope_with_nested_hierarchy(sm) -> None:
+    """Binding on parent group covers resource in nested child group (3 levels)."""
+    from sqlalchemy import select
+    from server.app.models import Group
+    from uuid import uuid4 as new_uuid
+
+    async with sm() as session:
+        # Create 3-level group hierarchy: parent -> child -> grandchild
+        parent_id = new_uuid()
+        child_id = new_uuid()
+        grandchild_id = new_uuid()
+
+        parent = Group(id=parent_id, name="parent", parent_id=None)
+        child = Group(id=child_id, name="child", parent_id=parent_id)
+        grandchild = Group(id=grandchild_id, name="grandchild", parent_id=child_id)
+
+        session.add(parent)
+        session.add(child)
+        session.add(grandchild)
+        await session.commit()
+
+        # Get operator role
+        operator_role = (await session.execute(
+            select(Role).where(Role.name == "operator")
+        )).scalar_one()
+
+        # Create binding on parent group
+        scope_value = {"group_id": str(parent_id)}
+        binding = Binding(
+            id=str(new_uuid()),
+            principal_type="user",
+            principal_id="u-1",
+            role_id=operator_role.id,
+            scope_kind="group",
+            scope_value=scope_value,
+            scope_hash=compute_scope_hash("group", scope_value),
+        )
+        session.add(binding)
+        await session.commit()
+
+        # Test: resource in grandchild group should be covered by parent binding
+        engine = BuiltinEngine(session)
+        principal = Principal(user_id="u-1")
+        # Resource in grandchild group (3 levels down)
+        resource = Resource(group_ids=frozenset({str(grandchild_id)}))
+        ctx = AuthContext()
+
+        decision = await engine.is_authorized(principal, "task:create", resource, ctx)
+        assert decision.allow, "Binding on parent should grant access to grandchild"
+        assert decision.binding_id == binding.id

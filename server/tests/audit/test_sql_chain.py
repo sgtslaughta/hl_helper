@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
 import pytest
@@ -322,3 +323,39 @@ class TestLargeChainVerify:
 
         # Verify should succeed without excessive memory usage
         await chain.verify(session)  # Should not raise
+
+
+class TestCheckpointFilePersistence:
+    @pytest.mark.asyncio
+    async def test_checkpoint_writes_to_disk(
+        self, backend: FileBackend, session: AsyncSession, tmp_path: Path
+    ) -> None:
+        """Verify checkpoint file is written to disk with correct content."""
+        checkpoint_dir = tmp_path / "audit_checkpoints"
+        chain = SqlAuditChain(
+            backend, checkpoint_interval=100, checkpoint_dir=checkpoint_dir
+        )
+
+        # Add 100 entries to trigger checkpoint
+        for i in range(100):
+            await chain.append(session, actor=f"user{i}", action=f"action{i}")
+        await session.commit()
+
+        # Wait a moment to ensure flush
+        await asyncio.sleep(0.1)
+
+        # Verify checkpoint file exists
+        checkpoint_files = list(checkpoint_dir.glob("*.json"))
+        assert len(checkpoint_files) > 0, "No checkpoint files written"
+
+        # Read and validate checkpoint file
+        checkpoint_file = checkpoint_files[0]
+        with open(checkpoint_file) as f:
+            checkpoint_data = json.load(f)
+
+        # Verify structure
+        assert "sequence" in checkpoint_data
+        assert "root_hash" in checkpoint_data
+        assert "signed_at" in checkpoint_data
+        assert "signature" in checkpoint_data
+        assert checkpoint_data["sequence"] == 99  # 0-indexed, 100 entries

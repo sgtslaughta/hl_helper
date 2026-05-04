@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextvars
+import logging
 from contextlib import contextmanager
 from collections.abc import Iterator
 from typing import Any
@@ -10,6 +11,8 @@ from typing import Any
 from cryptography import x509
 
 from .tls import extract_spiffe_id, host_id_from_spiffe
+
+logger = logging.getLogger(__name__)
 
 _peer_host_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "peer_host_id", default=None
@@ -72,7 +75,8 @@ def peer_serial(context: Any) -> str | None:
     try:
         cert = x509.load_pem_x509_certificate(pem)
         return format(cert.serial_number, "x")
-    except Exception:
+    except Exception as e:
+        logger.warning("peer cert serial extraction failed: %s", e)
         return None
 
 

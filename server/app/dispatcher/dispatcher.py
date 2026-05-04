@@ -222,7 +222,14 @@ class CommandDispatcher:
                     dispatched_candidates.append(host_id)
                 else:
                     denied.append(host_id)
-            except Exception:
+            except Exception as e:
+                import structlog
+                structlog.get_logger().exception(
+                    "rbac_provider_exception",
+                    host_id=host_id,
+                    action=f"host:{payload_kind}",
+                    exc=e,
+                )
                 denied.append(host_id)
 
         # Step 3: Risk classify

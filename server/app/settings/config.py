@@ -13,6 +13,7 @@ SECRET_FIELDS: frozenset[str] = frozenset({
     "session_signing_key_ref",  # may carry inline key material in future
     "admin_token",
     "bootstrap_admin_email",  # PII; redact from /v1/settings responses
+    "secrets_root_key_b64",  # master key; redact from config
 })
 
 # Per-key scope registry. Anything not listed defaults to RUNTIME_MUTABLE.
@@ -34,6 +35,7 @@ SETTING_SCOPES: dict[str, SettingScope] = {
     "idempotency_max_body_bytes": SettingScope.RUNTIME_MUTABLE,
     "rate_limit_max_buckets": SettingScope.RUNTIME_MUTABLE,
     "trusted_proxy_ips": SettingScope.RUNTIME_MUTABLE,
+    "allow_permissive_rbac": SettingScope.BOOT_ONLY,
 }
 
 
@@ -85,6 +87,30 @@ class FleetSettings(BaseSettings):
     # Rate limiter settings
     rate_limit_max_buckets: int = Field(default=100_000)
     trusted_proxy_ips: list[str] = Field(default_factory=list)
+
+    # Session settings
+    session_idle_ttl_s: int = Field(default=1800)
+    session_abs_ttl_s: int = Field(default=43200)
+
+    # Password hashing settings
+    password_argon2_time_cost: int = Field(default=3)
+    password_argon2_memory_kib: int = Field(default=65536)
+    password_argon2_parallelism: int = Field(default=4)
+
+    # WebAuthn settings
+    webauthn_rp_id: str | None = Field(default=None)
+    webauthn_origin: str | None = Field(default=None)
+
+    # Secrets backend settings
+    secrets_root_dir: str | None = Field(default=None)
+    secrets_root_key_b64: str | None = Field(default=None)
+
+    # Lockout settings
+    lockout_window_s: int = Field(default=300)
+
+    # RBAC permissive mode (boot-only, config-file-only for safety)
+    # If enabled, RBAC defaults to fail-open. Must not be set via env var.
+    allow_permissive_rbac: bool = Field(default=False)
 
     # Origin tracking — populated by load_settings()
     # key -> "env" | "file" | "default"

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
@@ -24,6 +27,8 @@ from .chain import (
     merkle_root,
 )
 
+_logger = logging.getLogger(__name__)
+
 # Process-local lock for serializing critical sections of append()
 _APPEND_LOCK = asyncio.Lock()
 
@@ -40,6 +45,7 @@ class SqlAuditChain:
         *,
         checkpoint_interval: int = 100,
         event_bus: Bus | None = None,
+        checkpoint_dir: Path | None = None,
     ) -> None:
         """Initialize DB-backed audit chain.
 
@@ -47,10 +53,14 @@ class SqlAuditChain:
             signing_backend: Backend for signing checkpoints.
             checkpoint_interval: Create checkpoint every N entries.
             event_bus: Optional event bus for publishing audit events.
+            checkpoint_dir: Optional directory for on-disk checkpoint files.
         """
         self._backend = signing_backend
         self._checkpoint_interval = checkpoint_interval
         self._event_bus = event_bus
+        self._checkpoint_dir = checkpoint_dir
+        if self._checkpoint_dir:
+            self._checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     async def append(
         self,
@@ -348,4 +358,35 @@ class SqlAuditChain:
         session.add(checkpoint)
         await session.flush()
 
+        # Write checkpoint to disk if checkpoint_dir is set
+        if self._checkpoint_dir:
+            self._write_checkpoint_file(checkpoint)
+
         return checkpoint
+
+    def _write_checkpoint_file(self, checkpoint: CheckpointModel) -> None:
+        """Write checkpoint to disk as a JSON file (atomic write with tmp+rename)."""
+        if not self._checkpoint_dir:
+            return
+
+        # Use unix timestamp as filename
+        unix_ts = int(checkpoint.timestamp.timestamp())
+        checkpoint_file = self._checkpoint_dir / f"{unix_ts}.json"
+
+        # Prepare checkpoint data
+        checkpoint_data = {
+            "sequence": checkpoint.covers_sequence,
+            "root_hash": checkpoint.merkle_root.hex(),
+            "signed_at": checkpoint.timestamp.isoformat(),
+            "signature": checkpoint.signature.hex(),
+        }
+
+        # Write atomically with tmp+rename
+        tmp_file = checkpoint_file.with_suffix(".json.tmp")
+        try:
+            with open(tmp_file, "w") as f:
+                json.dump(checkpoint_data, f, indent=2)
+            tmp_file.replace(checkpoint_file)
+            _logger.debug(f"Wrote checkpoint to {checkpoint_file}")
+        except Exception as e:
+            _logger.error(f"Failed to write checkpoint file {checkpoint_file}: {e}")

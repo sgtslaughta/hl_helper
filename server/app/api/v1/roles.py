@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from server.app.api.state import get_app_state
 from server.app.api.middleware.admin_auth import admin_required
@@ -51,7 +52,7 @@ class RoleOut(BaseModel):
     updated_at: datetime = Field(..., description="Last updated timestamp")
 
 
-def _get_sessionmaker(request: Request) -> Any:
+def _get_sessionmaker(request: Request) -> async_sessionmaker[AsyncSession]:
     """Extract sessionmaker from app state."""
     return get_app_state(request).sessionmaker
 

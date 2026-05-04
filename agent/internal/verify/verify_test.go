@@ -453,3 +453,71 @@ func encodeInt32(v int32) []byte {
 	}
 	return b
 }
+
+func TestRejectsStaleIssuedAt(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("GenerateKey failed: %v", err)
+	}
+
+	now := time.Now()
+	// issued_at = now - 2 hours (well beyond 2 * default_skew of 120s)
+	staleIssuedAt := now.Add(-2 * time.Hour)
+	fut := now.Add(5 * time.Minute)
+
+	env := &pb.CommandEnvelope{
+		CommandId: "cmd-stale",
+		HostId:    "host-1",
+		Sequence:  1,
+		Nonce:     []byte("nonce-stale"),
+		IssuedAt:  timestamppb.New(staleIssuedAt),
+		ExpiresAt: timestamppb.New(fut),
+		IssuedBy:  "server",
+		Risk:      pb.RiskLevel_RISK_LOW,
+		Capability: &pb.CapabilityToken{},
+		Payload:   &pb.CommandEnvelope_ShellExec{ShellExec: &pb.ShellExec{Command: "ls"}},
+	}
+
+	canonBytes := canonicalBytesFn(env)
+	sig := ed25519.Sign(priv, canonBytes)
+	env.Signature = sig
+
+	v := New(pub, []string{"shell.exec"}, "high")
+	err = v.Accept(env, now)
+	if err != ErrExpired {
+		t.Errorf("Expected ErrExpired (stale issued_at), got %v", err)
+	}
+}
+
+func TestAcceptsCurrentIssuedAt(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("GenerateKey failed: %v", err)
+	}
+
+	now := time.Now()
+	fut := now.Add(5 * time.Minute)
+
+	env := &pb.CommandEnvelope{
+		CommandId: "cmd-current",
+		HostId:    "host-1",
+		Sequence:  1,
+		Nonce:     []byte("nonce-current"),
+		IssuedAt:  timestamppb.New(now),
+		ExpiresAt: timestamppb.New(fut),
+		IssuedBy:  "server",
+		Risk:      pb.RiskLevel_RISK_LOW,
+		Capability: &pb.CapabilityToken{},
+		Payload:   &pb.CommandEnvelope_ShellExec{ShellExec: &pb.ShellExec{Command: "ls"}},
+	}
+
+	canonBytes := canonicalBytesFn(env)
+	sig := ed25519.Sign(priv, canonBytes)
+	env.Signature = sig
+
+	v := New(pub, []string{"shell.exec"}, "high")
+	err = v.Accept(env, now)
+	if err != nil {
+		t.Errorf("Accept with current IssuedAt failed: %v", err)
+	}
+}

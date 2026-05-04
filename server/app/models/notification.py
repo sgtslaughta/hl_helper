@@ -1,4 +1,7 @@
-"""Notification model — represents a notification provider configuration."""
+"""Notification model — represents a notification provider configuration.
+
+C8 router pending; models scaffolded for future use.
+"""
 
 from __future__ import annotations
 

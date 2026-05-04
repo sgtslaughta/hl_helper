@@ -1,4 +1,7 @@
-"""Webhook model — represents a webhook endpoint for event notifications."""
+"""Webhook model — represents a webhook endpoint for event notifications.
+
+C8 router pending; models scaffolded for future use.
+"""
 
 from __future__ import annotations
 

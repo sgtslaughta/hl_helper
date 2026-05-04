@@ -19,6 +19,10 @@ from server.app.grpc.dispatcher import CommandDispatcher
 from server.app.grpc.result_handler import ResultHandler
 from server.app.enrollment.service import EnrollmentService
 from server.app.revocation.service import RevocationService
+from server.app.secrets.backends.base import SecretsBackend
+
+# Type hints for optional session/secrets services
+# SessionService is not imported directly to avoid circular dependencies
 
 
 @runtime_checkable
@@ -39,6 +43,8 @@ class AppStateProtocol(Protocol):
     result_handler: ResultHandler
     revocation_service: RevocationService
     enrollment_service: EnrollmentService
+    session_service: Any | None  # SessionService | None, but lazily imported to avoid circular deps
+    secrets_broker: SecretsBackend | None
 
 
 def get_app_state(request: Any) -> AppStateProtocol:

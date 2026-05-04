@@ -8,7 +8,14 @@ from unittest import mock
 import grpc
 import pytest
 
-from server.app.grpc.tls import ALLOWED_TLS13_CIPHERS, enforce_tls_pin
+import logging
+
+from server.app.grpc.tls import (
+    ALLOWED_TLS13_CIPHERS,
+    enforce_tls_pin,
+    extract_spiffe_id,
+    probe_tls_version,
+)
 
 
 def test_grpc_ssl_cipher_suites_env_set() -> None:
@@ -45,3 +52,17 @@ def test_enforce_tls_pin_accepts_version_boundary() -> None:
     """enforce_tls_pin() should accept grpcio 1.50.0."""
     with mock.patch.object(grpc, "__version__", "1.50.0"):
         enforce_tls_pin()  # Should not raise
+
+
+def test_probe_tls_version_no_raise(caplog: pytest.LogCaptureFixture) -> None:
+    """probe_tls_version() never raises; logs at most warning."""
+    with caplog.at_level(logging.DEBUG, logger="server.app.grpc.tls"):
+        probe_tls_version()
+
+
+def test_extract_spiffe_id_logs_on_invalid_pem(caplog: pytest.LogCaptureFixture) -> None:
+    """extract_spiffe_id() returns None and logs warning on invalid PEM."""
+    with caplog.at_level(logging.WARNING, logger="server.app.grpc.tls"):
+        result = extract_spiffe_id(b"not a real cert")
+    assert result is None
+    assert any("spiffe extract failed" in r.message for r in caplog.records)

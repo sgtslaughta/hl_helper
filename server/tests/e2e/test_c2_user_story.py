@@ -101,11 +101,17 @@ async def _seed_builtin_roles(sessionmaker) -> None:
 
 @pytest.fixture(autouse=True)
 def _admin_env(monkeypatch, tmp_path):
-    """Set admin token + data_dir in environment."""
+    """Set admin token + data_dir in environment, write config file for allow_permissive_rbac."""
+    import yaml
+
     monkeypatch.setenv("FLEET_ADMIN_TOKEN", "test-admin-token")
     monkeypatch.setenv("FLEET_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("FLEET_DB_URL", f"sqlite+aiosqlite:///{tmp_path}/test.db")
-    monkeypatch.setenv("FLEET_ALLOW_PERMISSIVE_RBAC", "1")
+
+    # Write config file with allow_permissive_rbac instead of env var
+    config_file = tmp_path / "fleet.yml"
+    config_file.write_text(yaml.dump({"allow_permissive_rbac": True}))
+    monkeypatch.setenv("FLEET_CONFIG_FILE", str(config_file))
 
 
 @pytest.fixture

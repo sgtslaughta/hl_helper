@@ -28,6 +28,52 @@ class BuiltinEngine:
 
     def __init__(self, session: AsyncSession) -> None:
         self._s = session
+        self._group_hierarchy: dict[str, frozenset[str]] | None = None
+
+    async def _build_group_hierarchy(self) -> dict[str, frozenset[str]]:
+        """Load full group hierarchy into memory for efficient lookup.
+
+        Returns a dict mapping group_id (as string) to set of all descendants
+        (including self).
+        """
+        from server.app.models import Group
+
+        # Fetch all groups
+        result = await self._s.execute(select(Group))
+        all_groups = {str(g.id): g for g in result.scalars().all()}
+
+        # Build reverse index: parent -> children
+        children_map: dict[str, list[str]] = {}
+        for gid, group in all_groups.items():
+            if group.parent_id is not None:
+                parent_id = str(group.parent_id)
+                if parent_id not in children_map:
+                    children_map[parent_id] = []
+                children_map[parent_id].append(gid)
+
+        # Build descendants map via DFS from each group
+        descendants_map: dict[str, frozenset[str]] = {}
+
+        def dfs(gid: str) -> frozenset[str]:
+            """DFS to compute all descendants (including self) of a group."""
+            if gid in descendants_map:
+                return descendants_map[gid]
+
+            # Start with self
+            result_set = {gid}
+
+            # Add all children and their descendants
+            for child_id in children_map.get(gid, []):
+                result_set.update(dfs(child_id))
+
+            descendants_map[gid] = frozenset(result_set)
+            return descendants_map[gid]
+
+        # Compute descendants for all groups
+        for gid in all_groups:
+            dfs(gid)
+
+        return descendants_map
 
     async def is_authorized(
         self,
@@ -42,6 +88,10 @@ class BuiltinEngine:
         if not principal_filters:
             return Decision(allow=False, reason="no_principal_identity")
 
+        # Load group hierarchy once per authorization check
+        if self._group_hierarchy is None:
+            self._group_hierarchy = await self._build_group_hierarchy()
+
         bindings_q = (
             select(Binding, Role)
             .join(Role, Role.id == Binding.role_id)
@@ -55,8 +105,10 @@ class BuiltinEngine:
             if action not in perms:
                 continue
             scope = Scope(kind=binding.scope_kind, value=binding.scope_value or {})
-            # TODO: full group hierarchy traversal (deferred to T2.3)
-            if scope.covers(resource, descendants_of=lambda gid: frozenset({gid})):
+            # Use pre-loaded hierarchy for efficient descendant lookup
+            def descendants_fn(gid: str) -> frozenset[str]:
+                return self._group_hierarchy.get(gid, frozenset({gid}))  # type: ignore
+            if scope.covers(resource, descendants_of=descendants_fn):
                 return Decision(allow=True, binding_id=binding.id, reason=f"role:{role.name}")
 
         return Decision(allow=False, reason="no_matching_binding")

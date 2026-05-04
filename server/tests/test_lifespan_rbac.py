@@ -15,17 +15,16 @@ from server.app.settings.config import FleetSettings
 
 @pytest.mark.asyncio
 async def test_lifespan_wires_real_rbac_provider_by_default() -> None:
-    """Without FLEET_ALLOW_PERMISSIVE_RBAC=1, real RBAC provider is wired."""
+    """Without allow_permissive_rbac=true in config, real RBAC provider is wired."""
     with TemporaryDirectory() as tmpdir:
         settings = FleetSettings(
             db_url="sqlite+aiosqlite:///:memory:",
             data_dir=Path(tmpdir),
             public_url="https://localhost",
+            allow_permissive_rbac=False,
         )
 
-        # Ensure env var is not set (or set to 0)
-        with mock.patch.dict(os.environ, {"FLEET_ALLOW_PERMISSIVE_RBAC": "0"}):
-            state = await build_app_state(settings)
+        state = await build_app_state(settings)
 
         # RBAC provider should be _RealRbacProvider (wrapping BuiltinEngine)
         from server.app.lifespan import _RealRbacProvider
@@ -33,18 +32,17 @@ async def test_lifespan_wires_real_rbac_provider_by_default() -> None:
 
 
 @pytest.mark.asyncio
-async def test_lifespan_allows_permissive_rbac_with_flag() -> None:
-    """With FLEET_ALLOW_PERMISSIVE_RBAC=1, permissive provider is allowed."""
+async def test_lifespan_allows_permissive_rbac_with_config() -> None:
+    """With allow_permissive_rbac=true in config, permissive provider is allowed."""
     with TemporaryDirectory() as tmpdir:
         settings = FleetSettings(
             db_url="sqlite+aiosqlite:///:memory:",
             data_dir=Path(tmpdir),
             public_url="https://localhost",
+            allow_permissive_rbac=True,
         )
 
-        # Set the flag to allow permissive RBAC
-        with mock.patch.dict(os.environ, {"FLEET_ALLOW_PERMISSIVE_RBAC": "1"}):
-            state = await build_app_state(settings)
+        state = await build_app_state(settings)
 
         # RBAC provider should be _PermissiveRbacProvider
         from server.app.lifespan import _PermissiveRbacProvider
@@ -52,22 +50,20 @@ async def test_lifespan_allows_permissive_rbac_with_flag() -> None:
 
 
 @pytest.mark.asyncio
-async def test_lifespan_wires_real_in_prod_without_flag() -> None:
-    """In prod without flag, real RBAC provider (fail-closed) is wired."""
+async def test_lifespan_wires_real_in_prod_without_permissive() -> None:
+    """In prod without allow_permissive_rbac=true, real RBAC provider (fail-closed) is wired."""
     with TemporaryDirectory() as tmpdir:
         settings = FleetSettings(
             db_url="sqlite+aiosqlite:///:memory:",
             data_dir=Path(tmpdir),
             public_url="https://localhost",
+            allow_permissive_rbac=False,
         )
 
         # Set FLEET_ENV=prod without the flag
         with mock.patch.dict(
             os.environ,
-            {
-                "FLEET_ENV": "prod",
-                "FLEET_ALLOW_PERMISSIVE_RBAC": "0",
-            },
+            {"FLEET_ENV": "prod"},
             clear=False,
         ):
             state = await build_app_state(settings)
@@ -85,10 +81,10 @@ async def test_lifespan_real_rbac_provider_has_sessionmaker() -> None:
             db_url="sqlite+aiosqlite:///:memory:",
             data_dir=Path(tmpdir),
             public_url="https://localhost",
+            allow_permissive_rbac=False,
         )
 
-        with mock.patch.dict(os.environ, {"FLEET_ALLOW_PERMISSIVE_RBAC": "0"}):
-            state = await build_app_state(settings)
+        state = await build_app_state(settings)
 
         # _RealRbacProvider should have been wired with sessionmaker
         from server.app.lifespan import _RealRbacProvider

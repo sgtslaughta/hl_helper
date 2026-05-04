@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import base64
+import logging
 import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, AsyncIterator
 from uuid import uuid4
 
@@ -29,12 +32,14 @@ from server.app.rbac.scope import Resource
 from server.app.revocation.service import RevocationService
 from server.app.settings.config import FleetSettings
 
+logger = logging.getLogger(__name__)
+
 
 class _PermissiveRbacProvider:
     """Stub RBAC provider that allows all actions (fail-open).
 
-    Used when FLEET_ALLOW_PERMISSIVE_RBAC=1. Admin auth gate upstream
-    provides the actual security boundary.
+    Used when allow_permissive_rbac is set to True in config file.
+    Admin auth gate upstream provides the actual security boundary.
     """
 
     async def is_authorized(
@@ -144,6 +149,8 @@ class AppState:
     result_handler: ResultHandler
     revocation_service: RevocationService
     enrollment_service: EnrollmentService
+    session_service: Any | None = None
+    secrets_broker: Any | None = None
 
 
 async def build_app_state(settings: FleetSettings) -> AppState:
@@ -187,6 +194,23 @@ async def build_app_state(settings: FleetSettings) -> AppState:
     # Setup event bus (singleton shared across all components)
     bus = Bus()
 
+    # Setup session service
+    from server.app.auth.sessions import SessionService
+    session_service = SessionService(
+        sessionmaker=sm,
+        bus=bus,
+        idle_ttl_seconds=settings.session_idle_ttl_s,
+        absolute_ttl_seconds=settings.session_abs_ttl_s,
+    )
+    await session_service.start()
+
+    # Setup secrets backend if configured
+    secrets_broker = None
+    if settings.secrets_root_dir and settings.secrets_root_key_b64:
+        from server.app.secrets.backends.local import LocalEncryptedFileBackend
+        root_key = base64.urlsafe_b64decode(settings.secrets_root_key_b64)
+        secrets_broker = LocalEncryptedFileBackend(Path(settings.secrets_root_dir), root_key)
+
     # Setup command dispatcher and audit chain
     dispatcher = CommandDispatcher()
     audit_chain = SqlAuditChain(signing_backend, event_bus=bus)
@@ -199,10 +223,15 @@ async def build_app_state(settings: FleetSettings) -> AppState:
     approval_engine = _LifespanApprovalProxy(sm)
 
     # Wire RBAC provider.
-    # In production (FLEET_ENV=prod): wire real BuiltinEngine provider unless
-    # explicitly opted into permissive mode via FLEET_ALLOW_PERMISSIVE_RBAC=1.
-    # In dev: default to real provider, unless flag overrides to permissive stub.
-    allow_permissive = os.environ.get("FLEET_ALLOW_PERMISSIVE_RBAC") == "1"
+    # Config-file-only setting: allow_permissive_rbac (default False).
+    # If FLEET_ALLOW_PERMISSIVE_RBAC env var is set, log warning and ignore.
+    if os.environ.get("FLEET_ALLOW_PERMISSIVE_RBAC"):
+        logger.warning(
+            "FLEET_ALLOW_PERMISSIVE_RBAC env var detected but is no longer supported. "
+            "Set allow_permissive_rbac in config file instead."
+        )
+
+    allow_permissive = settings.allow_permissive_rbac
     is_prod = os.environ.get("FLEET_ENV", "dev").lower() == "prod"
 
     rbac_provider: _RealRbacProvider | _PermissiveRbacProvider
@@ -253,6 +282,8 @@ async def build_app_state(settings: FleetSettings) -> AppState:
         result_handler=result_handler,
         revocation_service=revocation_service,
         enrollment_service=enrollment_service,
+        session_service=session_service,
+        secrets_broker=secrets_broker,
     )
 
 
@@ -271,5 +302,7 @@ async def app_lifespan(app: Any) -> AsyncIterator[None]:
 
     yield
 
-    # Shutdown: close engine
+    # Shutdown: stop session service and close engine
+    if state.session_service:
+        await state.session_service.stop()
     await state.engine.dispose()

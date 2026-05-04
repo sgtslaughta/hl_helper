@@ -110,9 +110,19 @@ func (v *Verifier) Accept(env *pb.CommandEnvelope, now time.Time) error {
 		return ErrExpired
 	}
 
-	// 5. Check issued_at (clock skew)
-	if env.IssuedAt != nil && env.IssuedAt.AsTime().After(now.Add(time.Duration(v.skewS)*time.Second)) {
-		return ErrExpired
+	// 5. Check issued_at (clock skew and staleness)
+	// Reject if issued_at is in the future beyond skew, or older than 2*skew
+	if env.IssuedAt != nil {
+		issuedAt := env.IssuedAt.AsTime()
+		skewDur := time.Duration(v.skewS) * time.Second
+		if issuedAt.After(now.Add(skewDur)) {
+			// Issued in the future beyond acceptable skew
+			return ErrExpired
+		}
+		if issuedAt.Before(now.Add(-2 * skewDur)) {
+			// Issued too far in the past; stale
+			return ErrExpired
+		}
 	}
 
 	// 6. Check sequence
