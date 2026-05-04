@@ -80,7 +80,12 @@ py-memcheck:
     - pip install -e '.[dev]'
   script:
     - pytest server/tests/test_memory_leaks.py server/tests/test_tracemalloc_smoke.py -v
-    - pytest server/tests/ --memray --most-allocations=10 -q --ignore=server/tests/observability/
+    # memray segfaults under the gRPC C extension; restrict to dirs that don't
+    # import grpc/OTel-grpc instrumentation. Excludes observability + grpc + e2e.
+    - pytest server/tests/ --memray --most-allocations=10 -q
+        --ignore=server/tests/observability/
+        --ignore=server/tests/grpc/
+        --ignore=server/tests/e2e/
 
 py-migrations:
   stage: test

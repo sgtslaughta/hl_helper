@@ -66,8 +66,9 @@ def create_app() -> FastAPI:
     app.include_router(install_router)
     app.include_router(mfa_router)
     app.include_router(oidc_router)
+    from server.app.api.v1.maintenance_windows import router as maintenance_window_router
     app.include_router(policies.update_policy_router)
-    app.include_router(policies.maintenance_window_router)
+    app.include_router(maintenance_window_router)
     app.include_router(posture_router)
     app.include_router(health_router)
     app.include_router(prom_router)

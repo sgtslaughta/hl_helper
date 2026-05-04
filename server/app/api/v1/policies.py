@@ -17,10 +17,6 @@ from server.app.models.update_policy import UpdatePolicy
 
 update_policy_router = APIRouter(prefix="/v1/update-policies", tags=["update-policies"])
 
-# Backwards-compatible re-export so callers importing
-# server.app.api.v1.policies.maintenance_window_router still work.
-from server.app.api.v1.maintenance_windows import router as maintenance_window_router  # noqa: E402, F401
-
 
 # Pydantic models for UpdatePolicy
 
