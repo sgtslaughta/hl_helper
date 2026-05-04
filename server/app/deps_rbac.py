@@ -98,39 +98,40 @@ def require(
         if sm is None:
             raise HTTPException(status_code=500, detail="rbac_session_unavailable")
 
+        # Pre-compute MFA satisfaction so engine can enforce step-up natively.
+        verb = _normalize_verb(action)
+        policy = MfaPolicy()
+        recency = policy.recency_required_seconds(verb)
+        mfa_satisfied = True
+        user: User | None = None
+        last_mfa_at = None
+        if recency is not None and principal.user_id:
+            async with sm() as mfa_session:
+                user = await mfa_session.scalar(
+                    select(User).where(User.id == principal.user_id)
+                )
+                if user is not None:
+                    last_mfa_at = getattr(user, "last_mfa_at", None)
+            try:
+                policy.assert_recency(user, verb, last_mfa_at)
+            except StepUpRequired:
+                mfa_satisfied = False
+
+        ctx = AuthContext(mfa_satisfied=mfa_satisfied, enforce_mfa=True)
+
         async with sm() as session:
             engine = BuiltinEngine(session)
             decision = await engine.is_authorized(
-                principal, action, resource, AuthContext.empty()
+                principal, action, resource, ctx
             )
 
-        # MFA step-up gate for high-risk verbs. Action uses ":" separator
-        # (e.g. "host:delete"); MFA policy uses "." (e.g. "host.delete").
-        if decision.allow:
-            verb = _normalize_verb(action)
-            policy = MfaPolicy()
-            if policy.recency_required_seconds(verb) is not None:
-                user: User | None = None
-                last_mfa_at = None
-                if principal.user_id:
-                    async with sm() as mfa_session:
-                        user = await mfa_session.scalar(
-                            select(User).where(User.id == principal.user_id)
-                        )
-                        if user is not None:
-                            last_mfa_at = getattr(user, "last_mfa_at", None)
-                try:
-                    policy.assert_recency(
-                        user,  # type: ignore[arg-type]
-                        verb,
-                        last_mfa_at,
-                    )
-                except StepUpRequired:
-                    raise HTTPException(
-                        status_code=401,
-                        detail="mfa_step_up_required",
-                        headers={"X-MFA-Required": "true"},
-                    )
+        # Translate engine-level mfa_required denial into proper 401 + header.
+        if not decision.allow and decision.reason == "mfa_required":
+            raise HTTPException(
+                status_code=401,
+                detail="mfa_step_up_required",
+                headers={"X-MFA-Required": "true"},
+            )
 
         if not decision.allow:
             audit = getattr(request.app.state, "audit_chain", None)

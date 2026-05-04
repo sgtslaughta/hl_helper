@@ -623,3 +623,81 @@ async def test_reject_decision_records_reason(auth, sm, mock_settings):
             )
             assert r2.status_code == 200
             assert r2.json()["rejected_reason"] == "security concern"
+
+
+@pytest.mark.asyncio
+async def test_decide_emits_audit_log_on_reject(auth, sm, mock_settings):
+    """Rejecting an approval writes approval.rejected to audit chain."""
+    from sqlalchemy import select
+    from server.app.models.audit import AuditEntry
+
+    app = create_app()
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
+    app.dependency_overrides[current_principal] = lambda: Principal(user_id="u-1")
+    with mock.patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=mock_settings,
+    ):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://t"
+        ) as c:
+            headers = {**auth, "X-Acting-Principal": "u-1"}
+            r = await c.post(
+                "/v1/approvals",
+                json={"subject_type": "command", "subject_id": "c-aud", "policy": "single"},
+                headers=headers,
+            )
+            aid = r.json()["id"]
+            r2 = await c.post(
+                f"/v1/approvals/{aid}/decisions",
+                json={"decision": "reject", "reason": "no_thanks"},
+                headers=headers,
+            )
+            assert r2.status_code == 200
+            assert r2.json()["state"] == "rejected"
+
+    async with sm() as s:
+        rows = (await s.execute(
+            select(AuditEntry).where(AuditEntry.subject == aid)
+        )).scalars().all()
+        actions = {r.action for r in rows}
+        assert "approval.requested" in actions
+        assert "approval.rejected" in actions
+
+
+@pytest.mark.asyncio
+async def test_decide_emits_audit_log_on_same_principal(auth, sm, mock_settings):
+    """Two-person same-principal reject path writes approval.rejected."""
+    from sqlalchemy import select
+    from server.app.models.audit import AuditEntry
+
+    app = create_app()
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
+    app.dependency_overrides[current_principal] = lambda: Principal(user_id="u-1")
+    with mock.patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=mock_settings,
+    ):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://t"
+        ) as c:
+            headers = {**auth, "X-Acting-Principal": "u-1"}
+            r = await c.post(
+                "/v1/approvals",
+                json={"subject_type": "command", "subject_id": "c-sp", "policy": "two_person"},
+                headers=headers,
+            )
+            aid = r.json()["id"]
+            r2 = await c.post(
+                f"/v1/approvals/{aid}/decisions",
+                json={"decision": "approve"},
+                headers=headers,
+            )
+            assert r2.json()["rejected_reason"] == "same_principal"
+
+    async with sm() as s:
+        rows = (await s.execute(
+            select(AuditEntry).where(AuditEntry.subject == aid)
+        )).scalars().all()
+        actions = {r.action for r in rows}
+        assert "approval.rejected" in actions

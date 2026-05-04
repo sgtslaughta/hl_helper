@@ -264,6 +264,22 @@ async def create_binding(req: Request, body: BindingCreate) -> BindingOut:
             except Exception as e:
                 log.exception("audit_append_failed", exc=e)
 
+        # Publish rbac.binding_changed for cache + session invalidation
+        try:
+            await app_state.bus.publish(
+                "rbac.binding_changed",
+                {
+                    "binding_id": binding.id,
+                    "principal_type": binding.principal_type.value,
+                    "principal_id": binding.principal_id,
+                    "user_id": binding.principal_id if binding.principal_type.value == "user" else None,
+                    "role_id": binding.role_id,
+                    "op": "created",
+                },
+            )
+        except Exception as e:
+            log.exception("bus_publish_failed", exc=e)
+
     return BindingOut(
         id=binding.id,
         principal_type=binding.principal_type.value,
@@ -297,6 +313,9 @@ async def delete_binding(req: Request, binding_id: str) -> None:
                 detail="Binding not found",
             )
 
+        principal_type = binding.principal_type.value
+        principal_id = binding.principal_id
+        role_id = binding.role_id
         binding_id = binding.id
         await session.delete(binding)
         await session.commit()
@@ -310,8 +329,27 @@ async def delete_binding(req: Request, binding_id: str) -> None:
                     actor="admin",
                     action="binding.deleted",
                     subject=binding_id,
-                    payload={},
+                    payload={
+                        "principal_type": principal_type,
+                        "principal_id": principal_id,
+                        "role_id": role_id,
+                    },
                 )
                 await audit_session.commit()
             except Exception as e:
                 log.exception("audit_append_failed", exc=e)
+
+        try:
+            await app_state.bus.publish(
+                "rbac.binding_changed",
+                {
+                    "binding_id": binding_id,
+                    "principal_type": principal_type,
+                    "principal_id": principal_id,
+                    "user_id": principal_id if principal_type == "user" else None,
+                    "role_id": role_id,
+                    "op": "deleted",
+                },
+            )
+        except Exception as e:
+            log.exception("bus_publish_failed", exc=e)

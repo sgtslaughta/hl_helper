@@ -146,7 +146,6 @@ async def create_role(
             ) from None
 
         await session.refresh(role)
-        # TODO(T2.4): bump engine perm-cache version on role mutate
 
         # Emit audit event
         app_state = get_app_state(request)
@@ -219,7 +218,17 @@ async def update_role(
             role.permissions = data["permissions"]
 
         await session.commit()
-        # TODO(T2.4): bump engine perm-cache version on role mutate
+
+        # Look up affected user principals for cache invalidation
+        affected_user_ids: list[str] = []
+        affected_rows = (
+            await session.execute(
+                select(Binding.principal_id).where(
+                    (Binding.role_id == role_id) & (Binding.principal_type == "user")
+                )
+            )
+        ).scalars().all()
+        affected_user_ids = list(affected_rows)
 
         # Emit audit event
         app_state = get_app_state(request)
@@ -235,6 +244,23 @@ async def update_role(
                 await audit_session.commit()
             except Exception as e:
                 log.exception("audit_append_failed", exc=e)
+
+        # Publish per-user rbac.binding_changed so SessionService revokes cached sessions.
+        for uid in affected_user_ids:
+            try:
+                await app_state.bus.publish(
+                    "rbac.binding_changed",
+                    {
+                        "binding_id": None,
+                        "principal_type": "user",
+                        "principal_id": uid,
+                        "user_id": uid,
+                        "role_id": role_id,
+                        "op": "role_updated",
+                    },
+                )
+            except Exception as e:
+                log.exception("bus_publish_failed", exc=e)
 
         await session.refresh(role)
         return RoleOut.model_validate(role)
@@ -290,7 +316,6 @@ async def delete_role(
 
         await session.delete(role)
         await session.commit()
-        # TODO(T2.4): bump engine perm-cache version on role mutate
 
         # Emit audit event
         app_state = get_app_state(request)

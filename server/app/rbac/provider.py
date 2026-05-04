@@ -16,9 +16,15 @@ class Principal:
 
 @dataclass(frozen=True)
 class AuthContext:
-    """Per-request context that informs authorization (mfa, ip, time)."""
+    """Per-request context that informs authorization (mfa, ip, time).
+
+    enforce_mfa: when True, engine MUST deny high_risk perms unless mfa_satisfied.
+    Defaults False so internal callers (dispatcher, system tasks) preserve
+    current behavior; API trust boundaries set True.
+    """
     mfa_satisfied: bool = False
     source_ip: str | None = None
+    enforce_mfa: bool = False
 
     @classmethod
     def empty(cls) -> "AuthContext":

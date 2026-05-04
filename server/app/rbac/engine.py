@@ -7,6 +7,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.app.models import Binding, Role
+from server.app.rbac.catalog import Catalog
 from server.app.rbac.provider import Principal, AuthContext, Decision
 from server.app.rbac.scope import Resource, Scope
 
@@ -29,6 +30,15 @@ class BuiltinEngine:
     def __init__(self, session: AsyncSession) -> None:
         self._s = session
         self._group_hierarchy: dict[str, frozenset[str]] | None = None
+        self._catalog: Catalog | None = None
+
+    def _is_high_risk(self, action: str) -> bool:
+        if self._catalog is None:
+            self._catalog = Catalog.load()
+        try:
+            return self._catalog.is_high_risk(action)
+        except KeyError:
+            return False
 
     async def _build_group_hierarchy(self) -> dict[str, frozenset[str]]:
         """Load full group hierarchy into memory for efficient lookup.
@@ -99,7 +109,11 @@ class BuiltinEngine:
         )
         rows = (await self._s.execute(bindings_q)).all()
 
-        # TODO: check ctx.mfa_satisfied for step-up enforcement on high-risk actions (Phase 6)
+        # MFA step-up enforcement: when caller asserts trust boundary
+        # (enforce_mfa=True), high_risk perms require mfa_satisfied.
+        if ctx.enforce_mfa and not ctx.mfa_satisfied and self._is_high_risk(action):
+            return Decision(allow=False, reason="mfa_required")
+
         for binding, role in rows:
             perms = set(role.permissions or [])
             if action not in perms:

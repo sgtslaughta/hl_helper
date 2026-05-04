@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from typing import Annotated, Literal
 from uuid import uuid4
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -19,6 +20,16 @@ from server.app.rbac.approvals import ApprovalEngine
 from server.app.rbac.provider import Principal
 
 router = APIRouter(prefix="/v1/approvals", tags=["approvals"])
+log = structlog.get_logger(__name__)
+
+
+_STATE_TO_ACTION = {
+    "approved": "approval.approved",
+    "rejected": "approval.rejected",
+    "expired": "approval.expired",
+    "pending_second": "approval.first_decision",
+    "pending": "approval.pending",
+}
 
 
 class ApprovalCreate(BaseModel):
@@ -213,7 +224,8 @@ async def create_approval(
     if not requester_id:
         raise HTTPException(status_code=500, detail="principal_missing_user_id")
 
-    sm = get_app_state(request).sessionmaker
+    app_state = get_app_state(request)
+    sm = app_state.sessionmaker
     async with sm() as session:
         engine = ApprovalEngine(session, ttl=timedelta(minutes=body.ttl_minutes))
         approval = await engine.request(
@@ -224,6 +236,24 @@ async def create_approval(
             approval_id=str(uuid4()),
         )
         await session.commit()
+
+    async with sm() as audit_session:
+        try:
+            await app_state.audit_chain.append(
+                audit_session,
+                actor=requester_id,
+                action="approval.requested",
+                subject=approval.id,
+                payload={
+                    "subject_type": approval.subject_type,
+                    "subject_id": approval.subject_id,
+                    "policy": approval.policy,
+                    "ttl_minutes": body.ttl_minutes,
+                },
+            )
+            await audit_session.commit()
+        except Exception as e:
+            log.exception("audit_append_failed", exc=e)
 
     return ApprovalOut(
         id=approval.id,
@@ -263,7 +293,8 @@ async def decide_approval(
     if not decider_id:
         raise HTTPException(status_code=500, detail="principal_missing_user_id")
 
-    sm = get_app_state(request).sessionmaker
+    app_state = get_app_state(request)
+    sm = app_state.sessionmaker
     async with sm() as session:
         engine = ApprovalEngine(session)
         result = await engine.decide(
@@ -278,6 +309,26 @@ async def decide_approval(
     # Check if approval exists (not_found is returned by decide if it doesn't)
     if result.rejected_reason == "not_found":
         raise HTTPException(status_code=404, detail="Approval not found")
+
+    action = _STATE_TO_ACTION.get(result.state, f"approval.{result.state}")
+    async with sm() as audit_session:
+        try:
+            await app_state.audit_chain.append(
+                audit_session,
+                actor=decider_id,
+                action=action,
+                subject=approval_id,
+                payload={
+                    "decision": body.decision,
+                    "state": result.state,
+                    "approved": result.approved,
+                    "rejected_reason": result.rejected_reason,
+                    "mfa_proof_present": body.mfa_proof is not None,
+                },
+            )
+            await audit_session.commit()
+        except Exception as e:
+            log.exception("audit_append_failed", exc=e)
 
     return ApprovalDecisionOut(
         approved=result.approved,

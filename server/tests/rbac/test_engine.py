@@ -346,3 +346,73 @@ async def test_engine_grants_via_group_scope_with_nested_hierarchy(sm) -> None:
         decision = await engine.is_authorized(principal, "task:create", resource, ctx)
         assert decision.allow, "Binding on parent should grant access to grandchild"
         assert decision.binding_id == binding.id
+
+
+@pytest.mark.asyncio
+async def test_engine_enforces_mfa_on_high_risk_when_flag_set(sm) -> None:
+    """High-risk perm + enforce_mfa=True + mfa_satisfied=False -> deny mfa_required."""
+    from sqlalchemy import select
+    async with sm() as session:
+        admin_role = (await session.execute(
+            select(Role).where(Role.name == "admin")
+        )).scalar_one()
+        binding = Binding(
+            id=str(uuid4()),
+            principal_type="user",
+            principal_id="u-mfa",
+            role_id=admin_role.id,
+            scope_kind="global",
+            scope_value={},
+            scope_hash=compute_scope_hash("global", {}),
+        )
+        session.add(binding)
+        await session.commit()
+
+        engine = BuiltinEngine(session)
+        principal = Principal(user_id="u-mfa")
+        resource = Resource()
+
+        # high_risk action: host:exec
+        ctx_no_mfa = AuthContext(mfa_satisfied=False, enforce_mfa=True)
+        decision = await engine.is_authorized(principal, "host:exec", resource, ctx_no_mfa)
+        assert not decision.allow
+        assert decision.reason == "mfa_required"
+
+        # Same action with mfa_satisfied -> allow
+        ctx_mfa = AuthContext(mfa_satisfied=True, enforce_mfa=True)
+        decision2 = await engine.is_authorized(principal, "host:exec", resource, ctx_mfa)
+        assert decision2.allow
+
+        # Non-high-risk perm passes regardless
+        ctx_no_mfa2 = AuthContext(mfa_satisfied=False, enforce_mfa=True)
+        decision3 = await engine.is_authorized(principal, "host:read", resource, ctx_no_mfa2)
+        assert decision3.allow
+
+
+@pytest.mark.asyncio
+async def test_engine_skips_mfa_check_when_enforce_flag_off(sm) -> None:
+    """Internal callers (enforce_mfa=False) bypass MFA check on high_risk."""
+    from sqlalchemy import select
+    async with sm() as session:
+        admin_role = (await session.execute(
+            select(Role).where(Role.name == "admin")
+        )).scalar_one()
+        binding = Binding(
+            id=str(uuid4()),
+            principal_type="user",
+            principal_id="u-int",
+            role_id=admin_role.id,
+            scope_kind="global",
+            scope_value={},
+            scope_hash=compute_scope_hash("global", {}),
+        )
+        session.add(binding)
+        await session.commit()
+
+        engine = BuiltinEngine(session)
+        principal = Principal(user_id="u-int")
+        resource = Resource()
+        ctx = AuthContext(mfa_satisfied=False, enforce_mfa=False)
+
+        decision = await engine.is_authorized(principal, "host:exec", resource, ctx)
+        assert decision.allow, "internal caller without enforce_mfa should pass"
