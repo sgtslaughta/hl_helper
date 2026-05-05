@@ -19,6 +19,7 @@ from server.app.models.maintenance_window import MaintenanceWindow
 from server.app.models.notification import Notification
 from server.app.models.oidc_account_link import OidcAccountLink
 from server.app.models.oidc_provider import OidcProvider
+from server.app.models.plugin import Plugin
 from server.app.models.recovery_code import RecoveryCode
 from server.app.models.result import Result
 from server.app.models.revoked_cert import RevokedCert
@@ -64,6 +65,7 @@ __all__ = [
     "UpdatePolicy",
     "Approval",
     "Notification",
+    "Plugin",
     "Webhook",
     "Setting",
     "LockoutRecord",
