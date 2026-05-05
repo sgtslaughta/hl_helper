@@ -107,3 +107,109 @@ async def smtp_backend(
         return NotificationResult(ok=True, provider="smtp", detail=f"sent_to={len(to_list)}")
     except (smtplib.SMTPException, OSError) as exc:
         return NotificationResult(ok=False, provider="smtp", detail=f"smtp_error: {exc}")
+
+
+_SEVERITY_COLOR = {
+    "info": "#36a64f",
+    "warning": "#daa038",
+    "error": "#d62728",
+    "critical": "#7c1c1c",
+}
+
+
+async def slack_backend(
+    config: dict[str, Any], message: NotificationMessage
+) -> NotificationResult:
+    """Post a structured Slack message via incoming-webhook URL.
+
+    Config keys:
+      - webhook_url (required): Slack incoming webhook (https://hooks.slack.com/...)
+      - timeout_s (optional, default 10)
+      - channel (optional override)
+      - username (optional override; default "hl_helper")
+    """
+    url = config.get("webhook_url")
+    if not isinstance(url, str) or not url.startswith("https://hooks.slack.com/"):
+        return NotificationResult(ok=False, provider="slack", detail="invalid_webhook_url")
+
+    timeout = float(config.get("timeout_s", 10))
+    color = _SEVERITY_COLOR.get(message.severity, "#888888")
+    payload: dict[str, Any] = {
+        "username": config.get("username", "hl_helper"),
+        "attachments": [
+            {
+                "color": color,
+                "title": message.title,
+                "text": message.body,
+                "fields": [
+                    {"title": k, "value": str(v), "short": True}
+                    for k, v in (message.metadata or {}).items()
+                ],
+                "footer": "hl_helper",
+            }
+        ],
+    }
+    if (channel := config.get("channel")) and isinstance(channel, str):
+        payload["channel"] = channel
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.post(url, json=payload)
+        if 200 <= r.status_code < 300:
+            return NotificationResult(ok=True, provider="slack", detail=f"status={r.status_code}")
+        return NotificationResult(
+            ok=False,
+            provider="slack",
+            detail=f"status={r.status_code} body={r.text[:200]}",
+        )
+    except httpx.HTTPError as exc:
+        return NotificationResult(ok=False, provider="slack", detail=f"http_error: {exc}")
+
+
+async def discord_backend(
+    config: dict[str, Any], message: NotificationMessage
+) -> NotificationResult:
+    """Post an embedded message to Discord via webhook URL.
+
+    Config keys:
+      - webhook_url (required): https://discord.com/api/webhooks/...
+      - timeout_s (optional, default 10)
+      - username (optional)
+    """
+    url = config.get("webhook_url")
+    if not isinstance(url, str) or not (
+        url.startswith("https://discord.com/api/webhooks/")
+        or url.startswith("https://discordapp.com/api/webhooks/")
+    ):
+        return NotificationResult(ok=False, provider="discord", detail="invalid_webhook_url")
+
+    timeout = float(config.get("timeout_s", 10))
+    color_int = int(_SEVERITY_COLOR.get(message.severity, "#888888").lstrip("#"), 16)
+    fields = [
+        {"name": str(k)[:256], "value": str(v)[:1024], "inline": True}
+        for k, v in (message.metadata or {}).items()
+    ][:25]  # Discord caps embed fields at 25
+    payload: dict[str, Any] = {
+        "username": config.get("username", "hl_helper"),
+        "embeds": [
+            {
+                "title": message.title[:256],
+                "description": message.body[:4000],
+                "color": color_int,
+                "fields": fields,
+            }
+        ],
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.post(url, json=payload)
+        if 200 <= r.status_code < 300:
+            return NotificationResult(ok=True, provider="discord", detail=f"status={r.status_code}")
+        return NotificationResult(
+            ok=False,
+            provider="discord",
+            detail=f"status={r.status_code} body={r.text[:200]}",
+        )
+    except httpx.HTTPError as exc:
+        return NotificationResult(ok=False, provider="discord", detail=f"http_error: {exc}")
