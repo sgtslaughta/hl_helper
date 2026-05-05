@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 
@@ -16,7 +17,7 @@ export default defineConfig({
 	},
 	resolve: {
 		alias: {
-			'@': '/home/user/code/hl_helper/webui',
+			'@': fileURLToPath(new URL('.', import.meta.url)),
 		},
 	},
 });
