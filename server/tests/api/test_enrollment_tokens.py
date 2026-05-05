@@ -143,3 +143,31 @@ async def test_revoke_pending_returns_204(client: httpx.AsyncClient):
 async def test_revoke_unknown_returns_404(client: httpx.AsyncClient):
     resp = await client.delete("/v1/enrollment-tokens/et_unknown", headers=ADMIN_HEADERS)
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_e2e_mint_then_redeem_disappears(client: httpx.AsyncClient):
+    import base64
+    from server.tests.enrollment.test_service import make_csr
+
+    minted = (await client.post(
+        "/v1/enrollment-tokens",
+        headers=ADMIN_HEADERS,
+        json={"label": "lab-router", "ttl_seconds": 900},
+    )).json()
+    assert "token_id" in minted
+
+    csr_pem_bytes, agent_pubkey = make_csr()
+    redeem_resp = await client.post(
+        "/v1/enroll",
+        json={
+            "token": minted["plaintext_token"],
+            "hostname": "lab-router",
+            "csr_pem": csr_pem_bytes.decode("utf-8"),
+            "agent_pubkey_b64": base64.b64encode(agent_pubkey).decode("ascii"),
+        },
+    )
+    assert redeem_resp.status_code == 200, redeem_resp.text
+
+    listed = (await client.get("/v1/enrollment-tokens", headers=ADMIN_HEADERS)).json()
+    assert all(r["id"] != minted["token_id"] for r in listed)
