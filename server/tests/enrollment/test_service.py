@@ -462,3 +462,36 @@ async def test_list_pending_excludes_expired(
 
         pending = await service.list_pending(session)
         assert all(p.id != row.id for p in pending)
+
+
+@pytest.mark.asyncio
+async def test_revoke_pending_deletes_row(service, async_session):
+    async with async_session() as session:
+        plain, row = await service.issue_token(session, issued_by="admin")
+        await session.flush()
+        await service.revoke_pending(session, row.id)
+        await session.flush()
+        pending = await service.list_pending(session)
+        assert all(p.id != row.id for p in pending)
+
+
+@pytest.mark.asyncio
+async def test_revoke_redeemed_raises(service, async_session):
+    from server.app.enrollment.service import TokenAlreadyRedeemedError
+
+    async with async_session() as session:
+        plain, row = await service.issue_token(session, issued_by="admin")
+        await session.flush()
+        row.redeemed_at = datetime.now(timezone.utc)
+        await session.flush()
+        with pytest.raises(TokenAlreadyRedeemedError):
+            await service.revoke_pending(session, row.id)
+
+
+@pytest.mark.asyncio
+async def test_revoke_unknown_raises(service, async_session):
+    from server.app.enrollment.service import TokenNotFoundError
+
+    async with async_session() as session:
+        with pytest.raises(TokenNotFoundError):
+            await service.revoke_pending(session, "et_does_not_exist")

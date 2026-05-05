@@ -129,6 +129,22 @@ class EnrollmentService:
         result = await session.execute(stmt)
         return list(result.scalars().all())
 
+    async def revoke_pending(
+        self,
+        session: AsyncSession,
+        token_id: str,
+    ) -> None:
+        """Delete a pending (unredeemed) token row.
+
+        Raises TokenNotFoundError if id unknown, TokenAlreadyRedeemedError if redeemed.
+        """
+        row = await session.get(EnrollmentToken, token_id)
+        if row is None:
+            raise TokenNotFoundError(token_id)
+        if row.redeemed_at is not None:
+            raise TokenAlreadyRedeemedError(token_id)
+        await session.delete(row)
+
     async def redeem(
         self,
         session: AsyncSession,
