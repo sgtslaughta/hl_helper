@@ -11,7 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from server.app.api.middleware.admin_auth import admin_required
 from server.app.api.middleware.rate_limit import RateLimiter, rate_limit_dependency
 from server.app.api.state import get_app_state
-from server.app.enrollment.service import EnrollmentService, TokenNotFoundError
+from server.app.enrollment.service import (
+    EnrollmentService,
+    TokenAlreadyRedeemedError,
+    TokenNotFoundError,
+)
 from server.app.enrollment.tokens import clamp_ttl_seconds
 
 router = APIRouter(prefix="/v1/enrollment-tokens", tags=["enrollment-tokens"])
@@ -119,3 +123,22 @@ async def list_pending(
         )
         for r in rows
     ]
+
+
+@router.delete(
+    "/{token_id}",
+    status_code=204,
+    dependencies=[Depends(admin_required)],
+)
+async def revoke(
+    token_id: str,
+    service: EnrollmentService = Depends(_get_service),
+    session: AsyncSession = Depends(_get_session),
+) -> None:
+    try:
+        await service.revoke_pending(session, token_id)
+    except TokenNotFoundError:
+        raise HTTPException(status_code=404, detail="not_found")
+    except TokenAlreadyRedeemedError:
+        raise HTTPException(status_code=409, detail="already_redeemed")
+    await session.commit()

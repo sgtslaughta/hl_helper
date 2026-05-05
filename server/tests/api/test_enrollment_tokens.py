@@ -123,3 +123,23 @@ async def test_list_pending_returns_minted(client: httpx.AsyncClient):
 async def test_list_requires_admin(client: httpx.AsyncClient):
     resp = await client.get("/v1/enrollment-tokens")
     assert resp.status_code in (401, 403)
+
+
+@pytest.mark.asyncio
+async def test_revoke_pending_returns_204(client: httpx.AsyncClient):
+    minted = await client.post(
+        "/v1/enrollment-tokens",
+        headers=ADMIN_HEADERS,
+        json={"label": "x", "ttl_seconds": 900},
+    )
+    tid = minted.json()["token_id"]
+    resp = await client.delete(f"/v1/enrollment-tokens/{tid}", headers=ADMIN_HEADERS)
+    assert resp.status_code == 204
+    listed = (await client.get("/v1/enrollment-tokens", headers=ADMIN_HEADERS)).json()
+    assert all(r["id"] != tid for r in listed)
+
+
+@pytest.mark.asyncio
+async def test_revoke_unknown_returns_404(client: httpx.AsyncClient):
+    resp = await client.delete("/v1/enrollment-tokens/et_unknown", headers=ADMIN_HEADERS)
+    assert resp.status_code == 404
