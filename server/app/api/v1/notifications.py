@@ -5,7 +5,6 @@ Stub implementation. TODO(C8/C-track): persist to DB.
 
 from __future__ import annotations
 
-from typing import Literal
 from uuid import uuid4
 
 import structlog

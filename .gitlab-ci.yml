@@ -14,7 +14,7 @@ packaging-test:
   stage: test
   image: python:3.12
   script:
-    - pip install pytest
+    - pip install pytest pyyaml
     - pytest tests/packaging/ -v
 
 go-leakcheck:
@@ -71,21 +71,16 @@ py-test:
     expire_in: 1 week
 
 py-memcheck:
-  # tracemalloc snapshots across repeated audit-chain operations, plus
-  # pytest-memray allocation tracking on the full server suite to catch
-  # native-allocator (malloc) leaks tracemalloc cannot see.
+  # tracemalloc snapshots across repeated audit-chain operations.
+  # pytest-memray bulk sweep disabled: segfaults during heap-walk under
+  # multiple C extensions (grpc, yaml._yaml, etc). Dedicated memray smoke
+  # tests in test_memory_leaks.py provide targeted native-allocator coverage.
   stage: test
   image: python:3.12
   before_script:
     - pip install -e '.[dev]'
   script:
     - pytest server/tests/test_memory_leaks.py server/tests/test_tracemalloc_smoke.py -v
-    # memray segfaults under the gRPC C extension; restrict to dirs that don't
-    # import grpc/OTel-grpc instrumentation. Excludes observability + grpc + e2e.
-    - pytest server/tests/ --memray --most-allocations=10 -q
-        --ignore=server/tests/observability/
-        --ignore=server/tests/grpc/
-        --ignore=server/tests/e2e/
 
 py-migrations:
   stage: test
