@@ -5,29 +5,27 @@ repo_url = "https://github.com/hlhelper/hl_helper"
 docs_dir = "docs"
 
 [project.theme]
-name = "zensical"
-
-[project.theme.features]
-enabled = [
-  "navigation.tabs",
+features = [
   "navigation.sections",
-  "navigation.expand",
-  "search.suggest",
+  "navigation.indexes",
+  "navigation.instant",
+  "navigation.instant.prefetch",
+  "navigation.path",
+  "navigation.footer",
+  "navigation.top",
   "search.highlight",
   "content.code.copy",
 ]
 
 [[project.theme.palette]]
 scheme = "default"
-[project.theme.palette.toggle]
-icon = "material/brightness-7"
-name = "Switch to dark mode"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
 
 [[project.theme.palette]]
 scheme = "slate"
-[project.theme.palette.toggle]
-icon = "material/brightness-4"
-name = "Switch to light mode"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to light mode"
 
 [project.markdown_extensions.admonition]
 [project.markdown_extensions."pymdownx.details"]
