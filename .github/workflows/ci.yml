@@ -158,37 +158,30 @@ jobs:
       - run: cd webui && npm run test:unit
   docs:
     runs-on: ubuntu-latest
-    env:
-      # Suppress mkdocs-material 9.7.2+ runtime banner about MkDocs 2.0 fork.
-      # MkDocs 2.0 is incompatible with Material; we stay on 1.x indefinitely
-      # (or migrate to Zensical when 2.0 ships).
-      NO_MKDOCS_2_WARNING: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -e .[docs]
-      - run: mkdocs build --strict
+      - run: pip install -e '.[docs]'
+      - run: zensical build --clean
   docs-deploy:
     if: github.ref == 'refs/heads/main'
     needs: [docs]
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    env:
-      NO_MKDOCS_2_WARNING: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -e .[docs]
-      - name: Deploy docs with mike
+      - run: pip install -e '.[docs]'
+      - name: Deploy with mike
         run: |
           git config user.name "ci-bot"
           git config user.email "ci-bot@users.noreply.github.com"
