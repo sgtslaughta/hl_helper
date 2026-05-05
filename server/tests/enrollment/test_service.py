@@ -429,3 +429,36 @@ async def test_redeem_agent_pubkey_matches_succeeds(
 
         assert result.host_id
         assert result.leaf_cert_pem
+
+
+@pytest.mark.asyncio
+async def test_list_pending_excludes_redeemed(
+    service: EnrollmentService, async_session
+) -> None:
+    """Verify list_pending excludes redeemed tokens."""
+    async with async_session() as session:
+        plain1, row1 = await service.issue_token(session, issued_by="admin")
+        plain2, row2 = await service.issue_token(session, issued_by="admin")
+        await session.flush()
+        row2.redeemed_at = datetime.now(timezone.utc)
+        await session.flush()
+
+        pending = await service.list_pending(session)
+        ids = {p.id for p in pending}
+        assert row2.id not in ids
+        assert len(pending) == 1
+
+
+@pytest.mark.asyncio
+async def test_list_pending_excludes_expired(
+    service: EnrollmentService, async_session
+) -> None:
+    """Verify list_pending excludes expired tokens."""
+    async with async_session() as session:
+        plain, row = await service.issue_token(session, issued_by="admin")
+        await session.flush()
+        row.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        await session.flush()
+
+        pending = await service.list_pending(session)
+        assert all(p.id != row.id for p in pending)

@@ -114,6 +114,21 @@ class EnrollmentService:
         session.add(token_row)
         return issued.plaintext, token_row
 
+    async def list_pending(
+        self,
+        session: AsyncSession,
+        now: datetime | None = None,
+    ) -> list[EnrollmentToken]:
+        """Return tokens that are unredeemed AND unexpired."""
+        if now is None:
+            now = datetime.now(timezone.utc)
+        stmt = select(EnrollmentToken).where(
+            EnrollmentToken.redeemed_at.is_(None),
+            EnrollmentToken.expires_at > now,
+        )
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
+
     async def redeem(
         self,
         session: AsyncSession,
