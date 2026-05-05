@@ -20,13 +20,6 @@ router = APIRouter(prefix="/v1/users/me", tags=["user-prefs"])
 log = structlog.get_logger(__name__)
 
 # Default preferences
-DEFAULT_PREFS = {
-    "theme": "system",
-    "locale": "en",
-    "timezone": "UTC",
-    "density": "comfortable",
-    "side_nav_collapsed": False,
-}
 
 
 class UserPrefsOut(BaseModel):
@@ -66,7 +59,13 @@ async def get_user_prefs(
         User preferences with default values (TODO: fetch from database).
     """
     # TODO: Fetch preferences for authenticated user from database
-    return UserPrefsOut(**DEFAULT_PREFS)
+    return UserPrefsOut(
+        theme="system",
+        locale="en",
+        timezone="UTC",
+        density="comfortable",
+        side_nav_collapsed=False,
+    )
 
 
 @router.put("/prefs", response_model=UserPrefsOut, status_code=status.HTTP_200_OK)
@@ -84,9 +83,15 @@ async def update_user_prefs(
         Merged preferences with defaults (TODO: save to database).
     """
     # TODO: Fetch current prefs, merge with request body, validate, save
-    updated = DEFAULT_PREFS.copy()
+    current: dict[str, str | bool] = {
+        "theme": "system",
+        "locale": "en",
+        "timezone": "UTC",
+        "density": "comfortable",
+        "side_nav_collapsed": False,
+    }
     for key, value in body.model_dump(exclude_unset=True).items():
         if value is not None:
-            updated[key] = value
+            current[key] = value
 
-    return UserPrefsOut(**updated)
+    return UserPrefsOut.model_validate(current)

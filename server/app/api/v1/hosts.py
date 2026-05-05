@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict
@@ -43,7 +43,7 @@ class HostOut(BaseModel):
     status: str
     enrolled_at: datetime
     last_seen_at: datetime | None = None
-    labels: dict = {}
+    labels: dict[str, Any] = {}
 
 
 class RebootActionRequest(BaseModel):

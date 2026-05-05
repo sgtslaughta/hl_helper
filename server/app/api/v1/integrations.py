@@ -5,6 +5,7 @@ Stub implementation. TODO(C8/C-track): persist to DB.
 
 from __future__ import annotations
 
+from typing import Any
 from uuid import uuid4
 
 import structlog
@@ -21,7 +22,7 @@ class IntegrationCreate(BaseModel):
     """Request to create an integration."""
     name: str = Field(..., description="Integration name")
     kind: str = Field(..., description="Integration kind (slack, pagerduty, etc)")
-    config: dict = Field(..., description="Integration-specific configuration")
+    config: dict[str, Any] = Field(..., description="Integration-specific configuration")
 
 
 class IntegrationOut(BaseModel):
@@ -31,7 +32,7 @@ class IntegrationOut(BaseModel):
     id: str = Field(..., description="Integration ID")
     name: str = Field(..., description="Integration name")
     kind: str = Field(..., description="Integration kind")
-    config: dict = Field(..., description="Integration-specific configuration")
+    config: dict[str, Any] = Field(..., description="Integration-specific configuration")
 
 
 @router.get("", response_model=list[IntegrationOut])
