@@ -21,9 +21,11 @@ export class WSClient {
 	private ws: WebSocket | null = null;
 	private queryClient: QueryClient | null = null;
 	private reconnectConfig: ReconnectConfig = {
-		initialDelay: 1000,
-		maxDelay: 30000,
-		maxRetries: Number.POSITIVE_INFINITY,
+		initialDelay: 2000,
+		maxDelay: 60000,
+		// Bound retries so a missing /v1/events backend doesn't spam the console
+		// forever in dev. Manual reconnect available via WSClient.connect().
+		maxRetries: 5,
 		jitter: true,
 	};
 	private reconnectAttempts = 0;
@@ -65,8 +67,13 @@ export class WSClient {
 					}
 				};
 
-				this.ws.onerror = event => {
-					console.error('WS error:', event);
+				this.ws.onerror = () => {
+					// Suppressed: Next.js dev intercepts console.error and renders an
+					// overlay. The events backend is optional in dev so we only log
+					// at debug level once per cycle.
+					if (this.reconnectAttempts === 0) {
+						console.debug('[ws] connection error (will retry)');
+					}
 					reject(new Error('WebSocket connection failed'));
 				};
 
@@ -114,11 +121,12 @@ export class WSClient {
 
 		try {
 			await this.connect();
-		} catch (e) {
-			console.error('Reconnect failed:', e);
+		} catch {
 			if (this.reconnectAttempts < this.reconnectConfig.maxRetries) {
 				this.isReconnecting = false;
 				await this.reconnect();
+			} else {
+				console.debug(`WS reconnect giving up after ${this.reconnectAttempts} attempts`);
 			}
 		}
 

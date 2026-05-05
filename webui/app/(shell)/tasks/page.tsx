@@ -20,13 +20,14 @@ interface Task {
 export default function TasksPage() {
 	const { data, isLoading, isError } = useQuery({
 		queryKey: ['tasks'],
-		queryFn: () => apiFetch<Task[]>('/v1/tasks'),
+		queryFn: () => apiFetch<{ items: Task[]; next_cursor: string | null } | Task[]>('/v1/tasks'),
 	});
 
+	const tasks: Task[] = Array.isArray(data) ? data : (data?.items ?? []);
+
 	if (isLoading) return <BlueprintSkeleton rows={8} />;
-	if (isError || !data)
-		return <EmptyState title="Failed to load tasks" description="Please try again" />;
-	if (data.length === 0)
+	if (isError) return <EmptyState title="Failed to load tasks" description="Please try again" />;
+	if (tasks.length === 0)
 		return <EmptyState title="No tasks" description="Create a new task to get started" />;
 
 	return (
@@ -48,7 +49,7 @@ export default function TasksPage() {
 						</tr>
 					</thead>
 					<tbody>
-						{data.map(task => (
+						{tasks.map(task => (
 							<TaskRow key={task.id} task={task} />
 						))}
 					</tbody>

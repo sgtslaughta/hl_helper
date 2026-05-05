@@ -19,11 +19,11 @@ interface SettingsResponse {
 }
 
 export default function SettingsPage() {
-	const { data: settings = [], isLoading } = useQuery({
+	const { data: settings = [], isLoading } = useQuery<Setting[]>({
 		queryKey: ['settings'],
 		queryFn: async () => {
-			const data = await apiFetch<SettingsResponse>('/v1/settings');
-			return data.settings;
+			const raw = (await apiFetch('/v1/settings')) as SettingsResponse | Setting[];
+			return Array.isArray(raw) ? raw : (raw?.settings ?? []);
 		},
 	});
 

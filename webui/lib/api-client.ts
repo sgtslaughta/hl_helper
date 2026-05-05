@@ -53,6 +53,18 @@ export async function apiFetch<T>(path: string, options: FetchOptions = {}): Pro
 			problem = { title: 'Unknown error', status: resp.status };
 		}
 
+		// Auth expiry: bounce to /login (skip when already on /login to avoid loop,
+		// and skip for whoami / login itself which legitimately 401 to signal
+		// "not signed in" without needing a redirect).
+		if (resp.status === 401 && typeof window !== 'undefined') {
+			const here = window.location.pathname;
+			const isAuthProbe = path.includes('/v1/auth/whoami') || path.includes('/v1/auth/login');
+			if (!isAuthProbe && here !== '/login' && !here.startsWith('/login/')) {
+				const next = encodeURIComponent(here + window.location.search);
+				window.location.replace(`/login?next=${next}`);
+			}
+		}
+
 		throw new ApiError(
 			resp.status,
 			problem?.type || 'api_error',

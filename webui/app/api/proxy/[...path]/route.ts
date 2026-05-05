@@ -34,10 +34,12 @@ async function handler(req: NextRequest, ctx: { params: Promise<{ path: string[]
 	if (xForwardedFor) headers.set('x-forwarded-for', xForwardedFor);
 
 	try {
+		const hasBody = req.method !== 'GET' && req.method !== 'HEAD';
+		const body = hasBody ? await req.arrayBuffer() : undefined;
 		const response = await fetch(targetUrl, {
 			method: req.method,
 			headers,
-			body: req.method !== 'GET' && req.method !== 'HEAD' ? req.body : undefined,
+			body,
 		});
 
 		const clonedResponse = response.clone();

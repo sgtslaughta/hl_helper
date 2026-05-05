@@ -22,7 +22,10 @@ export default function ApprovalsPage() {
 
 	const { data, isLoading, isError } = useQuery({
 		queryKey: ['approvals'],
-		queryFn: () => apiFetch<Approval[]>('/v1/approvals'),
+		queryFn: async () => {
+			const raw = await apiFetch<Approval[] | { items: Approval[] }>('/v1/approvals');
+			return Array.isArray(raw) ? raw : (raw?.items ?? []);
+		},
 	});
 
 	const approveMutation = useMutation({
@@ -50,8 +53,9 @@ export default function ApprovalsPage() {
 	});
 
 	if (isLoading) return <BlueprintSkeleton rows={5} />;
-	if (isError || !data) return <EmptyState title="Failed to load approvals" />;
-	if (data.length === 0)
+	if (isError) return <EmptyState title="Failed to load approvals" />;
+	const approvals = data ?? [];
+	if (approvals.length === 0)
 		return <EmptyState title="No pending approvals" description="All caught up!" />;
 
 	return (
@@ -62,7 +66,7 @@ export default function ApprovalsPage() {
 			</div>
 
 			<div className="space-y-4">
-				{data.map(approval => (
+				{approvals.map(approval => (
 					<ApprovalCard
 						key={approval.id}
 						approval={approval}

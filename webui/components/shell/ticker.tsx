@@ -19,21 +19,21 @@ export function StatusTicker() {
 	const queryClient = useQueryClient();
 
 	useEffect(() => {
-		const wsClient = getWSClient(queryClient);
+		// WS auto-connect is opt-in. The Next.js /api/proxy route handler can't
+		// upgrade HTTP → WebSocket, so the events stream needs a direct path that
+		// doesn't exist in dev. Re-enable with NEXT_PUBLIC_FLEET_WS=1 once a
+		// reverse proxy or sidecar provides /v1/events.
+		if (process.env.NEXT_PUBLIC_FLEET_WS !== '1') return;
 
-		// Subscribe to signals channel
+		const wsClient = getWSClient(queryClient);
+		wsClient.connect().catch(() => {
+			// reconnect logic bounded; dropped silently here
+		});
 		wsClient.subscribe('signals');
 
-		// Simulate initial connection and event handling
 		const _handleSignal = (signal: Signal) => {
-			setSignals(prev => {
-				const updated = [signal, ...prev];
-				return updated.slice(0, 20); // Keep last 20 signals
-			});
+			setSignals(prev => [signal, ...prev].slice(0, 20));
 		};
-
-		// In a real scenario, this would be driven by WS messages
-		// For now, just set up the subscription
 		void _handleSignal;
 
 		return () => {

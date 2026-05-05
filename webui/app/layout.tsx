@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { ServiceWorkerCleanup } from './sw-unregister';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -18,7 +19,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 				<meta name="theme-color" content="#0f1216" />
 				<meta name="color-scheme" content="dark light" />
 			</head>
-			<body>{children}</body>
+			<body>
+				<ServiceWorkerCleanup />
+				{children}
+			</body>
 		</html>
 	);
 }

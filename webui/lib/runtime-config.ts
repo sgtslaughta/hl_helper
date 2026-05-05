@@ -8,28 +8,29 @@ interface RuntimeConfig {
 
 let cached: RuntimeConfig | null = null;
 
+/**
+ * Resolve runtime config. We deliberately skip a network round-trip and compute
+ * relative URLs from window.location so the same image works across compose
+ * (server:8000), AIO (127.0.0.1:8000), and reverse-proxy deployments without
+ * rebuild. The Next.js proxy handler at /api/proxy/[...path] reads
+ * INTERNAL_API_BASE at request time and forwards.
+ */
 export async function getRuntimeConfig(): Promise<RuntimeConfig> {
 	if (cached) return cached;
 
-	try {
-		const resp = await fetch('/_runtime-config.json');
-		if (!resp.ok) throw new Error(`Failed to fetch runtime config: ${resp.status}`);
-		cached = await resp.json();
-	} catch {
-		// Fallback to relative paths
-		const basePath =
-			typeof window !== 'undefined'
-				? window.location.pathname.split('/').slice(0, -1).join('/')
-				: '';
-		// Route through the runtime proxy handler at /api/proxy/[...path].
-		// It reads INTERNAL_API_BASE at request time, so the same image works
-		// across compose (server:8000) + AIO (127.0.0.1:8000) without rebuild.
-		cached = {
-			apiBase: `${basePath}/api/proxy`,
-			wsBase: `${typeof window !== 'undefined' ? (window.location.protocol === 'https:' ? 'wss:' : 'ws:') : 'ws:'}//${typeof window !== 'undefined' ? window.location.host : 'localhost'}${basePath}/api/proxy/v1/events`,
-			basePath: basePath || '/',
-		};
-	}
+	const basePath =
+		typeof window !== 'undefined' && window.location.pathname.startsWith('/hl_helper')
+			? '/hl_helper'
+			: '';
 
-	return cached as RuntimeConfig;
+	const protocol = typeof window !== 'undefined' ? window.location.protocol : 'http:';
+	const host = typeof window !== 'undefined' ? window.location.host : 'localhost:3000';
+	const wsProtocol = protocol === 'https:' ? 'wss:' : 'ws:';
+
+	cached = {
+		apiBase: `${basePath}/api/proxy`,
+		wsBase: `${wsProtocol}//${host}${basePath}/api/proxy/v1/events`,
+		basePath: basePath || '/',
+	};
+	return cached;
 }

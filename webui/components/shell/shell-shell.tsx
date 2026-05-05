@@ -8,10 +8,12 @@ import { Providers } from '@/components/shell/providers';
 import { Sidebar } from '@/components/shell/sidebar';
 import { StatusTicker } from '@/components/shell/ticker';
 import { Topbar } from '@/components/shell/topbar';
+import { ServiceWorkerCleanup } from '@/app/sw-unregister';
 
 export function ShellShell({ children }: { children: React.ReactNode }) {
 	return (
 		<ThemeProvider attribute="data-theme" defaultTheme="dark" enableSystem disableTransitionOnChange>
+			<ServiceWorkerCleanup />
 			<Providers>
 				<div className="flex h-screen w-screen flex-col bg-canvas">
 					<Topbar />

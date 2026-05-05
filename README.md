@@ -1,6 +1,11 @@
 # hl_helper — Homelab Helper
 
+![Logo](./webui/public/images/hl_helper_logo.png "Homelab Helper Logo")
+
 Self-hosted, security-focused fleet manager for Linux/Unix homelabs.
+
+>>> [!important] This project is unabashedly `vibe coded`! I make no claim otherwise; I dont have months and months of spare time to develop it. I created this to solve a problem in my own environment, not for the public. It so happens that others may find it useful. I am happy to grow the project if anyone wants to contribute but I do not intend to invest significant effort past what I consider `good enough` (for now). Thanks for any feedback and fork it if you want/expect more!
+>>>
 
 > **Status:** pre-alpha. Architecture locked. C1 (Transport, Enrollment, Agent Core) — server-side foundation complete; gRPC bridge + Go agent next. Full design in `docs/superpowers/`.
 

@@ -48,6 +48,17 @@ class NotificationTestResponse(BaseModel):
     message: str = Field(..., description="Status message")
 
 
+class UnreadCount(BaseModel):
+    """Count of unread notifications for current principal."""
+    count: int = Field(..., description="Unread notification count")
+
+
+@router.get("/unread-count", response_model=UnreadCount)
+async def unread_count(actor: str = Depends(admin_required)) -> UnreadCount:
+    """Return unread notification count. Stub: returns 0 until C8 wires events."""
+    return UnreadCount(count=0)
+
+
 @router.get("", response_model=list[NotificationChannelOut])
 async def list_notification_channels(
     actor: str = Depends(admin_required),

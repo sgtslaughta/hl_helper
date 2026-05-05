@@ -41,6 +41,14 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class AdminTokenLoginRequest(BaseModel):
+    """Login via the bootstrap admin token printed at server start."""
+
+    model_config = {"extra": "forbid"}
+
+    token: str
+
+
 class LoginResponse(BaseModel):
     """Successful login response with session token."""
 
@@ -273,6 +281,123 @@ async def login(
         max_age=int((session_issue.expires_at - datetime.now(timezone.utc)).total_seconds()),
     )
 
+    return response
+
+
+@router.post("/admin-token-login", status_code=200, response_model=None)
+async def admin_token_login(
+    body: AdminTokenLoginRequest,
+    request: Request,
+) -> LoginResponse | Response:
+    """POST /v1/auth/admin-token-login -- bootstrap login using the admin token.
+
+    Validates body.token against settings.admin_token (constant-time). On match:
+      1. Idempotently provisions a synthetic admin@local user.
+      2. Idempotently grants that user the owner role (perms=['*']).
+      3. Issues a session, returns Set-Cookie for hls_session + hls_csrf.
+
+    Use case: first-launch onboarding -- the admin token is printed at server
+    start so the operator can log in without first creating an account, then
+    walk the onboarding wizard to provision real users / OIDC / notifications.
+
+    Raises:
+        401: token mismatch.
+        503: server has no admin token configured.
+    """
+    import uuid as _uuid
+
+    from server.app.models.binding import Binding, PrincipalType, ScopeKind
+    from server.app.models.role import Role
+
+    settings = load_settings()
+    if settings.admin_token is None:
+        raise HTTPException(status_code=503, detail="Admin token not configured")
+    if not secrets.compare_digest(body.token, settings.admin_token.get_secret_value()):
+        raise HTTPException(status_code=401, detail="Invalid admin token")
+
+    app_state = get_app_state(request)
+    meta_dict = _request_meta(request)
+    request_meta = make_request_meta(ip=meta_dict["ip"], ua=meta_dict["ua"])
+
+    # Find-or-create admin@local user.
+    async with app_state.sessionmaker() as db_session:
+        user = await db_session.scalar(select(User).where(User.email == "admin@local"))
+        if user is None:
+            user = User(
+                id=str(_uuid.uuid4()),
+                email="admin@local",
+                display_name="Bootstrap Admin",
+                kind="local",
+                disabled=False,
+                created_at=datetime.now(timezone.utc),
+            )
+            db_session.add(user)
+            await db_session.flush()
+            log.info("admin_token_login.user_created", user_id=user.id)
+
+        # Ensure owner role exists with full perms.
+        owner_role = await db_session.scalar(select(Role).where(Role.name == "owner"))
+        if owner_role is None:
+            owner_role = Role(
+                id=str(_uuid.uuid4()),
+                name="owner",
+                description="Bootstrap owner: all permissions",
+                permissions=["*"],
+            )
+            db_session.add(owner_role)
+            await db_session.flush()
+            log.info("admin_token_login.owner_role_created", role_id=owner_role.id)
+
+        # Grant owner role to admin user (idempotent).
+        bind = await db_session.scalar(
+            select(Binding).where(
+                Binding.principal_id == user.id,
+                Binding.role_id == owner_role.id,
+            )
+        )
+        if bind is None:
+            db_session.add(
+                Binding(
+                    id=str(_uuid.uuid4()),
+                    principal_type=PrincipalType.USER,
+                    principal_id=user.id,
+                    role_id=owner_role.id,
+                    scope_kind=ScopeKind.GLOBAL,
+                    scope_value={},
+                    scope_hash="global",
+                    created_at=datetime.now(timezone.utc),
+                )
+            )
+            log.info("admin_token_login.role_bound", user_id=user.id, role="owner")
+        await db_session.commit()
+
+    if app_state.session_service is None:
+        raise HTTPException(status_code=503, detail="session service not configured")
+    issued = await app_state.session_service.issue(user, "none", request_meta)
+    csrf_token = secrets.token_urlsafe(32)
+
+    response = Response(
+        status_code=status.HTTP_200_OK,
+        content=LoginResponse(session_token=issued.raw, expires_at=issued.expires_at).model_dump_json(),
+        media_type="application/json",
+    )
+    max_age = int((issued.expires_at - datetime.now(timezone.utc)).total_seconds())
+    response.set_cookie(
+        key=settings.session_cookie_name,
+        value=issued.raw,
+        httponly=True,
+        secure=settings.cookie_secure,
+        samesite="lax",
+        max_age=max_age,
+    )
+    response.set_cookie(
+        key=settings.csrf_cookie_name,
+        value=csrf_token,
+        httponly=False,
+        secure=settings.cookie_secure,
+        samesite="lax",
+        max_age=max_age,
+    )
     return response
 
 

@@ -24,20 +24,18 @@ import {
 	Users,
 	Webhook,
 } from 'lucide-react';
-import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { useHotkeys } from 'react-hotkeys-hook';
 
 export function Sidebar() {
 	const collapsed = useSidebarStore(state => state.collapsed);
 	const toggle = useSidebarStore(state => state.toggle);
-	const t = useTranslations('nav');
 
 	useHotkeys('cmd+\\,ctrl+\\', toggle, { preventDefault: true });
 
 	const sections = [
 		{
-			title: t('fleet'),
+			title: 'Fleet',
 			items: [
 				{ icon: Server, label: 'Hosts', href: '/hosts', key: 'gh' },
 				{ icon: Boxes, label: 'Containers', href: '/containers', key: 'gc' },
@@ -45,40 +43,40 @@ export function Sidebar() {
 			],
 		},
 		{
-			title: t('ops'),
+			title: 'Ops',
 			items: [
-				{ icon: ListChecks, label: t('tasks'), href: '/tasks', key: 'gt' },
-				{ icon: Download, label: t('updates'), href: '/updates', key: 'gu' },
-				{ icon: Inbox, label: t('approvals'), href: '/approvals' },
-				{ icon: Calendar, label: t('schedules'), href: '/schedules' },
+				{ icon: ListChecks, label: 'Tasks', href: '/tasks', key: 'gt' },
+				{ icon: Download, label: 'Updates', href: '/updates', key: 'gu' },
+				{ icon: Inbox, label: 'Approvals', href: '/approvals' },
+				{ icon: Calendar, label: 'Schedules', href: '/schedules' },
 			],
 		},
 		{
-			title: t('trust'),
+			title: 'Trust',
 			items: [
-				{ icon: ShieldCheck, label: t('security'), href: '/security', key: 'gs' },
-				{ icon: ScrollText, label: t('audit'), href: '/audit', key: 'ga' },
-				{ icon: LogOut, label: t('sessions'), href: '/sessions' },
-				{ icon: Users, label: t('users'), href: '/users' },
-				{ icon: UserCog, label: t('roles'), href: '/roles' },
-				{ icon: KeyRound, label: t('bindings'), href: '/bindings' },
-				{ icon: AlertTriangle, label: t('advisories'), href: '/advisories' },
+				{ icon: ShieldCheck, label: 'Security', href: '/security', key: 'gs' },
+				{ icon: ScrollText, label: 'Audit', href: '/audit', key: 'ga' },
+				{ icon: LogOut, label: 'Sessions', href: '/sessions' },
+				{ icon: Users, label: 'Users', href: '/users' },
+				{ icon: UserCog, label: 'Roles', href: '/roles' },
+				{ icon: KeyRound, label: 'Bindings', href: '/bindings' },
+				{ icon: AlertTriangle, label: 'Advisories', href: '/advisories' },
 			],
 		},
 		{
-			title: t('config'),
+			title: 'Config',
 			items: [
-				{ icon: Puzzle, label: t('plugins'), href: '/plugins', key: 'gp' },
-				{ icon: Plug, label: t('integrations'), href: '/integrations' },
-				{ icon: Bell, label: t('notifications'), href: '/notifications' },
-				{ icon: Webhook, label: t('webhooks'), href: '/webhooks' },
-				{ icon: Lock, label: t('secrets'), href: '/secrets' },
-				{ icon: Settings, label: t('settings'), href: '/settings' },
+				{ icon: Puzzle, label: 'Plugins', href: '/plugins', key: 'gp' },
+				{ icon: Plug, label: 'Integrations', href: '/integrations' },
+				{ icon: Bell, label: 'Notifications', href: '/notifications' },
+				{ icon: Webhook, label: 'Webhooks', href: '/webhooks' },
+				{ icon: Lock, label: 'Secrets', href: '/secrets' },
+				{ icon: Settings, label: 'Settings', href: '/settings' },
 			],
 		},
 		{
-			title: t('help'),
-			items: [{ icon: BookOpen, label: t('docs'), href: '/docs', key: 'gd' }],
+			title: 'Help',
+			items: [{ icon: BookOpen, label: 'Docs', href: '/docs', key: 'gd' }],
 		},
 	];
 
