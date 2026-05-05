@@ -7,6 +7,7 @@ import base64
 import pytest
 
 from server.app.enrollment.tokens import (
+    clamp_ttl_seconds,
     generate_token,
     hash_token,
     validate_token_shape,
@@ -82,3 +83,24 @@ def test_hash_token_deterministic() -> None:
     hash1 = hash_token(token)
     hash2 = hash_token(token)
     assert hash1 == hash2, "Hashing same token should produce same hash"
+
+
+def test_clamp_ttl_below_min_raises() -> None:
+    """Verify clamp_ttl_seconds raises ValueError below minimum."""
+    with pytest.raises(ValueError):
+        clamp_ttl_seconds(30)
+
+
+def test_clamp_ttl_above_max_clamps() -> None:
+    """Verify clamp_ttl_seconds clamps values above maximum."""
+    assert clamp_ttl_seconds(999_999) == 86_400
+
+
+def test_clamp_ttl_within_range_returns_value() -> None:
+    """Verify clamp_ttl_seconds returns value within valid range."""
+    assert clamp_ttl_seconds(900) == 900
+
+
+def test_clamp_ttl_default_when_none() -> None:
+    """Verify clamp_ttl_seconds returns default when None."""
+    assert clamp_ttl_seconds(None) == 900

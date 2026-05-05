@@ -78,3 +78,21 @@ def build_token(*, ttl: timedelta = timedelta(minutes=15), now: datetime | None 
         issued_at=issued_at,
         expires_at=expires_at,
     )
+
+
+TTL_MIN_S = 60
+TTL_MAX_S = 86_400
+TTL_DEFAULT_S = 900
+
+
+def clamp_ttl_seconds(value: int | None) -> int:
+    """Validate and clamp enrollment-token TTL.
+
+    Raises ValueError if below TTL_MIN_S; clamps above TTL_MAX_S; returns
+    TTL_DEFAULT_S when None.
+    """
+    if value is None:
+        return TTL_DEFAULT_S
+    if value < TTL_MIN_S:
+        raise ValueError(f"ttl_seconds must be >= {TTL_MIN_S}")
+    return min(value, TTL_MAX_S)
