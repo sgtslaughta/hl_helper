@@ -22,7 +22,7 @@ export function PolicyPreview({ policy }: PolicyPreviewProps) {
 			{policy.rules && policy.rules.length > 0 && (
 				<div className="space-y-2">
 					<h4 className="text-xs font-medium text-text-dim uppercase">Rules</h4>
-					{policy.rules.map((rule) => (
+					{policy.rules.map(rule => (
 						<div key={rule.name} className="text-xs bg-surface-2 p-2 rounded">
 							<span className="text-text font-mono">{rule.name}</span>
 							<span className="text-text-dim mx-2">→</span>

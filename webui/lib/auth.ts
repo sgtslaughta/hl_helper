@@ -39,11 +39,13 @@ export function useAuth() {
 	});
 
 	const login = async (username: string, password: string): Promise<void> => {
-		await apiFetch('/v1/auth/login', {
+		const response = await apiFetch<{ mfa_required?: boolean }>('/v1/auth/login', {
 			method: 'POST',
 			body: JSON.stringify({ username, password }),
 		});
-		router.refresh();
+		if (!response.mfa_required) {
+			router.refresh();
+		}
 	};
 
 	const logout = async (): Promise<void> => {

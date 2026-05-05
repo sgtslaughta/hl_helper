@@ -1,3 +1,14 @@
+import withSerwistInit from '@serwist/next';
+import createNextIntlPlugin from 'next-intl/plugin';
+
+const withNextIntl = createNextIntlPlugin('./i18n.ts');
+
+const withSerwist = withSerwistInit({
+	swSrc: 'app/sw.ts',
+	swDest: 'public/sw.js',
+	disable: process.env.NODE_ENV === 'development',
+});
+
 /** @type {import('next').NextConfig} */
 const basePathEnv = process.env.FLEET_BASE_PATH;
 const nextConfig = {
@@ -20,4 +31,4 @@ const nextConfig = {
 	serverExternalPackages: [],
 };
 
-export default nextConfig;
+export default withSerwist(withNextIntl(nextConfig));

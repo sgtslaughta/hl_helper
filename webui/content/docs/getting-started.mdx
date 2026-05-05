@@ -1,0 +1,122 @@
+---
+title: Getting Started
+order: 1
+audience: both
+---
+
+# Getting Started with HL Helper
+
+Welcome to HL Helper! This guide will help you set up your system and enroll your first host.
+
+## What is HL Helper?
+
+HL Helper is a comprehensive host lifecycle management platform that enables you to securely manage, monitor, and update hosts across your infrastructure.
+
+<BeginnerOnly>
+Think of HL Helper as a central command center where you can see all your computers, update them safely, and monitor their security status.
+</BeginnerOnly>
+
+<AdvancedOnly>
+HL Helper provides mTLS-secured agent communication, biscuit-based RBAC, cryptographically verifiable audit chains, and a secret broker for sensitive credential distribution.
+</AdvancedOnly>
+
+## Installation
+
+### Prerequisites
+
+- Docker and Docker Compose installed
+- A Linux host with systemd support
+- Network connectivity to your HL Helper server
+
+### Quick Start with Docker Compose
+
+```bash
+docker-compose up -d
+```
+
+This will start the HL Helper server and all required dependencies.
+
+<Callout type="info">
+The server will be available at `https://localhost:8443` after startup.
+</Callout>
+
+## Enrolling Your First Host
+
+### Step 1: Access the Web UI
+
+Navigate to `https://localhost:8443` and log in with your credentials.
+
+### Step 2: Generate an Enrollment Token
+
+1. Go to **Hosts** → **Add Host**
+2. Click **Generate Enrollment Token**
+3. Copy the token (it will only be shown once)
+
+### Step 3: Install the Agent
+
+On the host you want to enroll, run:
+
+```bash
+curl -fsSL https://your-server.com/install | bash -s <enrollment-token>
+```
+
+The agent will:
+- Download the latest version
+- Configure mTLS certificates
+- Register with the control plane
+- Begin reporting status
+
+<Callout type="warn">
+Keep your enrollment token secret. Anyone with the token can enroll hosts impersonating your infrastructure.
+</Callout>
+
+### Step 4: Verify Enrollment
+
+Return to the Web UI. Your host should appear in the **Hosts** list within 30 seconds.
+
+<BeginnerOnly>
+Once your host appears in the list with a green checkmark, it's ready to be managed!
+</BeginnerOnly>
+
+<AdvancedOnly>
+The agent establishes a mutual TLS connection, derives device-bound credentials, and registers its identity with the audit chain.
+</AdvancedOnly>
+
+## Basic Tour
+
+### Dashboard
+
+The **Dashboard** shows:
+- Overall system health
+- Critical alerts
+- Hosts requiring updates
+- Recent activities
+
+### Hosts
+
+View all enrolled hosts with their:
+- Current OS and kernel version
+- Update status
+- Last check-in time
+- Security compliance status
+
+### Updates
+
+Define update policies to automatically or manually deploy updates across your fleet.
+
+### Audit
+
+All system actions are logged and cryptographically verified. Access the **Audit** log to review who did what and when.
+
+<SecurityNote
+	title="Audit Chain Security"
+	description="Every change is recorded and chained to prevent tampering."
+	docsLink="/docs/security-model"
+/>
+
+## Next Steps
+
+- [Configure SSO](/docs/security-model) for team access
+- [Set up notifications](/docs/getting-started) for alerts
+- [Create update policies](/docs/update-engine)
+- [Review security best practices](/docs/security-model)

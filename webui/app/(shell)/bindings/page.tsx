@@ -1,5 +1,7 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+
 import { EffectivePermsInspector } from '@/components/bindings/effective-perms-inspector';
 import { EmptyState } from '@/components/empty-states/empty-state';
 import { apiFetch } from '@/lib/api-client';

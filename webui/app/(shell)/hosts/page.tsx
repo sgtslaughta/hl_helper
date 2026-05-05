@@ -1,5 +1,7 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+
 import { EmptyState } from '@/components/empty-states/empty-state';
 import { HostFilters } from '@/components/hosts/host-filters';
 import { HostRow } from '@/components/hosts/host-row';

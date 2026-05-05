@@ -1,0 +1,144 @@
+---
+title: Security Model
+order: 2
+audience: both
+---
+
+# HL Helper Security Model
+
+HL Helper implements multiple layers of security to protect your infrastructure.
+
+<BeginnerOnly>
+In simple terms: HL Helper uses encrypted communication, role-based access control, and audit logging to ensure only authorized actions happen and everything is recorded.
+</BeginnerOnly>
+
+## Mutual TLS (mTLS)
+
+### Overview
+
+All communication between agents and the control plane uses mutual TLS encryption.
+
+<BeginnerOnly>
+Both sides prove their identity to each other before sharing information. It's like showing ID at both ends of a phone call.
+</BeginnerOnly>
+
+<AdvancedOnly>
+Each agent receives a device-bound certificate signed by the control plane CA. Certificates are issued with a 90-day lifetime and renewed automatically at 75% expiry. The control plane enforces certificate pinning for added protection against CA compromise.
+</AdvancedOnly>
+
+### How It Works
+
+```
+1. Agent requests enrollment with token
+2. Control plane validates token and issues certificate
+3. Both sides verify certificates on every connection
+4. Encrypted channel established with TLS 1.3
+```
+
+<Callout type="warn">
+Never disable mTLS in production. The encryption protects your configuration and host state.
+</Callout>
+
+## Role-Based Access Control (RBAC)
+
+### Capability-Based Model
+
+HL Helper uses biscuit tokens for fine-grained authorization.
+
+<BeginnerOnly>
+Each user has permissions (like "can view hosts" or "can approve updates"). Permissions are checked on every action.
+</BeginnerOnly>
+
+<AdvancedOnly>
+Biscuits are unforgeable, time-bound credentials containing attenuated permissions. A biscuit can be issued with a subset of parent credentials, allowing secure delegation. Verification happens client-side and server-side.
+</AdvancedOnly>
+
+### Built-in Roles
+
+| Role | Permissions |
+|------|-------------|
+| Admin | All actions |
+| Editor | Manage hosts, policies, integrations |
+| Viewer | Read-only access to all resources |
+| Approver | Approve/reject change requests |
+
+<SecurityNote
+	title="Least Privilege"
+	description="Assign the minimum permissions users need for their role."
+/>
+
+## Cryptographic Audit Chain
+
+### Immutable Event Log
+
+Every action is recorded in a tamper-proof audit chain.
+
+<BeginnerOnly>
+Think of it as a blockchain of system events. Once an event is recorded, it cannot be changed without everyone knowing.
+</BeginnerOnly>
+
+<AdvancedOnly>
+Each audit entry contains:
+- SHA-256 hash of the previous entry
+- Action details
+- User, timestamp, and result
+- HMAC signature with server key
+
+Tampering with a single entry breaks the chain, making tampering immediately detectable.
+</AdvancedOnly>
+
+### Audit Events
+
+All of these are logged:
+
+- User logins / logouts
+- Host enrollments / deletions
+- Policy changes
+- Update deployments
+- Permission changes
+- Configuration updates
+
+<Callout type="info">
+Audit logs are immutable. You can view and export them but cannot delete or modify.
+</Callout>
+
+## Secret Broker
+
+### Secure Credential Distribution
+
+The secret broker encrypts sensitive data (API keys, passwords) at rest and in transit.
+
+<BeginnerOnly>
+When you store a secret in HL Helper, it's encrypted. Agents retrieve it only when needed for a specific task, and it's never logged.
+</BeginnerOnly>
+
+<AdvancedOnly>
+Secrets are encrypted using AES-256-GCM with a master key derived via Argon2id. Secrets are wrapped per-agent with ephemeral session keys. Access is logged but the secret value itself is never exposed in logs or audit trails. Secrets expire and can be rotated on a schedule.
+</AdvancedOnly>
+
+## Best Practices
+
+1. **Rotate credentials regularly** — Especially enrollment tokens
+2. **Use strong SSO integration** — Avoid local password authentication in production
+3. **Monitor audit logs** — Review them weekly for suspicious activity
+4. **Enable MFA** — For admin and editor accounts
+5. **Keep agents updated** — Security patches are released regularly
+6. **Review permissions** — Quarterly access reviews ensure least privilege
+7. **Use network policies** — Restrict agent network access where possible
+
+<Callout type="danger">
+Never share enrollment tokens via email or chat. Use secure channels or display them only once.
+</Callout>
+
+## Compliance
+
+HL Helper supports compliance with:
+
+- HIPAA (with proper configuration)
+- SOC 2 Type II
+- CIS Benchmarks
+- NIST Cybersecurity Framework
+
+<AdvancedOnly>
+Configure encryption at rest with your own key management system (KMS), enable audit log forwarding to immutable storage, and set up automated compliance checking.
+</AdvancedOnly>

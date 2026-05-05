@@ -1,5 +1,7 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+
 import { SettingRow } from '@/components/settings/setting-row';
 import { BlueprintSkeleton } from '@/components/skeletons/blueprint-skeleton';
 import { apiFetch } from '@/lib/api-client';

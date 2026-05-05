@@ -1,5 +1,7 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+
 import { EmptyState } from '@/components/empty-states/empty-state';
 import { BlueprintSkeleton } from '@/components/skeletons/blueprint-skeleton';
 import { TaskRow } from '@/components/tasks/task-row';

@@ -1,5 +1,7 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+
 import { ContainerCard } from '@/components/containers/container-card';
 import { EmptyState } from '@/components/empty-states/empty-state';
 import { BlueprintSkeleton } from '@/components/skeletons/blueprint-skeleton';

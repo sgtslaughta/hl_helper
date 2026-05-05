@@ -1,5 +1,7 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+
 import { EmptyState } from '@/components/empty-states/empty-state';
 import { TrustPanel } from '@/components/hosts/trust-panel';
 import { Badge } from '@/components/primitives/badge';

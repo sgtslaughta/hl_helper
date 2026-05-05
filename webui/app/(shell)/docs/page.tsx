@@ -1,5 +1,7 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+
 import { EmptyState } from '@/components/empty-states/empty-state';
 import { Button } from '@/components/primitives/button';
 import { BookOpen, Code, Github } from 'lucide-react';

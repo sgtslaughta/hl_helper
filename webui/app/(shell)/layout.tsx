@@ -1,27 +1,7 @@
-'use client';
+import { ShellShell } from '@/components/shell/shell-shell';
 
-import { CommandPalette } from '@/components/shell/command-palette';
-import { Providers } from '@/components/shell/providers';
-import { Sidebar } from '@/components/shell/sidebar';
-import { StatusTicker } from '@/components/shell/ticker';
-import { Topbar } from '@/components/shell/topbar';
+export const dynamic = 'force-dynamic';
 
-export default function ShellLayout({
-	children,
-}: {
-	children: React.ReactNode;
-}) {
-	return (
-		<Providers>
-			<div className="flex h-screen w-screen flex-col bg-canvas">
-				<Topbar />
-				<StatusTicker />
-				<div className="flex flex-1 overflow-hidden">
-					<Sidebar />
-					<main className="flex-1 overflow-auto">{children}</main>
-				</div>
-				<CommandPalette />
-			</div>
-		</Providers>
-	);
+export default function ShellLayout({ children }: { children: React.ReactNode }) {
+	return <ShellShell>{children}</ShellShell>;
 }

@@ -1,0 +1,171 @@
+---
+title: Update Engine
+order: 3
+audience: both
+---
+
+# Update Engine
+
+The update engine automates and manages OS and package updates across your fleet.
+
+## Core Concepts
+
+### Update Policies
+
+An update policy defines how and when updates are applied to hosts.
+
+<BeginnerOnly>
+A policy is like a rule: "For Linux servers in the web tier, apply security updates automatically every Sunday at 2 AM, but require manual approval for major upgrades."
+</BeginnerOnly>
+
+<AdvancedOnly>
+Policies specify:
+- Matching criteria (labels, hostnames, regex)
+- Update types (security, bugfix, minor, major)
+- Deployment method (automatic, approval-required, notify-only)
+- Deployment windows and schedules
+- Rollback triggers and strategies
+- Pre/post-deployment hooks
+</AdvancedOnly>
+
+## Creating a Policy
+
+### Step 1: Define Scope
+
+Select which hosts the policy applies to:
+
+```
+Label: environment = production
+```
+
+### Step 2: Choose Update Type
+
+- **Security Updates**: Critical and high-severity patches
+- **Bug Fix Updates**: Non-security patches
+- **Minor Updates**: Version 1.2 → 1.3
+- **Major Updates**: Version 1.x → 2.0
+
+<Callout type="info">
+You can have multiple policies per host. The most restrictive policy wins.
+</Callout>
+
+### Step 3: Set Deployment Mode
+
+| Mode | Behavior |
+|------|----------|
+| Automatic | Apply immediately when available |
+| Staged | Schedule deployment in waves |
+| Approval | Wait for manual approval per host |
+| Notify | Alert ops, manual SSH connection required |
+
+### Step 4: Configure Schedule
+
+```
+Deployment Window: Sunday 2:00 AM - 4:00 AM UTC
+Blackout Dates: Holiday periods
+Max concurrent hosts: 25% of fleet
+```
+
+<Callout type="warn">
+Stagger deployments to avoid fleet-wide disruptions. Never deploy to 100% of hosts simultaneously.
+</Callout>
+
+## Monitoring Updates
+
+### Update Status
+
+Track each host's update state:
+
+- **Current**: Running latest available
+- **Available**: Updates pending
+- **Staged**: Scheduled for deployment
+- **In Progress**: Update running
+- **Failed**: Update needs manual intervention
+- **Behind**: No compatible updates available
+
+### Rollback
+
+If an update causes problems:
+
+```
+1. Go to Updates → Recent
+2. Select failed update
+3. Click Rollback
+4. Confirm (agents revert to previous version)
+```
+
+<BeginnerOnly>
+Rollbacks are automatic and fast. Your hosts revert to the working version within minutes.
+</BeginnerOnly>
+
+<AdvancedOnly>
+Rollbacks work by preserving the previous OS snapshot, invoking btrfs subvolume rollback, or restoring from backup snapshots. The control plane tracks rollback triggers automatically.
+</AdvancedOnly>
+
+## Pre-Deployment Checks
+
+Before applying updates, HL Helper runs checks:
+
+- Storage space available
+- No critical processes running
+- No active user sessions
+- Network connectivity stable
+- Backup completed recently
+
+<Callout type="warn">
+If checks fail, the update is blocked. Fix the issue and retry.
+</Callout>
+
+## Staging Deployments
+
+For critical updates, use staged deployments:
+
+```
+Wave 1: 2 canary hosts (Monday)
+Wave 2: 10% of fleet (Wednesday)
+Wave 3: 25% of fleet (Friday)
+Wave 4: Remaining hosts (Monday)
+```
+
+Monitor logs and metrics between waves. Stop if issues are detected.
+
+## Integration with Policies
+
+Updates respect your update policies automatically:
+
+- Hosts in maintenance mode skip updates
+- Hosts with active approvals pending wait
+- Hosts with labels matching exclusions are skipped
+- Blackout dates prevent deployments
+
+<SecurityNote
+	title="Audit Trail"
+	description="Every update action is logged and cannot be undone without creating a new audit record."
+	docsLink="/docs/security-model"
+/>
+
+## Common Workflows
+
+### Emergency Security Update
+
+1. Go to Updates → Create Policy
+2. Set Update Type: Security
+3. Set Mode: Automatic
+4. Set Scope: All production Linux hosts
+5. Save
+6. Policy applies within 5 minutes
+
+### Canary Testing
+
+1. Create policy for canary hosts with labels: `role=canary`
+2. Set Mode: Automatic
+3. Deploy to canaries first
+4. Verify in logs / metrics
+5. Expand policy to remaining fleet
+
+### Maintenance Window
+
+1. Set Blackout Dates for maintenance window
+2. Updates are queued, not deployed during blackout
+3. Expire blackout date when maintenance ends
+4. Queued updates apply immediately

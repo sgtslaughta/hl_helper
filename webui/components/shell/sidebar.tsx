@@ -1,5 +1,6 @@
 'use client';
 
+import { useSidebarStore } from '@/stores/sidebar';
 import {
 	AlertTriangle,
 	Bell,
@@ -23,15 +24,20 @@ import {
 	Users,
 	Webhook,
 } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useHotkeys } from 'react-hotkeys-hook';
 
 export function Sidebar() {
-	const [collapsed, setCollapsed] = useState(false);
+	const collapsed = useSidebarStore(state => state.collapsed);
+	const toggle = useSidebarStore(state => state.toggle);
+	const t = useTranslations('nav');
+
+	useHotkeys('cmd+\\,ctrl+\\', toggle, { preventDefault: true });
 
 	const sections = [
 		{
-			title: 'FLEET',
+			title: t('fleet'),
 			items: [
 				{ icon: Server, label: 'Hosts', href: '/hosts', key: 'gh' },
 				{ icon: Boxes, label: 'Containers', href: '/containers', key: 'gc' },
@@ -39,40 +45,40 @@ export function Sidebar() {
 			],
 		},
 		{
-			title: 'OPS',
+			title: t('ops'),
 			items: [
-				{ icon: ListChecks, label: 'Tasks', href: '/tasks', key: 'gt' },
-				{ icon: Download, label: 'Updates', href: '/updates', key: 'gu' },
-				{ icon: Inbox, label: 'Approvals', href: '/approvals' },
-				{ icon: Calendar, label: 'Schedules', href: '/schedules' },
+				{ icon: ListChecks, label: t('tasks'), href: '/tasks', key: 'gt' },
+				{ icon: Download, label: t('updates'), href: '/updates', key: 'gu' },
+				{ icon: Inbox, label: t('approvals'), href: '/approvals' },
+				{ icon: Calendar, label: t('schedules'), href: '/schedules' },
 			],
 		},
 		{
-			title: 'TRUST',
+			title: t('trust'),
 			items: [
-				{ icon: ShieldCheck, label: 'Security', href: '/security', key: 'gs' },
-				{ icon: ScrollText, label: 'Audit', href: '/audit', key: 'ga' },
-				{ icon: LogOut, label: 'Sessions', href: '/sessions' },
-				{ icon: Users, label: 'Users', href: '/users' },
-				{ icon: UserCog, label: 'Roles', href: '/roles' },
-				{ icon: KeyRound, label: 'Bindings', href: '/bindings' },
-				{ icon: AlertTriangle, label: 'Advisories', href: '/advisories' },
+				{ icon: ShieldCheck, label: t('security'), href: '/security', key: 'gs' },
+				{ icon: ScrollText, label: t('audit'), href: '/audit', key: 'ga' },
+				{ icon: LogOut, label: t('sessions'), href: '/sessions' },
+				{ icon: Users, label: t('users'), href: '/users' },
+				{ icon: UserCog, label: t('roles'), href: '/roles' },
+				{ icon: KeyRound, label: t('bindings'), href: '/bindings' },
+				{ icon: AlertTriangle, label: t('advisories'), href: '/advisories' },
 			],
 		},
 		{
-			title: 'CONFIG',
+			title: t('config'),
 			items: [
-				{ icon: Puzzle, label: 'Plugins', href: '/plugins', key: 'gp' },
-				{ icon: Plug, label: 'Integrations', href: '/integrations' },
-				{ icon: Bell, label: 'Notifications', href: '/notifications' },
-				{ icon: Webhook, label: 'Webhooks', href: '/webhooks' },
-				{ icon: Lock, label: 'Secrets', href: '/secrets' },
-				{ icon: Settings, label: 'Settings', href: '/settings' },
+				{ icon: Puzzle, label: t('plugins'), href: '/plugins', key: 'gp' },
+				{ icon: Plug, label: t('integrations'), href: '/integrations' },
+				{ icon: Bell, label: t('notifications'), href: '/notifications' },
+				{ icon: Webhook, label: t('webhooks'), href: '/webhooks' },
+				{ icon: Lock, label: t('secrets'), href: '/secrets' },
+				{ icon: Settings, label: t('settings'), href: '/settings' },
 			],
 		},
 		{
-			title: 'HELP',
-			items: [{ icon: BookOpen, label: 'Docs', href: '/docs', key: 'gd' }],
+			title: t('help'),
+			items: [{ icon: BookOpen, label: t('docs'), href: '/docs', key: 'gd' }],
 		},
 	];
 
@@ -83,11 +89,7 @@ export function Sidebar() {
 			}`}
 		>
 			<div className="flex items-center justify-between p-4">
-				<button
-					type="button"
-					onClick={() => setCollapsed(!collapsed)}
-					className="rounded hover:bg-surface-2 p-1"
-				>
+				<button type="button" onClick={toggle} className="rounded hover:bg-surface-2 p-1">
 					≡
 				</button>
 			</div>

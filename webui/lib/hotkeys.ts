@@ -130,7 +130,7 @@ const DEFAULT_HOTKEYS: HotkeyBinding[] = [
 	},
 	{
 		keys: 'cmd+\\,ctrl+\\',
-		description: 'Toggle sidebar',
+		description: 'Toggle sidebar collapse',
 		action: () => console.log('sidebar'),
 		category: 'ui',
 	},

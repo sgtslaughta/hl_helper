@@ -1,5 +1,7 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+
 import { AdvisoryCard } from '@/components/advisories/advisory-card';
 import { EmptyState } from '@/components/empty-states/empty-state';
 import { Select } from '@/components/primitives/select';

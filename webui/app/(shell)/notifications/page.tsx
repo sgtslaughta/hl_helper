@@ -1,5 +1,7 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+
 import { Button } from '@/components/primitives/button';
 import { Textarea } from '@/components/primitives/textarea';
 import { apiFetch } from '@/lib/api-client';

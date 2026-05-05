@@ -1,0 +1,331 @@
+---
+title: Troubleshooting
+order: 4
+audience: both
+---
+
+# Troubleshooting Guide
+
+Solutions to common issues with HL Helper.
+
+## Agent Won't Connect
+
+### Symptoms
+
+- Host shows **Offline** in the Hosts list
+- No check-ins for > 5 minutes
+- Agent process is running but not communicating
+
+### Diagnosis
+
+SSH into the host and check the agent:
+
+```bash
+systemctl status hl-helper-agent
+journalctl -u hl-helper-agent -n 50
+```
+
+### Common Causes and Fixes
+
+#### 1. Invalid Enrollment Token
+
+```
+Error: enrollment token invalid or expired
+```
+
+**Fix**: Generate a new token and re-enroll:
+
+```bash
+curl -fsSL https://your-server.com/install | bash -s <new-token>
+systemctl restart hl-helper-agent
+```
+
+<BeginnerOnly>
+Enrollment tokens expire after 24 hours. If yours is old, get a fresh one from the Web UI.
+</BeginnerOnly>
+
+#### 2. Network Connectivity
+
+```
+Error: failed to connect to control plane
+DNS: no such host
+```
+
+**Check**:
+
+```bash
+ping control-plane.example.com
+nslookup control-plane.example.com
+nc -zv control-plane.example.com 443
+```
+
+**Fix**:
+- Update agent config with correct server address
+- Check firewall rules allow outbound TCP 443
+- Verify DNS resolution
+
+#### 3. Certificate Expired
+
+```
+Error: certificate has expired
+```
+
+<BeginnerOnly>
+Certificates normally auto-renew. This shouldn't happen.
+</BeginnerOnly>
+
+<AdvancedOnly>
+If clock skew > 30 seconds, certificate validation fails. Sync NTP:
+
+```bash
+timedatectl set-ntp on
+systemctl restart systemd-timesyncd
+```
+</AdvancedOnly>
+
+#### 4. Firewall Blocking mTLS
+
+```
+Error: connection timeout
+```
+
+**Check firewall**:
+
+```bash
+firewall-cmd --list-all
+ufw status
+```
+
+**Fix** (example for UFW):
+
+```bash
+ufw allow 443/tcp
+ufw allow 8883/tcp
+```
+
+### Verify Connection
+
+Once fixed, check:
+
+```bash
+systemctl restart hl-helper-agent
+sleep 5
+systemctl status hl-helper-agent
+```
+
+The host should appear **Online** in Web UI within 30 seconds.
+
+## Audit Chain Verification Fails
+
+### Symptoms
+
+```
+Error: audit chain integrity check failed
+Last valid entry: 2024-01-15 10:30:00 UTC
+```
+
+### Diagnosis
+
+This means an audit entry was tampered with or corrupted.
+
+<BeginnerOnly>
+This is a serious security event. Do not ignore it.
+</BeginnerOnly>
+
+### Causes
+
+1. **Disk corruption** — Storage hardware failure
+2. **Database corruption** — Improper shutdown or crash
+3. **Unauthorized modification** — Security breach attempt
+4. **Bug** — Software issue (rare)
+
+### Recovery
+
+1. **Stop immediately** — Take the affected instance offline
+2. **Backup audit logs** — Copy current audit database
+3. **Contact support** — This is a critical security event
+4. **Investigation** — Security team must review logs before last valid entry
+5. **Rebuild** — May need to restore from last known good backup
+
+<Callout type="danger">
+Do not dismiss audit chain failures. They indicate either hardware failure or a security incident.
+</Callout>
+
+## Plugin Won't Enable
+
+### Symptoms
+
+- Plugin shows **Disabled** after installation
+- Error in logs when trying to enable
+
+### Diagnosis
+
+Check plugin logs:
+
+```bash
+# In Web UI: Settings → Plugins → [Plugin Name] → Logs
+```
+
+Or from CLI:
+
+```
+hl-cli plugins logs <plugin-name> -n 50
+```
+
+### Common Causes
+
+#### 1. Missing Dependencies
+
+```
+Error: required binary 'curl' not found
+```
+
+**Fix**: Install missing package
+
+```bash
+apt-get install curl
+hl-cli plugins enable <plugin-name>
+```
+
+#### 2. Permission Denied
+
+```
+Error: permission denied reading /etc/sensitive-config
+```
+
+**Fix**: Run agent as appropriate user:
+
+```bash
+sudo systemctl edit hl-helper-agent
+# Add: User=root
+systemctl restart hl-helper-agent
+```
+
+<Callout type="warn">
+Running as root increases risk. Only do this if necessary.
+</Callout>
+
+#### 3. Configuration Error
+
+```
+Error: invalid configuration in plugin.yaml
+```
+
+**Fix**: Check plugin config syntax:
+
+```bash
+cat /etc/hl-helper/plugins/<plugin-name>.yaml
+# Fix YAML syntax errors
+hl-cli plugins validate <plugin-name>
+hl-cli plugins enable <plugin-name>
+```
+
+#### 4. Incompatible Version
+
+```
+Error: plugin requires hl-helper >= 2.0.0, installed 1.9.5
+```
+
+**Fix**: Upgrade HL Helper
+
+```bash
+apt-get update && apt-get install hl-helper
+systemctl restart hl-helper-agent
+hl-cli plugins enable <plugin-name>
+```
+
+## Update Deployment Fails
+
+### Symptoms
+
+- Update shows **Failed** status
+- Host rolled back automatically
+
+### Check Logs
+
+```bash
+# On the host that failed
+journalctl -u hl-helper-update -n 100
+```
+
+### Common Issues
+
+#### 1. Insufficient Storage
+
+```
+Error: /boot: no space left on device
+```
+
+**Fix**:
+
+```bash
+df -h
+# Clean old kernels
+apt-get autoremove
+# Retry update
+```
+
+#### 2. Package Conflict
+
+```
+Error: held package, cannot upgrade
+```
+
+**Fix**:
+
+```bash
+apt-mark unhold <package>
+apt-get install -y <package>
+```
+
+#### 3. Pre-Check Failed
+
+```
+Error: critical service running, deferring
+```
+
+**Fix**: Wait for service to stop, or update during maintenance window
+
+## Performance Issues
+
+### Slow Audit Log Queries
+
+**Cause**: Large audit database
+
+**Fix**:
+
+<AdvancedOnly>
+Archive old audit entries (> 1 year) to separate storage. Indexes on user_id and timestamp improve query speed.
+</AdvancedOnly>
+
+### High Agent CPU
+
+```
+top shows hl-helper-agent using 80%+ CPU
+```
+
+**Check**: Recent policy changes or excessive logging
+
+**Fix**:
+
+```bash
+# Reduce log level
+hl-cli config set log_level=warn
+systemctl restart hl-helper-agent
+```
+
+## Getting Help
+
+If you can't resolve the issue:
+
+1. Gather logs:
+   ```bash
+   hl-cli support bundle
+   ```
+
+2. Include:
+   - Error messages
+   - Steps to reproduce
+   - Environment (OS, HL Helper version, agent version)
+
+3. Contact support with the bundle

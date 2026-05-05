@@ -1,5 +1,7 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+
 import { Badge } from '@/components/primitives/badge';
 import { Button } from '@/components/primitives/button';
 import { apiFetch } from '@/lib/api-client';

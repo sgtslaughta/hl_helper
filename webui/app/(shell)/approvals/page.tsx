@@ -1,5 +1,7 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+
 import { ApprovalCard } from '@/components/approvals/approval-card';
 import { EmptyState } from '@/components/empty-states/empty-state';
 import { BlueprintSkeleton } from '@/components/skeletons/blueprint-skeleton';

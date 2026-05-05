@@ -1,5 +1,7 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+
 import { EmptyState } from '@/components/empty-states/empty-state';
 import { ManifestValidator } from '@/components/plugins/manifest-validator';
 import { PluginCard } from '@/components/plugins/plugin-card';

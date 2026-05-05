@@ -1,0 +1,61 @@
+{
+	"nav": {
+		"fleet": "FLEET",
+		"ops": "OPS",
+		"trust": "TRUST",
+		"config": "CONFIG",
+		"help": "HELP",
+		"hosts": "Hosts",
+		"containers": "Containers",
+		"topology": "Topology",
+		"tasks": "Tasks",
+		"updates": "Updates",
+		"approvals": "Approvals",
+		"schedules": "Schedules",
+		"security": "Security",
+		"audit": "Audit",
+		"sessions": "Sessions",
+		"users": "Users",
+		"roles": "Roles",
+		"bindings": "Bindings",
+		"advisories": "Advisories",
+		"plugins": "Plugins",
+		"integrations": "Integrations",
+		"notifications": "Notifications",
+		"webhooks": "Webhooks",
+		"secrets": "Secrets",
+		"settings": "Settings",
+		"docs": "Docs"
+	},
+	"common": {
+		"loading": "Loading...",
+		"error": "Error",
+		"success": "Success",
+		"cancel": "Cancel",
+		"confirm": "Confirm",
+		"delete": "Delete",
+		"save": "Save",
+		"close": "Close",
+		"search": "Search",
+		"noResults": "No results found",
+		"accessDenied": "Access Denied",
+		"unauthorized": "You don't have permission to access this resource"
+	},
+	"audit": {
+		"title": "Audit Log",
+		"description": "Immutable record of all system actions",
+		"verifyChain": "Verify Chain",
+		"verifying": "Verifying...",
+		"filterByActor": "Filter by actor...",
+		"filterByAction": "Filter by action...",
+		"filterBySubject": "Filter by subject...",
+		"noEntries": "No audit entries match your filters",
+		"searchAuditLogs": "Search audit logs..."
+	},
+	"commandPalette": {
+		"searchRoutes": "Search routes or docs...",
+		"navigate": "Navigate",
+		"recent": "Recent",
+		"routes": "Routes"
+	}
+}
