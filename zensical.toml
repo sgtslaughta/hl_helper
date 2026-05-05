@@ -5,6 +5,8 @@ repo_url = "https://github.com/hlhelper/hl_helper"
 docs_dir = "docs"
 
 [project.theme]
+logo = "assets/logo.png"
+favicon = "assets/favicon.png"
 features = [
   "navigation.sections",
   "navigation.indexes",
