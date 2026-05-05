@@ -1,0 +1,77 @@
+[project]
+site_name = "HL Helper"
+site_description = "Self-hosted, security-focused fleet manager for Linux/Unix homelabs"
+repo_url = "https://github.com/hlhelper/hl_helper"
+docs_dir = "docs"
+
+[project.theme]
+name = "zensical"
+
+[project.theme.features]
+enabled = [
+  "navigation.tabs",
+  "navigation.sections",
+  "navigation.expand",
+  "search.suggest",
+  "search.highlight",
+  "content.code.copy",
+]
+
+[[project.theme.palette]]
+scheme = "default"
+[project.theme.palette.toggle]
+icon = "material/brightness-7"
+name = "Switch to dark mode"
+
+[[project.theme.palette]]
+scheme = "slate"
+[project.theme.palette.toggle]
+icon = "material/brightness-4"
+name = "Switch to light mode"
+
+[project.markdown_extensions.admonition]
+[project.markdown_extensions."pymdownx.details"]
+[project.markdown_extensions."pymdownx.superfences"]
+[project.markdown_extensions."pymdownx.highlight"]
+anchor_linenums = true
+[project.markdown_extensions."pymdownx.tabbed"]
+alternate_style = true
+[project.markdown_extensions.toc]
+permalink = true
+
+[project.extra.version]
+provider = "mike"
+
+[[project.nav]]
+"Home" = "index.md"
+
+[[project.nav]]
+"Getting Started" = [
+  { "Installation" = "getting-started/installation.md" },
+  { "Quick Start" = "getting-started/quickstart.md" },
+]
+
+[[project.nav]]
+"User Guide" = [{ "Overview" = "user-guide/overview.md" }]
+
+[[project.nav]]
+"API Reference" = [
+  { "REST API" = "api/rest.md" },
+  { "gRPC" = "api/grpc.md" },
+  { "Enrollment" = "api/enrollment.md" },
+]
+
+[[project.nav]]
+"Security" = [
+  { "Threat Model" = "security/threat-model.md" },
+  { "Key Management" = "security/key-management.md" },
+  { "Agent Privilege Model" = "security/agent-privilege-model.md" },
+  { "Recovery" = "security/recovery.md" },
+  { "Enrollment" = "security/enrollment.md" },
+]
+
+[[project.nav]]
+"Developer Guide" = [
+  { "Architecture" = "developer/architecture.md" },
+  { "Contributing" = "developer/contributing.md" },
+]
