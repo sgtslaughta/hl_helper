@@ -18,7 +18,9 @@ export default function LoginPage() {
 
 			<form onSubmit={handleSubmit} className="space-y-4">
 				<div>
-					<label htmlFor="login-username" className="block text-small text-text">Username</label>
+					<label htmlFor="login-username" className="block text-small text-text">
+						Username
+					</label>
 					<input
 						id="login-username"
 						type="text"
@@ -30,7 +32,9 @@ export default function LoginPage() {
 				</div>
 
 				<div>
-					<label htmlFor="login-password" className="block text-small text-text">Password</label>
+					<label htmlFor="login-password" className="block text-small text-text">
+						Password
+					</label>
 					<input
 						id="login-password"
 						type="password"

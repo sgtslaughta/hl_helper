@@ -1,5 +1,6 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { useHotkeys } from 'react-hotkeys-hook';
 
 export interface HotkeyBinding {
@@ -7,6 +8,15 @@ export interface HotkeyBinding {
 	description: string;
 	action: () => void;
 	category: 'navigation' | 'action' | 'ui';
+}
+
+export function useNavigationHotkeys(): void {
+	const router = useRouter();
+
+	useHotkeys('g h', () => router.push('/hosts'), { preventDefault: true });
+	useHotkeys('g t', () => router.push('/tasks'), { preventDefault: true });
+	useHotkeys('g u', () => router.push('/updates'), { preventDefault: true });
+	useHotkeys('g c', () => router.push('/containers'), { preventDefault: true });
 }
 
 const DEFAULT_HOTKEYS: HotkeyBinding[] = [
