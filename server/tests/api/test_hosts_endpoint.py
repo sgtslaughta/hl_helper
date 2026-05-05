@@ -151,3 +151,84 @@ async def test_delete_already_revoked_409(client: httpx.AsyncClient, async_sessi
     )
     assert response.status_code == 409
     assert "revoked" in response.text.lower()
+
+
+@pytest.mark.asyncio
+async def test_list_hosts_empty(client: httpx.AsyncClient):
+    """Test GET /v1/hosts returns empty list when no hosts."""
+    response = await client.get(
+        "/v1/hosts",
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+@pytest.mark.asyncio
+async def test_list_hosts_returns_all(client: httpx.AsyncClient, async_session_maker):
+    """Test GET /v1/hosts returns all hosts."""
+    # Pre-create hosts
+    async with async_session_maker() as session:
+        hosts = [
+            Host(
+                id="host-1",
+                hostname="host1.example.com",
+                agent_pubkey=b"x" * 32,
+                status="online",
+            ),
+            Host(
+                id="host-2",
+                hostname="host2.example.com",
+                agent_pubkey=b"y" * 32,
+                status="offline",
+            ),
+        ]
+        session.add_all(hosts)
+        await session.commit()
+
+    response = await client.get(
+        "/v1/hosts",
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 2
+    assert data[0]["id"] == "host-1"
+    assert data[0]["hostname"] == "host1.example.com"
+    assert data[0]["status"] == "online"
+    assert data[1]["id"] == "host-2"
+    assert data[1]["hostname"] == "host2.example.com"
+    assert data[1]["status"] == "offline"
+
+
+@pytest.mark.asyncio
+async def test_list_hosts_filter_by_status(client: httpx.AsyncClient, async_session_maker):
+    """Test GET /v1/hosts with status filter."""
+    # Pre-create hosts
+    async with async_session_maker() as session:
+        hosts = [
+            Host(
+                id="host-1",
+                hostname="host1.example.com",
+                agent_pubkey=b"x" * 32,
+                status="online",
+            ),
+            Host(
+                id="host-2",
+                hostname="host2.example.com",
+                agent_pubkey=b"y" * 32,
+                status="offline",
+            ),
+        ]
+        session.add_all(hosts)
+        await session.commit()
+
+    response = await client.get(
+        "/v1/hosts?state=online",
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    assert data[0]["id"] == "host-1"
+    assert data[0]["status"] == "online"

@@ -1,0 +1,4 @@
+#!/command/with-contenv sh
+# Next.js standalone server. Public face on :3000.
+cd /app/webui
+exec s6-setuidgid hl /usr/bin/node server.js

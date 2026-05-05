@@ -26,7 +26,7 @@ export default function OnboardingPage() {
 	const handleFetchEnrollmentCode = async () => {
 		setIsLoading(true);
 		try {
-			const data = await apiFetch<{ token: string }>('/v1/hosts/enrollment-token');
+			const data = await apiFetch<{ token: string }>('/v1/enroll');
 			setEnrollmentCode(data.token);
 		} catch (err) {
 			console.error('Failed to fetch enrollment token:', err);

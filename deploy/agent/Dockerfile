@@ -1,6 +1,7 @@
 # Multi-stage build for hl-agent.
 # Produces a static binary in scratch image.
-FROM --platform=$BUILDPLATFORM golang:1.23-bookworm AS builder
+ARG GO_VERSION=1.25-bookworm
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION} AS builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
@@ -10,7 +11,6 @@ WORKDIR /src
 COPY agent/go.mod agent/go.sum ./
 RUN go mod download
 COPY agent/ ./
-COPY proto/ ../proto/
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -trimpath \
     -ldflags="-s -w -X main.version=$VERSION -X main.commit=$COMMIT -X main.date=$DATE" \

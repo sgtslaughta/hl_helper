@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.app.api.middleware.admin_auth import admin_required
@@ -16,6 +18,7 @@ from server.app.dispatcher.dispatcher import (
     PkgUpdatePayload,
 )
 from server.app.dispatcher.targets import HostListSelector
+from server.app.models.host import Host
 from server.app.rbac.provider import Principal
 from server.app.revocation.service import (
     HostAlreadyRevokedError,
@@ -27,6 +30,20 @@ router = APIRouter(prefix="/v1/hosts", tags=["hosts"])
 
 
 # ===== Request/Response Models =====
+
+
+class HostOut(BaseModel):
+    """Host response model."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    hostname: str
+    display_name: str | None = None
+    status: str
+    enrolled_at: datetime
+    last_seen_at: datetime | None = None
+    labels: dict = {}
 
 
 class RebootActionRequest(BaseModel):
@@ -73,6 +90,29 @@ def get_revocation_service(request: Request) -> RevocationService:
     state = get_app_state(request)
     rs: RevocationService = state.revocation_service
     return rs
+
+
+@router.get("", response_model=list[HostOut])
+async def list_hosts(
+    request: Request,
+    actor: str = Depends(admin_required),
+    session: AsyncSession = Depends(get_session),
+    state: str | None = None,
+    group_id: str | None = None,
+) -> list[HostOut]:
+    """List hosts. Optional filters: state, group_id."""
+    stmt = select(Host)
+
+    # Apply state filter if provided
+    if state:
+        stmt = stmt.where(Host.status == state)
+
+    # Note: group_id filter would require a join with GroupMembership
+    # Implement if needed when group filtering is required
+
+    result = await session.execute(stmt)
+    rows = result.scalars().all()
+    return [HostOut.model_validate(r) for r in rows]
 
 
 @router.delete("/{host_id}", status_code=204)

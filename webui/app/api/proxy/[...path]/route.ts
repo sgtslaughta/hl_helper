@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server';
 
-const FASTAPI_BASE = 'http://127.0.0.1:8000';
+const FASTAPI_BASE = process.env.INTERNAL_API_BASE || 'http://127.0.0.1:8000';
 
 async function handler(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) {
 	const params = await ctx.params;

@@ -1,3 +1,5 @@
+# AIO-specific ignore (BuildKit picks <dockerfile>.dockerignore over root).
+# AIO bundles server (Python), webui (Next.js), agent (Go) — needs all source trees.
 .git
 .github
 .gitlab-ci.yml
@@ -11,16 +13,15 @@ __pycache__
 node_modules
 site
 docs
-# NOTE: don't ignore `agent/` here — pyproject lists it as a setuptools
-# package, so pip install needs it at server-image build time. The agent
-# *binary* is built from a separate image (deploy/agent/Dockerfile).
 proto
 tests
 server/tests
-agent/internal
-agent/cmd
 agent/build
 agent/.go-cache
+deploy/server
+deploy/webui
+deploy/agent
+deploy/compose
 *.db
 *.sqlite
 *.sqlite3
@@ -29,7 +30,6 @@ agent/.go-cache
 .coverage
 coverage.xml
 sbom-*.json
-deploy/agent
 .dockerignore
 .gitignore
 *.md

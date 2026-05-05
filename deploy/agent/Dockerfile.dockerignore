@@ -1,0 +1,34 @@
+# Agent-specific ignore (BuildKit picks <dockerfile>.dockerignore over root .dockerignore).
+# Agent build needs agent/cmd + agent/internal (root .dockerignore drops them for the server image).
+.git
+.github
+.gitlab-ci.yml
+.venv
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.mypy_cache
+.ruff_cache
+node_modules
+site
+docs
+proto
+tests
+server
+webui
+agent/build
+agent/.go-cache
+deploy/server
+deploy/webui
+*.db
+*.sqlite
+*.sqlite3
+.env
+.env.*
+.coverage
+coverage.xml
+sbom-*.json
+.dockerignore
+.gitignore
+*.md

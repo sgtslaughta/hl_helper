@@ -29,7 +29,7 @@ export function useAuth() {
 		queryKey: ['auth', 'session'],
 		queryFn: async () => {
 			try {
-				const response = await apiFetch<Session>('/v1/auth/me');
+				const response = await apiFetch<Session>('/v1/auth/whoami');
 				return response;
 			} catch {
 				return null;

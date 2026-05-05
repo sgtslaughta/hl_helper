@@ -1,0 +1,12 @@
+#!/command/with-contenv sh
+# FastAPI control plane on loopback. Public access via Next.js proxy.
+# cd /app: server package is at /app/server (added to sys.path via cwd, matching
+# the standalone server image). pyproject.toml only declares the top-level
+# `server` package, so it's not installed as a site-package.
+cd /app
+exec s6-setuidgid hl \
+    /usr/local/bin/uvicorn server.app.main:app \
+    --host 127.0.0.1 \
+    --port 8000 \
+    --proxy-headers \
+    --no-access-log

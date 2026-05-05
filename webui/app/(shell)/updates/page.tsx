@@ -44,7 +44,7 @@ export default function UpdatesPage() {
 
 	const { data: policies, isLoading: policiesLoading } = useQuery({
 		queryKey: ['policies'],
-		queryFn: () => apiFetch<Policy[]>('/v1/policies'),
+		queryFn: () => apiFetch<Policy[]>('/v1/update-policies'),
 	});
 
 	const planMutation = useMutation({

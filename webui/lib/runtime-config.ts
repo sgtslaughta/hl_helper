@@ -21,9 +21,12 @@ export async function getRuntimeConfig(): Promise<RuntimeConfig> {
 			typeof window !== 'undefined'
 				? window.location.pathname.split('/').slice(0, -1).join('/')
 				: '';
+		// Route through the runtime proxy handler at /api/proxy/[...path].
+		// It reads INTERNAL_API_BASE at request time, so the same image works
+		// across compose (server:8000) + AIO (127.0.0.1:8000) without rebuild.
 		cached = {
-			apiBase: `${basePath}/api`,
-			wsBase: `${typeof window !== 'undefined' ? (window.location.protocol === 'https:' ? 'wss:' : 'ws:') : 'ws:'}//${typeof window !== 'undefined' ? window.location.host : 'localhost'}${basePath}/api/v1/events`,
+			apiBase: `${basePath}/api/proxy`,
+			wsBase: `${typeof window !== 'undefined' ? (window.location.protocol === 'https:' ? 'wss:' : 'ws:') : 'ws:'}//${typeof window !== 'undefined' ? window.location.host : 'localhost'}${basePath}/api/proxy/v1/events`,
 			basePath: basePath || '/',
 		};
 	}
