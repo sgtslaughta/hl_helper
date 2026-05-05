@@ -99,3 +99,27 @@ async def test_mint_ttl_below_min_returns_400(client: httpx.AsyncClient):
         json={"label": "x", "ttl_seconds": 10},
     )
     assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_list_pending_returns_minted(client: httpx.AsyncClient):
+    minted = await client.post(
+        "/v1/enrollment-tokens",
+        headers=ADMIN_HEADERS,
+        json={"label": "host-a", "ttl_seconds": 900},
+    )
+    assert minted.status_code == 201
+    listed = await client.get("/v1/enrollment-tokens", headers=ADMIN_HEADERS)
+    assert listed.status_code == 200
+    rows = listed.json()
+    assert any(r["id"] == minted.json()["token_id"] for r in rows)
+    found = next(r for r in rows if r["id"] == minted.json()["token_id"])
+    assert "plaintext_token" not in found
+    assert found["label"] == "host-a"
+    assert len(found["last_4"]) == 4
+
+
+@pytest.mark.asyncio
+async def test_list_requires_admin(client: httpx.AsyncClient):
+    resp = await client.get("/v1/enrollment-tokens")
+    assert resp.status_code in (401, 403)

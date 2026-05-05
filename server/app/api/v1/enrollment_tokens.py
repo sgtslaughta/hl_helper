@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from server.app.api.middleware.admin_auth import admin_required
 from server.app.api.middleware.rate_limit import RateLimiter, rate_limit_dependency
 from server.app.api.state import get_app_state
-from server.app.enrollment.service import EnrollmentService
+from server.app.enrollment.service import EnrollmentService, TokenNotFoundError
 from server.app.enrollment.tokens import clamp_ttl_seconds
 
 router = APIRouter(prefix="/v1/enrollment-tokens", tags=["enrollment-tokens"])
@@ -29,6 +29,16 @@ class MintResponse(BaseModel):
     plaintext_token: str
     expires_at: datetime
     install_command: str
+
+
+class PendingTokenOut(BaseModel):
+    id: str
+    label: str | None
+    prefix: str
+    last_4: str
+    expires_at: datetime
+    created_at: datetime
+    created_by: str
 
 
 async def _get_session(request: Request) -> AsyncIterator[AsyncSession]:
@@ -85,3 +95,27 @@ async def mint(
         expires_at=row.expires_at,
         install_command=install_command,
     )
+
+
+@router.get(
+    "",
+    response_model=list[PendingTokenOut],
+    dependencies=[Depends(admin_required)],
+)
+async def list_pending(
+    service: EnrollmentService = Depends(_get_service),
+    session: AsyncSession = Depends(_get_session),
+) -> list[PendingTokenOut]:
+    rows = await service.list_pending(session)
+    return [
+        PendingTokenOut(
+            id=r.id,
+            label=r.note,
+            prefix="hlh_enr_",
+            last_4=r.id[-4:],
+            expires_at=r.expires_at,
+            created_at=r.issued_at,
+            created_by=r.issued_by,
+        )
+        for r in rows
+    ]
