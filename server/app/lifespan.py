@@ -266,10 +266,18 @@ async def build_app_state(settings: FleetSettings) -> AppState:
     async with sm() as session:
         await revocation_service.load_from_db(session)
 
-    # Setup enrollment service
-    grpc_endpoint = settings.public_url.replace("https://", "").replace("http://", "")
-    if not grpc_endpoint.endswith(":50051"):
-        grpc_endpoint = f"{grpc_endpoint}:50051"
+    # Setup enrollment service.
+    # public_url may include scheme and/or HTTP port (e.g. "http://localhost:8000").
+    # gRPC runs on a separate port (50051), so we must extract just the host.
+    from urllib.parse import urlparse
+
+    _parsed = urlparse(
+        settings.public_url
+        if "://" in settings.public_url
+        else f"http://{settings.public_url}"
+    )
+    grpc_host = _parsed.hostname or "localhost"
+    grpc_endpoint = f"{grpc_host}:50051"
     enrollment_service = EnrollmentService(
         ca=ca,
         signing_backend=signing_backend,
