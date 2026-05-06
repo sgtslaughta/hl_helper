@@ -3,6 +3,7 @@
 import { OnboardingStep } from '@/components/onboarding/onboarding-step';
 import { Button } from '@/components/primitives/button';
 import { Select } from '@/components/primitives/select';
+import { mintEnrollmentToken } from '@/lib/api/enrollment';
 import { apiFetch } from '@/lib/api-client';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -26,11 +27,11 @@ export default function OnboardingPage() {
 	const handleFetchEnrollmentCode = async () => {
 		setIsLoading(true);
 		try {
-			const data = await apiFetch<{ token: string }>('/v1/enroll');
-			setEnrollmentCode(data.token);
+			const data = await mintEnrollmentToken({ label: 'first-host', ttl_seconds: 900 });
+			setEnrollmentCode(data.install_command);
 		} catch (err) {
-			console.error('Failed to fetch enrollment token:', err);
-			setEnrollmentCode('Error loading enrollment code');
+			console.error('Failed to mint enrollment token:', err);
+			setEnrollmentCode('Error generating enrollment command');
 		} finally {
 			setIsLoading(false);
 		}
@@ -115,14 +116,15 @@ export default function OnboardingPage() {
 				return (
 					<OnboardingStep step={3} headline="Add Your First Host">
 						<p className="text-text-dim mb-4">
-							Use this enrollment code to register your first host:
+							Run this command on your first host to install the agent and register it.
+							The token expires in 15 minutes.
 						</p>
 						{!enrollmentCode ? (
 							<Button onClick={handleFetchEnrollmentCode} disabled={isLoading} type="button">
-								{isLoading ? 'Loading...' : 'Get Enrollment Code'}
+								{isLoading ? 'Generating...' : 'Generate install command'}
 							</Button>
 						) : (
-							<div className="bg-surface-2 rounded p-4 font-mono text-sm text-text-dim">
+							<div className="bg-surface-2 rounded p-4 font-mono text-sm text-text-dim overflow-auto whitespace-pre-wrap break-all">
 								<code>{enrollmentCode}</code>
 							</div>
 						)}
