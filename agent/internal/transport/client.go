@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"log"
 	"math/rand"
 	"time"
 
@@ -55,6 +56,7 @@ func (c *Client) Run(ctx context.Context) error {
 			backoff = c.opts.BaseBackoff
 			continue
 		}
+		log.Printf("transport: stream error: %v (retrying in %s)", err, backoff)
 		jitter := time.Duration(rand.Int63n(int64(backoff/4 + 1)))
 		select {
 		case <-ctx.Done():
