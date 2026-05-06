@@ -3,6 +3,7 @@ package enrollment
 
 import (
 	"bytes"
+	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/x509"
@@ -61,25 +62,26 @@ func Run(ks *keystore.FileKeystore, opts EnrollOptions) (*EnrollResponse, error)
 		return nil, fmt.Errorf("generate TLS key: %w", err)
 	}
 
-	// Step 3: Build CSR.
-	// Server requires the CSR's public key to be the agent's Ed25519 signing
-	// key (see server/app/enrollment/service.py:csr_pubkey isinstance check).
-	// We sign the CSR with the signing key to keep CSR pubkey == agent_pubkey.
-	signingKeyData, err := os.ReadFile(filepath.Join(ks.Dir(), keystore.SigningKeyFile))
+	// Step 3: Build CSR signed by the ECDSA TLS key (server's BoringSSL does
+	// not advertise Ed25519 sig schemes in TLS 1.3, so the leaf cert MUST be
+	// bound to an ECDSA key for the agent's later TLS handshake to work).
+	// The Ed25519 signing key is sent separately as agent_pubkey_b64 for
+	// outbox message authentication.
+	tlsKeyData, err := os.ReadFile(filepath.Join(ks.Dir(), keystore.TLSKeyFile))
 	if err != nil {
-		return nil, fmt.Errorf("read signing key: %w", err)
+		return nil, fmt.Errorf("read TLS key: %w", err)
 	}
-	skBlock, _ := pem.Decode(signingKeyData)
-	if skBlock == nil {
-		return nil, fmt.Errorf("signing key: invalid PEM")
+	tlsBlock, _ := pem.Decode(tlsKeyData)
+	if tlsBlock == nil {
+		return nil, fmt.Errorf("TLS key: invalid PEM")
 	}
-	parsedSk, err := x509.ParsePKCS8PrivateKey(skBlock.Bytes)
+	parsedTls, err := x509.ParsePKCS8PrivateKey(tlsBlock.Bytes)
 	if err != nil {
-		return nil, fmt.Errorf("parse signing key: %w", err)
+		return nil, fmt.Errorf("parse TLS key: %w", err)
 	}
-	signingPriv, ok := parsedSk.(ed25519.PrivateKey)
+	tlsPriv, ok := parsedTls.(*ecdsa.PrivateKey)
 	if !ok {
-		return nil, fmt.Errorf("signing key is not Ed25519")
+		return nil, fmt.Errorf("TLS key is not ECDSA")
 	}
 
 	csrTemplate := &x509.CertificateRequest{
@@ -87,7 +89,7 @@ func Run(ks *keystore.FileKeystore, opts EnrollOptions) (*EnrollResponse, error)
 			CommonName: opts.Hostname,
 		},
 	}
-	csrDER, err := x509.CreateCertificateRequest(rand.Reader, csrTemplate, signingPriv)
+	csrDER, err := x509.CreateCertificateRequest(rand.Reader, csrTemplate, tlsPriv)
 	if err != nil {
 		return nil, fmt.Errorf("create CSR: %w", err)
 	}

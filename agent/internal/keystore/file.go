@@ -138,10 +138,10 @@ func (ks *FileKeystore) TLSCertAndKey() ([]byte, []byte, error) {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, nil, err
 	}
-	// The leaf cert is issued for the Ed25519 signing key (CSR is signed with
-	// it; server requires Ed25519 in the CSR). The TLS handshake therefore
-	// must use the signing key, not the legacy ECDSA tls.key.
-	key, err := os.ReadFile(filepath.Join(ks.dir, SigningKeyFile))
+	// The leaf cert is bound to the ECDSA P-256 TLS key — server's BoringSSL
+	// doesn't advertise Ed25519 in TLS 1.3 sig schemes, so we keep TLS on
+	// ECDSA. Ed25519 signing key is used separately for outbox message auth.
+	key, err := os.ReadFile(filepath.Join(ks.dir, TLSKeyFile))
 	if err != nil {
 		return nil, nil, err
 	}

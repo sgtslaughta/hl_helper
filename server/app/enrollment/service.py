@@ -194,32 +194,42 @@ class EnrollmentService:
         if tok.redeemed_at is not None:
             raise TokenAlreadyRedeemedError("enrollment token already redeemed")
 
-        # 5. Validate agent_pubkey: extract public key from CSR and verify it matches
+        # 5. Validate agent_pubkey + CSR.
+        #
+        # The agent maintains TWO keypairs:
+        #   - Ed25519 "signing" key — used for outbox/message authentication.
+        #     Sent in body.agent_pubkey_b64 (raw 32 bytes).
+        #   - ECDSA P-256 "TLS" key — used for the mTLS transport. The CSR is
+        #     signed with this key, and the resulting leaf cert is what the
+        #     agent presents during the gRPC TLS handshake. (BoringSSL on the
+        #     server side does not advertise Ed25519 sig schemes in TLS 1.3.)
+        #
+        # We therefore require:
+        #   - agent_pubkey is exactly 32 bytes (Ed25519 raw pubkey shape).
+        #   - CSR is valid PEM/DER and parses to an ECDSA-P256 OR Ed25519 key.
+        # We DO NOT require CSR pubkey == agent_pubkey: they are intentionally
+        # distinct keys with different cryptographic roles.
+        from cryptography.hazmat.primitives.asymmetric import ec
+
         try:
             if len(agent_pubkey) != 32:
                 raise CsrInvalidError("agent_pubkey must be exactly 32 bytes")
 
-            # Parse CSR to extract public key
             if csr_pem.startswith(b"-----"):
                 csr_obj = x509.load_pem_x509_csr(csr_pem)
             else:
                 csr_obj = x509.load_der_x509_csr(csr_pem)
 
             csr_pubkey = csr_obj.public_key()
-
-            # Verify CSR pubkey is Ed25519 and extract raw bytes
-            if not isinstance(csr_pubkey, ed25519.Ed25519PublicKey):
+            if not isinstance(csr_pubkey, (ed25519.Ed25519PublicKey, ec.EllipticCurvePublicKey)):
                 raise CsrInvalidError(
-                    f"CSR must contain Ed25519 public key, got {type(csr_pubkey).__name__}"
+                    f"CSR must contain Ed25519 or EC public key, got {type(csr_pubkey).__name__}"
                 )
-
-            csr_pubkey_raw = csr_pubkey.public_bytes(
-                encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw
-            )
-
-            # Verify agent_pubkey matches CSR public key
-            if agent_pubkey != csr_pubkey_raw:
-                raise CsrInvalidError("agent_pubkey does not match public key in CSR (pubkey_mismatch)")
+            if isinstance(csr_pubkey, ec.EllipticCurvePublicKey):
+                if not isinstance(csr_pubkey.curve, ec.SECP256R1):
+                    raise CsrInvalidError(
+                        f"EC CSR must use P-256 curve, got {csr_pubkey.curve.name}"
+                    )
         except CsrInvalidError:
             raise
         except Exception as e:

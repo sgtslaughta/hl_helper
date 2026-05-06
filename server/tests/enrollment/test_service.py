@@ -344,14 +344,17 @@ async def test_redeem_concurrent_calls_only_one_wins(
 
 
 @pytest.mark.asyncio
-async def test_redeem_agent_pubkey_must_match_csr_pubkey(
+async def test_redeem_accepts_agent_pubkey_distinct_from_csr_pubkey(
     service: EnrollmentService, async_session
 ) -> None:
-    """Test that agent_pubkey must match the public key in the CSR."""
-    csr_pem, correct_pubkey = make_csr()
-    # Generate a different pubkey that won't match the CSR
-    wrong_sk = ed25519.Ed25519PrivateKey.generate()
-    wrong_pubkey = wrong_sk.public_key().public_bytes(
+    """agent_pubkey (Ed25519 signing key) intentionally differs from CSR pubkey
+    (ECDSA TLS key). Server must accept any valid 32-byte Ed25519 pubkey alongside
+    a valid CSR — they are independent keys with different cryptographic roles.
+    """
+    csr_pem, _csr_signing_pubkey = make_csr()
+    # An independently generated Ed25519 pubkey is valid agent_pubkey.
+    independent_sk = ed25519.Ed25519PrivateKey.generate()
+    independent_pubkey = independent_sk.public_key().public_bytes(
         encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw
     )
 
@@ -361,19 +364,14 @@ async def test_redeem_agent_pubkey_must_match_csr_pubkey(
         )
         await session.commit()
 
-        # Try to redeem with wrong agent_pubkey
-        from server.app.enrollment.service import CsrInvalidError
-
-        with pytest.raises(CsrInvalidError) as exc_info:
-            await service.redeem(
-                session,
-                token_plaintext=plaintext,
-                csr_pem=csr_pem,
-                hostname="test-host",
-                agent_pubkey=wrong_pubkey,
-            )
-
-        assert "pubkey" in str(exc_info.value).lower()
+        result = await service.redeem(
+            session,
+            token_plaintext=plaintext,
+            csr_pem=csr_pem,
+            hostname="test-host",
+            agent_pubkey=independent_pubkey,
+        )
+        assert result.host_id
 
 
 @pytest.mark.asyncio
