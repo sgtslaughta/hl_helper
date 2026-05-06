@@ -12,7 +12,7 @@ const TABS: { key: TabKey; label: string }[] = [
 	{ key: 'audit', label: 'Audit' },
 ];
 
-export function HostTabs({ panels }: { panels: Record<TabKey, ReactNode> }) {
+export function HostTabs({ panels }: { panels: Record<TabKey, () => ReactNode> }) {
 	const [active, setActive] = useState<TabKey>('overview');
 	return (
 		<div>
@@ -31,7 +31,7 @@ export function HostTabs({ panels }: { panels: Record<TabKey, ReactNode> }) {
 				))}
 			</nav>
 			<div role="tabpanel" className="pt-4">
-				{panels[active]}
+				{panels[active]()}
 			</div>
 		</div>
 	);

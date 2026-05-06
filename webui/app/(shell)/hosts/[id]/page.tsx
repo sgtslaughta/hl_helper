@@ -29,7 +29,7 @@ export default function HostDetailPage() {
 
 	const isCriticalOrOffline = host.status === 'critical' || host.status === 'offline';
 
-	const overview = (
+	const overviewPanel = (
 		<div className="space-y-4">
 			{isCriticalOrOffline ? (
 				<div className="rounded border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-300">
@@ -55,11 +55,11 @@ export default function HostDetailPage() {
 			</header>
 			<HostTabs
 				panels={{
-					overview,
-					tasks: <HostTasksPanel hostId={id} />,
-					posture: <HostPosturePanel hostId={id} />,
-					terminal: <HostTerminalPanel hostId={id} />,
-					audit: <HostAuditPanel hostId={id} />,
+					overview: () => overviewPanel,
+					tasks: () => <HostTasksPanel hostId={id} />,
+					posture: () => <HostPosturePanel hostId={id} />,
+					terminal: () => <HostTerminalPanel hostId={id} />,
+					audit: () => <HostAuditPanel hostId={id} />,
 				}}
 			/>
 		</div>
