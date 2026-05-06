@@ -11,6 +11,7 @@ import { HostTabs } from '@/components/hosts/host-tabs';
 import { HostTasksPanel } from '@/components/hosts/host-tasks-panel';
 import { HostPosturePanel } from '@/components/hosts/host-posture-panel';
 import { HostAuditPanel } from '@/components/hosts/host-audit-panel';
+import { HostTerminalPanel } from '@/components/hosts/host-terminal-panel';
 import { BlueprintSkeleton } from '@/components/skeletons/blueprint-skeleton';
 import { EmptyState } from '@/components/empty-states/empty-state';
 
@@ -41,10 +42,6 @@ export default function HostDetailPage() {
     </div>
   );
 
-  const placeholder = (label: string) => (
-    <EmptyState title={label} description="This view is part of follow-up work." />
-  );
-
   return (
     <div className="p-4">
       <header className="mb-4">
@@ -56,7 +53,7 @@ export default function HostDetailPage() {
           overview,
           tasks: <HostTasksPanel hostId={id} />,
           posture: <HostPosturePanel hostId={id} />,
-          terminal: placeholder('Terminal'),
+          terminal: <HostTerminalPanel hostId={id} />,
           audit: <HostAuditPanel hostId={id} />,
         }}
       />
