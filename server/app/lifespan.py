@@ -7,10 +7,15 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, AsyncIterator
 from uuid import uuid4
 
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from grpc.aio import Server
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from server.app.audit.sql_chain import SqlAuditChain
@@ -24,6 +29,7 @@ from server.app.enrollment.service import EnrollmentService
 from server.app.events.bus import Bus
 from server.app.grpc.dispatcher import CommandDispatcher
 from server.app.grpc.result_handler import ResultHandler
+from server.app.grpc.server import make_grpc_server
 from server.app.models import Base, Approval
 from server.app.rbac.approvals import SubjectType, Policy
 from server.app.rbac.engine import BuiltinEngine
@@ -157,6 +163,7 @@ class AppState:
     webauthn_rp_id: str | None = None
     webauthn_origin: str | None = None
     public_url: str | None = None
+    grpc_server: Server | None = None
 
 
 async def build_app_state(settings: FleetSettings) -> AppState:
@@ -306,6 +313,77 @@ async def build_app_state(settings: FleetSettings) -> AppState:
     )
 
 
+def _make_csr_and_key() -> tuple[bytes, bytes]:
+    """Generate a fresh ECDSA P-256 keypair + CSR. Returns (csr_pem, key_pem)."""
+    sk = ec.generate_private_key(ec.SECP256R1())
+    key_pem = sk.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    csr = (
+        x509.CertificateSigningRequestBuilder()
+        .subject_name(x509.Name([x509.NameAttribute(x509.NameOID.COMMON_NAME, "grpc-server")]))
+        .sign(sk, hashes.SHA256())
+    )
+    return csr.public_bytes(serialization.Encoding.PEM), key_pem
+
+
+async def _start_grpc_server(state: AppState, grpc_host: str) -> None:
+    """Start the gRPC server on port 50051.
+
+    Mints a server cert using the CA, builds the gRPC server with mTLS,
+    and starts it. If gRPC startup fails, logs a warning and continues
+    without it (fail-open for dev mode).
+
+    Args:
+        state: AppState with CA, dispatcher, result_handler, revocation_service.
+        grpc_host: Hostname to use in the server cert CN.
+    """
+    # Check if gRPC is disabled via env var
+    if os.environ.get("HL_GRPC_DISABLE") == "1":
+        logger.info("gRPC startup skipped (HL_GRPC_DISABLE=1)")
+        return
+
+    try:
+        # Generate server CSR + key
+        csr_pem, key_pem = _make_csr_and_key()
+
+        # Mint server cert using CA (1-hour TTL for dev)
+        server_cert_pem = state.ca.issue_server_cert(
+            csr_pem,
+            server_id=grpc_host,
+            ttl=timedelta(hours=1),
+            dns_names=[grpc_host, "localhost"],
+        )
+
+        # Build CA chain (root + intermediate)
+        root_crt_pem = state.ca.root_cert.public_bytes(serialization.Encoding.PEM)
+        int_crt_pem = state.ca.int_cert.public_bytes(serialization.Encoding.PEM)
+        ca_chain_pem = root_crt_pem + int_crt_pem
+
+        # Build cert chain (leaf + intermediate)
+        cert_chain_pem = server_cert_pem + int_crt_pem
+
+        # Create and start gRPC server
+        server, bound_addr, _ = make_grpc_server(
+            server_cert_chain_pem=cert_chain_pem,
+            server_key_pem=key_pem,
+            client_ca_pem=ca_chain_pem,
+            bind_address="0.0.0.0:50051",
+            dispatcher=state.dispatcher,
+            result_handler=state.result_handler,
+            revocation=state.revocation_service,
+        )
+
+        await server.start()
+        state.grpc_server = server
+        logger.info(f"gRPC server started at {bound_addr}")
+
+    except Exception as e:
+        logger.warning(f"Failed to start gRPC server: {e}. Continuing with HTTP-only mode.")
+
+
 @asynccontextmanager
 async def app_lifespan(app: Any) -> AsyncIterator[None]:
     """FastAPI lifespan context manager.
@@ -319,9 +397,26 @@ async def app_lifespan(app: Any) -> AsyncIterator[None]:
     state = await build_app_state(settings)
     app.state.app_state = state
 
+    # Start gRPC server alongside HTTP
+    from urllib.parse import urlparse
+    _parsed = urlparse(
+        settings.public_url
+        if "://" in settings.public_url
+        else f"http://{settings.public_url}"
+    )
+    grpc_host = _parsed.hostname or "localhost"
+    await _start_grpc_server(state, grpc_host)
+
     yield
 
-    # Shutdown: stop session service and close engine
+    # Shutdown: stop gRPC server, session service, and close engine
+    if state.grpc_server:
+        try:
+            await state.grpc_server.stop(grace=5)
+            logger.info("gRPC server stopped")
+        except Exception as e:
+            logger.warning(f"Error stopping gRPC server: {e}")
+
     if state.session_service:
         await state.session_service.stop()
     await state.engine.dispose()
