@@ -59,11 +59,11 @@ func New(opts Options) *Client { return &Client{opts: opts} }
 func (c *Client) Run(ctx context.Context) error {
 	backoff := c.opts.BaseBackoff
 	if backoff == 0 {
-		backoff = time.Second
+		backoff = 200 * time.Millisecond
 	}
 	maxB := c.opts.MaxBackoff
 	if maxB == 0 {
-		maxB = 60 * time.Second
+		maxB = 10 * time.Second
 	}
 	for {
 		select {

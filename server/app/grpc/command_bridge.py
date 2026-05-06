@@ -32,9 +32,35 @@ async def run_command_bridge(
     grpc_dispatcher: CommandDispatcher,
     sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Long-running task: forward command.issued events to grpc queue."""
+    """Long-running task: forward command.issued events to grpc queue.
+
+    On startup, also re-enqueue any QUEUED commands so a server restart
+    doesn't strand commands that were issued before the bus subscription
+    re-attached. Prevents the "agent connects but no commands flow" lag.
+    """
     sub = bus.subscribe("commands")
     log.info("command_bridge.started")
+
+    try:
+        from server.app.models.command import CommandStatus
+        from sqlalchemy import select as _sel
+
+        async with sessionmaker() as session:
+            rows = (
+                await session.execute(
+                    _sel(Command).where(Command.status == CommandStatus.QUEUED)
+                )
+            ).scalars().all()
+            for cmd in rows:
+                if not cmd.envelope_bytes:
+                    continue
+                envelope = envelope_pb2.CommandEnvelope()
+                envelope.ParseFromString(cmd.envelope_bytes)
+                await grpc_dispatcher.enqueue(cmd.host_id, envelope)
+            if rows:
+                log.info("command_bridge.replayed_queued", count=len(rows))
+    except Exception as e:
+        log.exception("command_bridge.replay_failed", error=str(e))
     try:
         async for ev in sub:
             payload: Any = ev.payload
