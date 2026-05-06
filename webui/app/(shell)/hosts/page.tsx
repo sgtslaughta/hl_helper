@@ -2,62 +2,40 @@
 
 export const dynamic = 'force-dynamic';
 
-import { EmptyState } from '@/components/empty-states/empty-state';
-import { HostFilters } from '@/components/hosts/host-filters';
-import { ActiveHostRow } from '@/components/hosts/active-host-row';
-import { BlueprintSkeleton } from '@/components/skeletons/blueprint-skeleton';
-import { apiFetch } from '@/lib/api-client';
-import type { Host } from '@/lib/api/hosts';
-import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
+import { HostFilters } from '@/components/hosts/host-filters';
+import { HostListTable } from '@/components/hosts/host-list-table';
+import { EnrollmentModal } from '@/components/hosts/enrollment-modal';
+import { useCanPerform } from '@/lib/rbac';
 
 export default function HostsPage() {
-	const [status, setStatus] = useState('all');
-	const [search, setSearch] = useState('');
+  const [status, setStatus] = useState('all');
+  const [search, setSearch] = useState('');
+  const [modalOpen, setModalOpen] = useState(false);
+  const canMint = useCanPerform('mint-enrollment-token');
 
-	const { data, isLoading, isError } = useQuery({
-		queryKey: ['hosts', status, search],
-		queryFn: async () => {
-			const params = new URLSearchParams();
-			if (status !== 'all') params.append('status', status);
-			if (search) params.append('search', search);
-			return apiFetch<Host[]>(`/v1/hosts?${params}`);
-		},
-	});
+  return (
+    <div className="p-4">
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-h2 font-bold text-text mb-2">Hosts</h1>
+          <p className="text-text-dim">Manage infrastructure endpoints</p>
+        </div>
+        <button
+          type="button"
+          disabled={!canMint.allowed}
+          title={canMint.allowed ? '' : canMint.reason}
+          onClick={() => setModalOpen(true)}
+          className="rounded bg-accent px-3 py-2 text-sm font-medium text-black disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Enroll host
+        </button>
+      </div>
 
-	if (isLoading) return <BlueprintSkeleton rows={8} />;
-	if (isError || !data)
-		return <EmptyState title="Failed to load hosts" description="Please try again" />;
-	if (data.length === 0)
-		return <EmptyState title="No hosts found" description="Get started by connecting a host" />;
+      <HostFilters onStatusChange={setStatus} onSearch={setSearch} />
+      <HostListTable status={status} search={search} onEnroll={() => setModalOpen(true)} />
 
-	return (
-		<div className="p-4">
-			<div className="mb-6">
-				<h1 className="text-h2 font-bold text-text mb-2">Hosts</h1>
-				<p className="text-text-dim">Manage infrastructure endpoints</p>
-			</div>
-
-			<HostFilters onStatusChange={setStatus} onSearch={setSearch} />
-
-			<div className="rounded border border-hairline bg-surface overflow-hidden">
-				<table className="w-full text-sm">
-					<thead className="border-b border-hairline bg-surface-2">
-						<tr>
-							<th className="px-4 py-3 text-left font-semibold text-text">Name</th>
-							<th className="px-4 py-3 text-left font-semibold text-text">OS</th>
-							<th className="px-4 py-3 text-left font-semibold text-text">Version</th>
-							<th className="px-4 py-3 text-left font-semibold text-text">Status</th>
-							<th className="px-4 py-3 text-left font-semibold text-text">Last Seen</th>
-						</tr>
-					</thead>
-					<tbody>
-						{data.map(host => (
-							<ActiveHostRow key={host.id} host={host} />
-						))}
-					</tbody>
-				</table>
-			</div>
-		</div>
-	);
+      {modalOpen ? <EnrollmentModal onClose={() => setModalOpen(false)} /> : null}
+    </div>
+  );
 }
