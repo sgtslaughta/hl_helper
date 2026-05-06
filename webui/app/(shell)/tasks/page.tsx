@@ -22,7 +22,7 @@ export default function TasksPage() {
 	const { data, isLoading, isError } = useQuery({
 		queryKey: ['tasks'],
 		queryFn: () => apiFetch<TasksPage>('/v1/tasks?limit=100'),
-		refetchInterval: 15_000,
+		refetchInterval: 3_000,
 	});
 
 	const tasks: Task[] = data?.items ?? [];
