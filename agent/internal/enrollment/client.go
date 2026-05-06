@@ -3,7 +3,6 @@ package enrollment
 
 import (
 	"bytes"
-	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/x509"
@@ -62,22 +61,25 @@ func Run(ks *keystore.FileKeystore, opts EnrollOptions) (*EnrollResponse, error)
 		return nil, fmt.Errorf("generate TLS key: %w", err)
 	}
 
-	// Step 3: Build CSR
-	tlsKeyData, err := os.ReadFile(filepath.Join(ks.Dir(), keystore.TLSKeyFile))
+	// Step 3: Build CSR.
+	// Server requires the CSR's public key to be the agent's Ed25519 signing
+	// key (see server/app/enrollment/service.py:csr_pubkey isinstance check).
+	// We sign the CSR with the signing key to keep CSR pubkey == agent_pubkey.
+	signingKeyData, err := os.ReadFile(filepath.Join(ks.Dir(), keystore.SigningKeyFile))
 	if err != nil {
-		return nil, fmt.Errorf("read TLS key: %w", err)
+		return nil, fmt.Errorf("read signing key: %w", err)
 	}
-	block, _ := pem.Decode(tlsKeyData)
-	if block == nil {
-		return nil, fmt.Errorf("TLS key: invalid PEM")
+	skBlock, _ := pem.Decode(signingKeyData)
+	if skBlock == nil {
+		return nil, fmt.Errorf("signing key: invalid PEM")
 	}
-	parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	parsedSk, err := x509.ParsePKCS8PrivateKey(skBlock.Bytes)
 	if err != nil {
-		return nil, fmt.Errorf("parse TLS key: %w", err)
+		return nil, fmt.Errorf("parse signing key: %w", err)
 	}
-	tlsPrivKey, ok := parsed.(*ecdsa.PrivateKey)
+	signingPriv, ok := parsedSk.(ed25519.PrivateKey)
 	if !ok {
-		return nil, fmt.Errorf("TLS key is not ECDSA")
+		return nil, fmt.Errorf("signing key is not Ed25519")
 	}
 
 	csrTemplate := &x509.CertificateRequest{
@@ -85,7 +87,7 @@ func Run(ks *keystore.FileKeystore, opts EnrollOptions) (*EnrollResponse, error)
 			CommonName: opts.Hostname,
 		},
 	}
-	csrDER, err := x509.CreateCertificateRequest(rand.Reader, csrTemplate, tlsPrivKey)
+	csrDER, err := x509.CreateCertificateRequest(rand.Reader, csrTemplate, signingPriv)
 	if err != nil {
 		return nil, fmt.Errorf("create CSR: %w", err)
 	}
