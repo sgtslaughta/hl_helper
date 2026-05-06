@@ -8,6 +8,7 @@ export interface Task {
 	status: string;
 	created_at: string;
 	risk: string;
+	summary?: string;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -25,6 +26,9 @@ export function TaskRow({ task }: { task: Task }) {
 				<Link href={`/tasks/${task.id}`} className="hover:underline">
 					{task.kind}
 				</Link>
+			</td>
+			<td className="px-4 py-2 text-text-dim font-mono text-xs max-w-[420px] truncate" title={task.summary ?? ''}>
+				{task.summary ?? ''}
 			</td>
 			<td className={`px-4 py-2 ${STATUS_COLORS[task.status] ?? 'text-text-dim'}`}>
 				{task.status}

@@ -44,6 +44,7 @@ export default function TasksPage() {
 					<thead className="border-b border-hairline bg-surface-2">
 						<tr>
 							<th className="px-4 py-3 text-left font-semibold text-text">Kind</th>
+							<th className="px-4 py-3 text-left font-semibold text-text">Detail</th>
 							<th className="px-4 py-3 text-left font-semibold text-text">Status</th>
 							<th className="px-4 py-3 text-left font-semibold text-text">Risk</th>
 							<th className="px-4 py-3 text-left font-semibold text-text">Created</th>

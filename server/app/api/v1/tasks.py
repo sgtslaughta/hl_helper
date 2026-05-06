@@ -35,6 +35,29 @@ def _dispatcher(request: Request):  # type: ignore[no-untyped-def]
             return d
     return getattr(request.app.state, "dispatcher", None)
 
+def _task_summary(kind: str, payload: dict[str, object]) -> str:
+    """Human-readable one-liner for a task. Truncated to 160 chars."""
+    if kind == "shell_exec":
+        cmd = str(payload.get("command", "")).strip()
+        if cmd:
+            return cmd if len(cmd) <= 160 else cmd[:157] + "..."
+    elif kind == "reboot":
+        reason = str(payload.get("reason", "")).strip()
+        delay = payload.get("delay_s")
+        s = "reboot"
+        if delay:
+            s += f" in {delay}s"
+        if reason:
+            s += f" — {reason}"
+        return s[:160]
+    elif kind == "pkg_update":
+        classes = payload.get("classes")
+        if isinstance(classes, list) and classes:
+            return f"pkg update: {', '.join(str(c) for c in classes)}"[:160]
+        return "pkg update"
+    return ""
+
+
 router = APIRouter(prefix="/v1/tasks", tags=["tasks"])
 
 
@@ -86,6 +109,7 @@ class TaskListItem(BaseModel):
     status: str
     created_at: datetime
     risk: str
+    summary: str = ""
 
 
 class TasksPage(BaseModel):
@@ -197,6 +221,7 @@ async def list_tasks(
                 status=r.status.value,
                 created_at=r.created_at,
                 risk=r.risk.value,
+                summary=_task_summary(r.kind.value, r.payload),
             )
             for r in page.items
         ],

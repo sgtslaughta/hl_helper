@@ -71,7 +71,12 @@ export default function TaskDetailPage() {
 		<div className="p-4">
 			<header className="mb-4">
 				<h1 className="text-h2 font-bold text-text">{task.kind}</h1>
-				<p className="text-text-dim text-sm">
+				{task.kind === 'shell_exec' && typeof task.payload?.command === 'string' ? (
+					<pre className="mt-2 overflow-x-auto rounded border border-hairline bg-surface-2 px-3 py-2 font-mono text-sm text-text">
+						$ {task.payload.command as string}
+					</pre>
+				) : null}
+				<p className="text-text-dim text-sm mt-2">
 					<span className={STATUS_COLORS[task.status] ?? 'text-text-dim'}>{task.status}</span>{' '}
 					· {task.risk} · {task.created_at}
 				</p>

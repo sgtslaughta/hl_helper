@@ -269,6 +269,46 @@ class ResultHandler:
             session.add(result)
             await session.flush()
 
+            # 5b. Sync parent Task.status from this Result.
+            # Single-host dispatches: ok→SUCCEEDED, anything else→FAILED.
+            # Multi-host: leave RUNNING until all TaskRuns have results, then
+            # SUCCEEDED if all ok, PARTIAL if mixed, FAILED if all non-ok.
+            from server.app.models import Command, Task, TaskRun
+            from server.app.models.task import TaskStatus
+
+            cmd = await session.get(Command, env.command_id)
+            if cmd is not None and cmd.task_run_id is not None:
+                tr = await session.get(TaskRun, cmd.task_run_id)
+                if tr is not None and tr.task_id:
+                    task = await session.get(Task, tr.task_id)
+                    if task is not None and task.status in (
+                        TaskStatus.PENDING,
+                        TaskStatus.APPROVED,
+                        TaskStatus.RUNNING,
+                    ):
+                        all_runs = (await session.execute(
+                            select(TaskRun).where(TaskRun.task_id == task.id)
+                        )).scalars().all()
+                        statuses = []
+                        for run in all_runs:
+                            latest = (await session.execute(
+                                select(Result)
+                                .where(Result.command_id.in_(
+                                    select(Command.id).where(Command.task_run_id == run.id)
+                                ))
+                                .order_by(Result.sequence.desc())
+                                .limit(1)
+                            )).scalar_one_or_none()
+                            statuses.append(latest.status if latest else None)
+                        if any(s is None for s in statuses):
+                            task.status = TaskStatus.RUNNING
+                        elif all(s == "ok" for s in statuses):
+                            task.status = TaskStatus.SUCCEEDED
+                        elif all(s != "ok" for s in statuses):
+                            task.status = TaskStatus.FAILED
+                        else:
+                            task.status = TaskStatus.PARTIAL
+
             # 6. Audit: acceptance + metric
             try:
                 from server.app.observability.metrics import (
