@@ -4,7 +4,7 @@ import { Disclosure } from '@/components/primitives/disclosure';
 import { RiskBadge } from '@/components/primitives/risk-badge';
 import { TypedConfirmation } from '@/components/primitives/typed-confirmation';
 import { type ActionType, riskCatalog } from '@/lib/risk-catalog';
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 
 interface Props {
 	action: ActionType;
@@ -12,9 +12,10 @@ interface Props {
 	principal: string;
 	onConfirm: () => void;
 	onClose: () => void;
+	formChildren?: ReactNode;
 }
 
-export function ActionConfirmDialog({ action, host, principal, onConfirm, onClose }: Props) {
+export function ActionConfirmDialog({ action, host, principal, onConfirm, onClose, formChildren }: Props) {
 	const entry = riskCatalog[action];
 	const [match, setMatch] = useState(false);
 	const requiresType = entry.riskClass === 'irreversible';
@@ -43,6 +44,8 @@ export function ActionConfirmDialog({ action, host, principal, onConfirm, onClos
 						<li key={r}>{r}</li>
 					))}
 				</ul>
+
+				{formChildren}
 
 				<div className="space-y-2">
 					<Disclosure label="Technical details" storageKey={`action-${action}-tech`}>

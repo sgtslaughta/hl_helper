@@ -50,4 +50,18 @@ describe('ActionConfirmDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: /confirm/i }));
     expect(onConfirm).toHaveBeenCalled();
   });
+
+  it('renders custom form between risks and disclosures', () => {
+    render(
+      <ActionConfirmDialog
+        action="shell-exec"
+        host={HOST}
+        principal="u1"
+        onConfirm={vi.fn()}
+        onClose={vi.fn()}
+        formChildren={<input data-testid="cmd" placeholder="cmd" />}
+      />
+    );
+    expect(screen.getByTestId('cmd')).toBeInTheDocument();
+  });
 });
