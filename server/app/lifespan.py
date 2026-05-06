@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 import os
@@ -408,7 +409,19 @@ async def app_lifespan(app: Any) -> AsyncIterator[None]:
     grpc_host = _parsed.hostname or "localhost"
     await _start_grpc_server(state, grpc_host)
 
+    # Bridge bus 'command.issued' events into grpc dispatcher's live per-host queue.
+    from server.app.grpc.command_bridge import run_command_bridge
+    bridge_task = asyncio.create_task(
+        run_command_bridge(state.bus, state.dispatcher, state.sessionmaker)
+    )
+
     yield
+
+    bridge_task.cancel()
+    try:
+        await bridge_task
+    except (asyncio.CancelledError, Exception):
+        pass
 
     # Shutdown: stop gRPC server, session service, and close engine
     if state.grpc_server:
