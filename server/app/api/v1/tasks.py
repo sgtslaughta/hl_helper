@@ -156,12 +156,14 @@ async def list_tasks(
     request: Request,
     cursor: str | None = None,
     limit: int = 100,
+    host_id: str | None = None,
     _: str = Depends(admin_required),
 ) -> TasksPage:
     """List tasks with cursor pagination.
 
     Requires admin authentication.
     Supports ?cursor= and ?limit= query params (limit default 100, max 500).
+    Optional ?host_id= filters to tasks with at least one TaskRun on that host.
     Returns next_cursor if more items exist.
     """
     limit = min(max(1, limit), 500)
@@ -169,6 +171,14 @@ async def list_tasks(
     sm = _sessionmaker(request)
     async with sm() as session:
         query = select(Task)
+        if host_id is not None:
+            from server.app.models.task_run import TaskRun
+
+            query = (
+                query.join(TaskRun, TaskRun.task_id == Task.id)
+                .where(TaskRun.host_id == host_id)
+                .distinct()
+            )
         query = apply_cursor(
             query,
             sort_column=Task.created_at,

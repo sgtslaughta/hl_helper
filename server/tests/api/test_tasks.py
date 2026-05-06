@@ -747,3 +747,59 @@ async def test_tasks_require_admin_401(sm):
 
         r = await c.post("/v1/tasks", json={})
         assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_list_tasks_host_id_filter(auth, sm, mock_settings):
+    """GET /v1/tasks?host_id=X returns only tasks with a TaskRun on X."""
+    app = create_app()
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
+    with mock.patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=mock_settings,
+    ):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://t"
+        ) as c:
+            # Create two tasks
+            ids: list[str] = []
+            for i in range(2):
+                body = {
+                    "kind": "shell_exec",
+                    "payload": {"command": f"echo {i}"},
+                    "target_selector": {"group_id": "g-1"},
+                }
+                resp = await c.post("/v1/tasks", json=body, headers=auth)
+                ids.append(resp.json()["id"])
+
+            # Attach TaskRun for host h-A to task 0 and host h-B to task 1
+            async with sm() as session:
+                session.add(
+                    TaskRun(
+                        id=str(uuid4()),
+                        task_id=ids[0],
+                        host_id="h-A",
+                        status=TaskRunStatus.PENDING,
+                    )
+                )
+                session.add(
+                    TaskRun(
+                        id=str(uuid4()),
+                        task_id=ids[1],
+                        host_id="h-B",
+                        status=TaskRunStatus.PENDING,
+                    )
+                )
+                await session.commit()
+
+            # Filter by h-A — only first task returned
+            r = await c.get("/v1/tasks?host_id=h-A", headers=auth)
+            assert r.status_code == 200
+            items = r.json()["items"]
+            assert len(items) == 1
+            assert items[0]["id"] == ids[0]
+
+            # Filter by unknown host — empty
+            r2 = await c.get("/v1/tasks?host_id=h-Z", headers=auth)
+            assert r2.status_code == 200
+            assert r2.json()["items"] == []
