@@ -23,7 +23,14 @@ export function ActiveHostRow({ host }: { host: Host }) {
 			<td className="px-4 py-2 text-text-dim">{host.labels?.os_version ?? host.labels?.kernel ?? '—'}</td>
 			<td className={`px-4 py-2 ${STATUS_COLORS[host.status]}`}>{host.status}</td>
 			<td className="px-4 py-2 text-text-dim">{host.last_seen_at ?? '—'}</td>
-			<td className="px-4 py-2 text-right text-text-dim">…</td>
+			<td className="px-4 py-2 text-right">
+				<Link
+					href={`/hosts/${host.id}`}
+					className="inline-block rounded border border-hairline px-2 py-1 text-xs text-text hover:bg-surface-2"
+				>
+					Open
+				</Link>
+			</td>
 		</tr>
 	);
 }
