@@ -1,112 +1,119 @@
 #!/bin/sh
-# hl-agent installation script
-# Generated for server: {{ server }}
+# hl-agent installer
+# Generated for: {{ server }}
 
 set -e
 
-# Detect architecture
+# ----- styling helpers (TTY-aware) -----------------------------------------
+if [ -t 1 ] && [ "${NO_COLOR:-}" = "" ]; then
+  C_DIM='\033[2m'; C_BOLD='\033[1m'; C_GREEN='\033[32m'
+  C_YELLOW='\033[33m'; C_RED='\033[31m'; C_CYAN='\033[36m'; C_RESET='\033[0m'
+else
+  C_DIM=''; C_BOLD=''; C_GREEN=''; C_YELLOW=''; C_RED=''; C_CYAN=''; C_RESET=''
+fi
+
+step() { printf "${C_CYAN}▸${C_RESET} %s\n" "$1"; }
+ok()   { printf "${C_GREEN}✓${C_RESET} %s\n" "$1"; }
+warn() { printf "${C_YELLOW}!${C_RESET} %s\n" "$1" >&2; }
+fail() { printf "${C_RED}✗${C_RESET} %s\n" "$1" >&2; exit 1; }
+note() { printf "${C_DIM}  %s${C_RESET}\n" "$1"; }
+
+quiet() { "$@" >/dev/null 2>&1; }
+
+printf "${C_BOLD}hl-agent installer${C_RESET}  ${C_DIM}{{ server }}${C_RESET}\n"
+echo
+
+# ----- arch detect ---------------------------------------------------------
 arch=$(uname -m)
 case "$arch" in
-  x86_64) agent_arch="amd64" ;;
+  x86_64)  agent_arch="amd64" ;;
   aarch64) agent_arch="arm64" ;;
-  armv7l) agent_arch="armv7" ;;
-  *) echo "Unsupported architecture: $arch" >&2; exit 1 ;;
+  armv7l)  agent_arch="armv7" ;;
+  *) fail "Unsupported architecture: $arch" ;;
 esac
+ok "Architecture: $agent_arch"
 
-echo "Detected architecture: $agent_arch"
-
-# Diagnostic: gRPC port reachability. hl-agent requires HTTP/2 end-to-end;
-# reverse proxies that terminate TLS without h2 forwarding break enrollment.
+# ----- gRPC reachability diag (optional) ----------------------------------
 grpc_endpoint="{{ grpc_endpoint | default('') }}"
 if [ -n "$grpc_endpoint" ] && command -v nc >/dev/null 2>&1; then
   grpc_host=$(echo "$grpc_endpoint" | sed -E 's|^[^:]+://||; s|/.*$||; s|:.*$||')
   grpc_port=$(echo "$grpc_endpoint" | sed -E 's|.*:([0-9]+).*|\1|')
   if [ -n "$grpc_port" ] && ! nc -z "$grpc_host" "$grpc_port" 2>/dev/null; then
-    echo "ERROR: gRPC port ${grpc_host}:${grpc_port} unreachable." >&2
-    echo "Hint: hl-agent requires HTTP/2 end-to-end. If a reverse proxy" >&2
-    echo "terminates TLS, ensure it forwards h2 (not HTTP/1.1)." >&2
-    exit 1
+    fail "gRPC port ${grpc_host}:${grpc_port} unreachable. Reverse proxies must forward HTTP/2."
   fi
 fi
 
-# Download agent binary with CA pinning
-echo "Downloading hl-agent for $agent_arch..."
-agent_url="{{ server }}/agent/${agent_arch}/hl-agent"
-tmp_agent="/tmp/hl-agent-$$"
-
-{% if server_ca_pem %}
-# CA pinning via embedded certificate
-CA_PEM="{{ server_ca_pem }}"
-curl --cacert <(echo "$CA_PEM") -sSL "$agent_url" -o "$tmp_agent"
-{% else %}
-curl -sSL "$agent_url" -o "$tmp_agent"
-{% endif %}
-
-# Verify agent binary signature with cosign
-{% if release_signing_pubkey_pem %}
-if command -v cosign >/dev/null 2>&1; then
-  echo "Verifying agent binary signature..."
-  PUBKEY_PEM="{{ release_signing_pubkey_pem }}"
-  cosign verify-blob --key <(echo "$PUBKEY_PEM") --signature <(curl -sSL "${agent_url}.sig") "$tmp_agent" || {
-    echo "ERROR: Binary signature verification failed" >&2
-    rm -f "$tmp_agent"
-    exit 1
-  }
-else
-  echo "WARNING: cosign not found; skipping signature verification"
-fi
-{% endif %}
-
-# Install binary — escalate when not root.
+# ----- privilege escalation -----------------------------------------------
 if [ "$(id -u)" -eq 0 ]; then
   SUDO=""
 else
-  if command -v sudo >/dev/null 2>&1; then
-    SUDO="sudo"
-    echo "Note: this installer requires sudo for /usr/local/bin and systemd; you may be prompted for your password."
-  else
-    echo "ERROR: not running as root and 'sudo' not available." >&2
-    exit 1
-  fi
+  command -v sudo >/dev/null 2>&1 || fail "Not root and 'sudo' is not installed."
+  SUDO="sudo"
+  note "Will use sudo for system files; you may be prompted for your password."
 fi
 
+# ----- download binary -----------------------------------------------------
+step "Downloading agent binary"
+agent_url="{{ server }}/agent/${agent_arch}/hl-agent"
+tmp_agent="/tmp/hl-agent-$$"
+{% if server_ca_pem %}
+CA_PEM="{{ server_ca_pem }}"
+curl --cacert <(echo "$CA_PEM") -fsSL "$agent_url" -o "$tmp_agent" || fail "Download failed: $agent_url"
+{% else %}
+curl -fsSL "$agent_url" -o "$tmp_agent" || fail "Download failed: $agent_url"
+{% endif %}
+ok "Binary downloaded ($(du -h "$tmp_agent" | cut -f1))"
+
+{% if release_signing_pubkey_pem %}
+step "Verifying signature"
+if command -v cosign >/dev/null 2>&1; then
+  PUBKEY_PEM="{{ release_signing_pubkey_pem }}"
+  cosign verify-blob --key <(echo "$PUBKEY_PEM") --signature <(curl -sSL "${agent_url}.sig") "$tmp_agent" >/dev/null 2>&1 \
+    || { rm -f "$tmp_agent"; fail "Signature verification failed"; }
+  ok "Signature verified"
+else
+  warn "cosign not installed — skipping signature verification"
+fi
+{% endif %}
+
+# ----- install binary ------------------------------------------------------
+step "Installing /usr/local/bin/hl-agent"
 $SUDO mkdir -p /usr/local/bin
 $SUDO mv "$tmp_agent" /usr/local/bin/hl-agent
 $SUDO chmod +x /usr/local/bin/hl-agent
+ok "Binary installed"
 
-# Create sudoers entry for hl-agent
-echo "Configuring sudoers..."
+# ----- sudoers -------------------------------------------------------------
+step "Configuring sudoers"
 SUDOERS_FILE="/etc/sudoers.d/hl-agent"
 $SUDO sh -c "cat > '${SUDOERS_FILE}' <<'EOF'
 hl-agent ALL=(ALL) NOPASSWD: ALL
 EOF"
 $SUDO chmod 0440 "${SUDOERS_FILE}"
-
-# Validate sudoers syntax
 if command -v visudo >/dev/null 2>&1; then
-  $SUDO visudo -c -f "${SUDOERS_FILE}" || {
-    echo "ERROR: sudoers validation failed" >&2
-    exit 1
-  }
+  $SUDO visudo -c -f "${SUDOERS_FILE}" >/dev/null 2>&1 || fail "sudoers validation failed"
 fi
+ok "${SUDOERS_FILE}"
 
-# Ensure hl-agent system user exists (systemd unit runs as User=hl-agent).
+# ----- system user ---------------------------------------------------------
+step "Ensuring system user 'hl-agent'"
 if ! id -u hl-agent >/dev/null 2>&1; then
-  echo "Creating system user hl-agent..."
   if command -v useradd >/dev/null 2>&1; then
     $SUDO useradd --system --home-dir /var/lib/hl-agent --shell /usr/sbin/nologin hl-agent
   elif command -v adduser >/dev/null 2>&1; then
     $SUDO adduser --system --home /var/lib/hl-agent --shell /usr/sbin/nologin hl-agent
   else
-    echo "ERROR: neither 'useradd' nor 'adduser' available; cannot create hl-agent user." >&2
-    exit 1
+    fail "Neither 'useradd' nor 'adduser' available."
   fi
+  ok "User created"
+else
+  ok "User exists"
 fi
 $SUDO mkdir -p /var/lib/hl-agent
 $SUDO chown hl-agent:hl-agent /var/lib/hl-agent
 
-# Create systemd unit file
-echo "Creating systemd unit..."
+# ----- systemd unit --------------------------------------------------------
+step "Installing systemd unit"
 cat > /tmp/hl-agent.service <<'EOF'
 [Unit]
 Description=HL Agent
@@ -123,35 +130,43 @@ User=hl-agent
 WantedBy=multi-user.target
 EOF
 
-# Validate systemd unit
 if command -v systemd-analyze >/dev/null 2>&1; then
-  systemd-analyze verify /tmp/hl-agent.service || {
-    echo "ERROR: systemd unit validation failed" >&2
-    exit 1
-  }
+  systemd-analyze verify /tmp/hl-agent.service >/dev/null 2>&1 || fail "systemd unit validation failed"
 fi
-
-# Install systemd unit
 $SUDO mv /tmp/hl-agent.service /etc/systemd/system/hl-agent.service
 $SUDO systemctl daemon-reload
+ok "/etc/systemd/system/hl-agent.service"
 
-# Enroll with token if provided
+# ----- enrollment ----------------------------------------------------------
 {% if token %}
-echo "Enrolling with token..."
+step "Enrolling with server"
 {% if server_ca_pem %}
 CA_PEM="{{ server_ca_pem }}"
-$SUDO /usr/local/bin/hl-agent enroll --token="{{ token }}" --server="{{ server }}" --ca-cert <(echo "$CA_PEM")
+$SUDO /usr/local/bin/hl-agent enroll --token="{{ token }}" --server="{{ server }}" --ca-cert <(echo "$CA_PEM") >/tmp/hl-enroll.log 2>&1 \
+  || { tail -n +1 /tmp/hl-enroll.log >&2; fail "Enrollment failed (see above)"; }
 {% else %}
-$SUDO /usr/local/bin/hl-agent enroll --token="{{ token }}" --server="{{ server }}"
+$SUDO /usr/local/bin/hl-agent enroll --token="{{ token }}" --server="{{ server }}" >/tmp/hl-enroll.log 2>&1 \
+  || { tail -n +1 /tmp/hl-enroll.log >&2; fail "Enrollment failed (see above)"; }
 {% endif %}
-# Enrollment writes keys/certs as root; hand them to the service user.
+host_id=$(grep -oE 'host_id=[a-f0-9-]+' /tmp/hl-enroll.log | head -1 | cut -d= -f2)
+rm -f /tmp/hl-enroll.log
 $SUDO chown -R hl-agent:hl-agent /var/lib/hl-agent
 $SUDO chmod 700 /var/lib/hl-agent
+if [ -n "$host_id" ]; then ok "Enrolled (host_id=$host_id)"; else ok "Enrolled"; fi
 {% endif %}
 
-# Enable and start service
-echo "Enabling hl-agent service..."
-$SUDO systemctl enable hl-agent
-$SUDO systemctl start hl-agent
+# ----- start service -------------------------------------------------------
+step "Starting service"
+$SUDO systemctl enable hl-agent >/dev/null 2>&1
+$SUDO systemctl restart hl-agent
+sleep 1
+if $SUDO systemctl is-active --quiet hl-agent; then
+  ok "hl-agent is running"
+else
+  warn "Service is not active. Inspect: sudo journalctl -u hl-agent -n 50"
+fi
 
-echo "Installation complete"
+echo
+printf "${C_GREEN}${C_BOLD}Installation complete.${C_RESET}\n"
+note "Logs: sudo journalctl -u hl-agent -f"
+note "Status: sudo systemctl status hl-agent"
