@@ -1,44 +1,44 @@
 'use client';
 
-import { Badge } from '@/components/primitives/badge';
 import Link from 'next/link';
 
-interface Task {
+export interface Task {
 	id: string;
-	name: string;
-	status: 'pending' | 'running' | 'completed' | 'failed';
-	hostCount: number;
-	createdAt: string;
-	completedAt?: string;
+	kind: string;
+	status: string;
+	created_at: string;
+	risk: string;
 }
 
-interface TaskRowProps {
-	task: Task;
-}
+const STATUS_COLORS: Record<string, string> = {
+	completed: 'text-green-400',
+	running: 'text-blue-400',
+	pending: 'text-text-dim',
+	failed: 'text-red-400',
+	cancelled: 'text-orange-400',
+};
 
-const statusBadgeVariant = {
-	pending: 'dim',
-	running: 'accent',
-	completed: 'ok',
-	failed: 'danger',
-} as const;
-
-export function TaskRow({ task }: TaskRowProps) {
+export function TaskRow({ task }: { task: Task }) {
 	return (
-		<tr className="border-b border-hairline hover:bg-surface-2 transition-colors">
-			<td className="px-4 py-3 text-sm">
-				<Link href={`/tasks/${task.id}`} className="text-accent hover:underline">
-					{task.name}
+		<tr className="border-b border-hairline hover:bg-surface-2">
+			<td className="px-4 py-2 text-text">
+				<Link href={`/tasks/${task.id}`} className="hover:underline">
+					{task.kind}
 				</Link>
 			</td>
-			<td className="px-4 py-3">
-				<Badge variant={statusBadgeVariant[task.status]} size="sm">
-					{task.status}
-				</Badge>
+			<td className={`px-4 py-2 ${STATUS_COLORS[task.status] ?? 'text-text-dim'}`}>
+				{task.status}
 			</td>
-			<td className="px-4 py-3 text-sm text-text-dim">{task.hostCount} hosts</td>
-			<td className="px-4 py-3 text-sm text-text-dim">{task.createdAt}</td>
-			<td className="px-4 py-3 text-sm text-text-dim">{task.completedAt || '—'}</td>
+			<td className="px-4 py-2 text-text-dim">{task.risk}</td>
+			<td className="px-4 py-2 text-text-dim font-mono text-xs">{task.created_at}</td>
+			<td className="px-4 py-2 text-right">
+				<Link
+					href={`/tasks/${task.id}`}
+					className="inline-block rounded border border-hairline px-2 py-1 text-xs text-text hover:bg-surface-2"
+				>
+					Open
+				</Link>
+			</td>
 		</tr>
 	);
 }

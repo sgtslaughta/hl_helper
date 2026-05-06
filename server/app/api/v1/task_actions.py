@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import and_, select
@@ -51,6 +53,23 @@ class TaskResultItem(BaseModel):
 
 class TaskResultsOut(BaseModel):
     results: list[TaskResultItem]
+
+
+# Detailed per-host result with captured stdout/stderr.
+_OUTPUT_CAP_BYTES = 64 * 1024
+
+
+class TaskResultDetail(BaseModel):
+    host_id: str
+    command_id: str
+    status: str
+    exit_code: int | None
+    received_at: datetime
+    stdout: str
+    stdout_truncated: bool
+    stderr: str
+    stderr_truncated: bool
+    rejection_reason: str | None = None
 
 
 def _sessionmaker(request: Request):  # type: ignore[no-untyped-def]
@@ -236,3 +255,76 @@ async def get_task_results(
                 )
 
     return TaskResultsOut(results=list(results_dict.values()))
+
+
+def _decode_blob(blob: bytes | None) -> tuple[str, bool]:
+    """Decode a stdout/stderr blob; cap at _OUTPUT_CAP_BYTES.
+
+    Returns (text, truncated). Non-utf-8 bytes are replaced.
+    """
+    if not blob:
+        return "", False
+    truncated = len(blob) > _OUTPUT_CAP_BYTES
+    chunk = blob[:_OUTPUT_CAP_BYTES] if truncated else blob
+    return chunk.decode("utf-8", errors="replace"), truncated
+
+
+@router.get("/{task_id}/results/{host_id}", response_model=TaskResultDetail)
+async def get_task_result_for_host(
+    request: Request,
+    task_id: str,
+    host_id: str,
+    _: str = Depends(admin_required),
+) -> TaskResultDetail:
+    """Return the latest captured stdout/stderr/exit_code for a host on a task."""
+    from server.app.models.result import Result
+
+    sm = _sessionmaker(request)
+    async with sm() as session:
+        # Find the latest command for this task+host, then latest result for it.
+        run = (
+            await session.execute(
+                select(TaskRun).where(
+                    TaskRun.task_id == task_id, TaskRun.host_id == host_id
+                )
+            )
+        ).scalar_one_or_none()
+        if run is None:
+            raise HTTPException(status_code=404, detail="task_run_not_found")
+
+        latest_cmd = (
+            await session.execute(
+                select(Command)
+                .where(Command.task_run_id == run.id)
+                .order_by(Command.sequence.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if latest_cmd is None:
+            raise HTTPException(status_code=404, detail="command_not_found")
+
+        latest_result = (
+            await session.execute(
+                select(Result)
+                .where(Result.command_id == latest_cmd.id)
+                .order_by(Result.sequence.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if latest_result is None:
+            raise HTTPException(status_code=404, detail="result_not_found")
+
+    stdout, stdout_trunc = _decode_blob(latest_result.stdout_blob)
+    stderr, stderr_trunc = _decode_blob(latest_result.stderr_blob)
+    return TaskResultDetail(
+        host_id=latest_result.host_id,
+        command_id=latest_result.command_id,
+        status=latest_result.status,
+        exit_code=latest_result.exit_code,
+        received_at=latest_result.received_at,
+        stdout=stdout,
+        stdout_truncated=stdout_trunc,
+        stderr=stderr,
+        stderr_truncated=stderr_trunc,
+        rejection_reason=latest_result.rejection_reason,
+    )
