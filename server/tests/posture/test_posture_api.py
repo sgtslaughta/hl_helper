@@ -36,10 +36,16 @@ def auth_headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {ADMIN_TOKEN}"}
 
 
-def _make_finding(finding_id: str = "test-finding-1") -> Finding:
+def _make_finding(
+    finding_id: str = "test-finding-1",
+    subject_kind: str = "global",
+    subject_id: str | None = None,
+) -> Finding:
     """@brief Build a minimal Finding value object for test seeding.
 
-    @param finding_id Stable identifier for the finding.
+    @param finding_id  Stable identifier for the finding.
+    @param subject_kind Kind of subject (e.g., 'host', 'global').
+    @param subject_id  Identifier of the subject, if applicable.
     @return A frozen Finding dataclass instance.
     """
     return Finding(
@@ -48,7 +54,8 @@ def _make_finding(finding_id: str = "test-finding-1") -> Finding:
         title="Test finding",
         summary="A finding created for testing.",
         rule="test_rule",
-        subject_kind="global",
+        subject_kind=subject_kind,
+        subject_id=subject_id,
     )
 
 
@@ -224,3 +231,95 @@ async def test_unsuppress_requires_auth(sm):
                 json={"finding_id": "irrelevant"},
             )
             assert r.status_code == 401
+
+
+# ------------------------------------------------------------------
+# GET /v1/posture with subject_kind/subject_id filters
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_posture_filters_by_subject_kind_and_id(sm, auth_headers):
+    """@brief GET /v1/posture?subject_kind=host&subject_id=h1 filters correctly."""
+    # Seed: host/h1, host/h2, global
+    await upsert_finding(sm, _make_finding("finding-h1", subject_kind="host", subject_id="h1"))
+    await upsert_finding(sm, _make_finding("finding-h2", subject_kind="host", subject_id="h2"))
+    await upsert_finding(sm, _make_finding("finding-global", subject_kind="global"))
+
+    with mock.patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=FleetSettings(admin_token=SecretStr(ADMIN_TOKEN)),
+    ):
+        app = create_app()
+        app.state.app_state = make_test_app_state(sessionmaker=sm)
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://t"
+        ) as c:
+            r = await c.get(
+                "/v1/posture?subject_kind=host&subject_id=h1",
+                headers=auth_headers,
+            )
+            assert r.status_code == 200, r.text
+            body = r.json()
+            assert len(body["findings"]) == 1
+            assert body["findings"][0]["id"] == "finding-h1"
+            assert body["findings"][0]["subject_kind"] == "host"
+            assert body["findings"][0]["subject_id"] == "h1"
+
+
+@pytest.mark.asyncio
+async def test_get_posture_filters_by_subject_kind_only(sm, auth_headers):
+    """@brief GET /v1/posture?subject_kind=host returns all host findings."""
+    await upsert_finding(sm, _make_finding("finding-h1", subject_kind="host", subject_id="h1"))
+    await upsert_finding(sm, _make_finding("finding-h2", subject_kind="host", subject_id="h2"))
+    await upsert_finding(sm, _make_finding("finding-global", subject_kind="global"))
+
+    with mock.patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=FleetSettings(admin_token=SecretStr(ADMIN_TOKEN)),
+    ):
+        app = create_app()
+        app.state.app_state = make_test_app_state(sessionmaker=sm)
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://t"
+        ) as c:
+            r = await c.get(
+                "/v1/posture?subject_kind=host",
+                headers=auth_headers,
+            )
+            assert r.status_code == 200, r.text
+            body = r.json()
+            assert len(body["findings"]) == 2
+            ids = {f["id"] for f in body["findings"]}
+            assert ids == {"finding-h1", "finding-h2"}
+
+
+@pytest.mark.asyncio
+async def test_get_posture_unfiltered_returns_all(sm, auth_headers):
+    """@brief GET /v1/posture without filters returns all non-suppressed findings."""
+    await upsert_finding(sm, _make_finding("finding-h1", subject_kind="host", subject_id="h1"))
+    await upsert_finding(sm, _make_finding("finding-h2", subject_kind="host", subject_id="h2"))
+    await upsert_finding(sm, _make_finding("finding-global", subject_kind="global"))
+
+    with mock.patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=FleetSettings(admin_token=SecretStr(ADMIN_TOKEN)),
+    ):
+        app = create_app()
+        app.state.app_state = make_test_app_state(sessionmaker=sm)
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://t"
+        ) as c:
+            r = await c.get(
+                "/v1/posture",
+                headers=auth_headers,
+            )
+            assert r.status_code == 200, r.text
+            body = r.json()
+            ids = {f["id"] for f in body["findings"]}
+            # Verify our seeded findings are included (unfiltered returns all)
+            assert "finding-h1" in ids
+            assert "finding-h2" in ids
+            assert "finding-global" in ids
+            # Ensure at least 3 findings (our seeded ones plus any from run_inspection)
+            assert len(body["findings"]) >= 3

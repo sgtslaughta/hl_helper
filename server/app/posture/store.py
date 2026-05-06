@@ -79,13 +79,17 @@ async def list_findings(
     *,
     severity: str | None = None,
     suppressed: bool | None = None,
+    subject_kind: str | None = None,
+    subject_id: str | None = None,
 ) -> list[PostureFindingRow]:
     """@brief List posture findings with optional filters, sorted by severity.
 
-    @param sm         Async sessionmaker for database access.
-    @param severity   Filter to a single severity level (optional).
-    @param suppressed When ``True``, return only suppressed findings.
-                      When ``False``, return only non-suppressed. ``None`` = all.
+    @param sm           Async sessionmaker for database access.
+    @param severity     Filter to a single severity level (optional).
+    @param suppressed   When ``True``, return only suppressed findings.
+                        When ``False``, return only non-suppressed. ``None`` = all.
+    @param subject_kind Filter by subject_kind (e.g., 'host', 'user').
+    @param subject_id   Filter by subject_id (requires subject_kind to be meaningful).
     @return List of ``PostureFindingRow`` sorted by severity (most severe first).
     """
     async with sm() as session:
@@ -96,6 +100,10 @@ async def list_findings(
             stmt = stmt.where(PostureFindingRow.suppressed_until.is_not(None))
         elif suppressed is False:
             stmt = stmt.where(PostureFindingRow.suppressed_until.is_(None))
+        if subject_kind is not None:
+            stmt = stmt.where(PostureFindingRow.subject_kind == subject_kind)
+        if subject_id is not None:
+            stmt = stmt.where(PostureFindingRow.subject_id == subject_id)
         rows = (await session.execute(stmt)).scalars().all()
 
     return sorted(rows, key=lambda r: SEVERITY_ORDER.get(r.severity, 99))
