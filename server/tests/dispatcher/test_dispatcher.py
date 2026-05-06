@@ -311,3 +311,36 @@ async def test_dispatch_creates_pending_approval_when_required(stack):
     async with stack.sm() as session:
         peek = await stack.queue.peek(session, stack.host_staging.id)
         assert peek is None
+
+
+@pytest.mark.asyncio
+async def test_dispatch_creates_task_row(stack) -> None:
+    """Dispatch with RebootPayload + HostListSelector → Task row created with correct fields."""
+    from server.app.dispatcher.targets import HostListSelector
+    from server.app.models import Task
+    from server.app.models.task import TaskKind
+    from sqlalchemy import select
+
+    async with stack.sm() as session:
+        res = await stack.dispatcher.dispatch(
+            session=session,
+            principal=stack.user_admin,
+            targets=HostListSelector([stack.host_staging.id]),
+            payload=RebootPayload(delay_s=60, reason="patch"),
+            idempotency_key="test-key-1",
+        )
+        await session.commit()
+
+    task_id = res.task_id
+    assert task_id, "dispatch should return non-empty task_id"
+
+    # Verify Task row was created
+    async with stack.sm() as session:
+        task = await session.get(Task, task_id)
+        assert task is not None
+        assert task.id == task_id
+        assert task.kind == TaskKind.REBOOT
+        assert task.payload == {"delay_s": 60, "reason": "patch"}
+        assert task.idempotency_key == "test-key-1"
+        assert task.created_by == "user-admin"
+        assert task.requires_approval is False  # risk is "med" for single host reboot

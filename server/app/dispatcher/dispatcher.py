@@ -18,11 +18,16 @@ from server.app.dispatcher.sequence import allocate
 from server.app.dispatcher.targets import (
     resolve_targets,
     Selector,
+    HostListSelector,
+    GroupSelector,
+    TagSelector,
+    MixedSelector,
 )
 from server.app.events.bus import Bus
 from server.app.events.after_commit import publish_after_commit
 from server.app.grpc._pb.fleet.v1 import envelope_pb2, commands_pb2
 from server.app.models.command import Command, CommandRisk, CommandStatus
+from server.app.models.task import Task, TaskKind, TaskRisk, TaskStatus
 from server.app.models.task_run import TaskRun, TaskRunStatus
 from server.app.audit.sql_chain import SqlAuditChain
 from server.app.rbac.provider import Principal, AuthContext
@@ -108,6 +113,35 @@ def _payload_to_proto(payload: object) -> tuple[str, object]:
         )
     else:
         raise TypeError(f"unsupported payload type: {type(payload).__name__}")
+
+
+def _payload_to_dict(payload: object) -> dict[str, object]:
+    """Convert payload object to dict for Task.payload storage."""
+    if isinstance(payload, RebootPayload):
+        return {"delay_s": payload.delay_s, "reason": payload.reason}
+    elif isinstance(payload, ShellExecPayload):
+        return {"command": payload.command, "timeout_s": payload.timeout_s}
+    elif isinstance(payload, PkgUpdatePayload):
+        return {"classes": list(payload.classes)}
+    else:
+        raise TypeError(f"unsupported payload type: {type(payload).__name__}")
+
+
+def _selector_to_dict(targets: Selector) -> dict[str, object]:
+    """Convert Selector object to dict for Task.target_selector storage."""
+    if isinstance(targets, HostListSelector):
+        return {"host_ids": targets.host_ids}
+    elif isinstance(targets, GroupSelector):
+        return {
+            "group_id": str(targets.group_id),
+            "include_subgroups": targets.include_subgroups,
+        }
+    elif isinstance(targets, TagSelector):
+        return {"tag": {"key": targets.key, "value": targets.value}}
+    elif isinstance(targets, MixedSelector):
+        return {"selectors": [_selector_to_dict(s) for s in targets.selectors]}
+    else:
+        raise TypeError(f"unsupported selector type: {type(targets).__name__}")
 
 
 def _principal_identity(principal: Principal) -> str:
@@ -318,6 +352,21 @@ class CommandDispatcher:
         if task_run_id is None:
             task_id = str(uuid4())
             task_run_id = str(uuid4())
+
+            # Create parent Task row
+            task = Task(
+                id=task_id,
+                kind=TaskKind(payload_kind),
+                payload=_payload_to_dict(payload),
+                target_selector=_selector_to_dict(targets),
+                idempotency_key=idempotency_key,
+                risk=TaskRisk(risk),
+                requires_approval=(risk == "high"),
+                created_by=principal_id,
+                status=TaskStatus.PENDING,
+            )
+            session.add(task)
+
             task_run = TaskRun(
                 id=task_run_id,
                 task_id=task_id,
