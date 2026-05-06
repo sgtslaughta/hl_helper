@@ -15,7 +15,14 @@ interface Props {
 	formChildren?: ReactNode;
 }
 
-export function ActionConfirmDialog({ action, host, principal, onConfirm, onClose, formChildren }: Props) {
+export function ActionConfirmDialog({
+	action,
+	host,
+	principal,
+	onConfirm,
+	onClose,
+	formChildren,
+}: Props) {
 	const entry = riskCatalog[action];
 	const [match, setMatch] = useState(false);
 	const requiresType = entry.riskClass === 'irreversible';

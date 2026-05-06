@@ -6,7 +6,7 @@ import { pkgUpdateHost, rebootHost, revokeHostCert, shellExecHost } from '@/lib/
 import { type CanPerform, useCanPerform } from '@/lib/rbac';
 import type { ActionType } from '@/lib/risk-catalog';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { type ReactNode, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
 
 const ACTIONS: { type: ActionType; label: string }[] = [
 	{ type: 'reboot', label: 'Reboot' },
@@ -22,6 +22,15 @@ export function HostActionButtons({ host }: { host: Host }) {
 	const [classes, setClasses] = useState<string[]>([]);
 	const [reason, setReason] = useState('');
 	const qc = useQueryClient();
+
+	// Reset form state whenever the pending action changes (or dialog closes)
+	// biome-ignore lint/correctness/useExhaustiveDependencies: setters are stable
+	useEffect(() => {
+		setCommand('');
+		setTimeout_s(60);
+		setClasses(['security']);
+		setReason('');
+	}, [pendingAction]);
 
 	// Hooks must be called in stable order. Each useCanPerform call corresponds to a fixed action slot.
 	const reboot = useCanPerform('reboot');
