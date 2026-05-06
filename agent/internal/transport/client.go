@@ -3,6 +3,7 @@ package transport
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/binary"
@@ -173,11 +174,15 @@ func (c *Client) runOnce(ctx context.Context) error {
 		}
 	}()
 
-	// Load result sequence counter if executor is set
+	// Load result sequence counter + previous canonical hash if executor is set
 	var resultSeqMu sync.Mutex
 	var resultSeq uint64 = 1
+	prevHash := make([]byte, 32)
 	if c.opts.Executor != nil && c.opts.KeystoreDir != "" {
 		resultSeq = c.loadResultSequence()
+		if h := c.loadResultPrevHash(); len(h) == 32 {
+			prevHash = h
+		}
 	}
 
 	// Outbox drain goroutine: periodically send pending results
@@ -235,7 +240,7 @@ func (c *Client) runOnce(ctx context.Context) error {
 			if cmd := msg.GetCommand(); cmd != nil {
 				// If executor is set, execute the command and queue result
 				if c.opts.Executor != nil && c.opts.Outbox != nil {
-					go c.executeAndQueueResult(ctx, cmd, &resultSeqMu, &resultSeq)
+					go c.executeAndQueueResult(ctx, cmd, &resultSeqMu, &resultSeq, &prevHash)
 				}
 				// Also call legacy OnCommand callback if set
 				if c.opts.OnCommand != nil {
@@ -268,6 +273,22 @@ func (c *Client) loadResultSequence() uint64 {
 	return binary.BigEndian.Uint64(data)
 }
 
+// loadResultPrevHash reads the canonical hash of the last result we sent. Returns nil if absent.
+func (c *Client) loadResultPrevHash() []byte {
+	p := filepath.Join(c.opts.KeystoreDir, "result.prev_hash")
+	data, err := os.ReadFile(p)
+	if err != nil || len(data) != 32 {
+		return nil
+	}
+	return data
+}
+
+// saveResultPrevHash persists the canonical hash of the last sent result.
+func (c *Client) saveResultPrevHash(h []byte) error {
+	p := filepath.Join(c.opts.KeystoreDir, "result.prev_hash")
+	return os.WriteFile(p, h, 0600)
+}
+
 // saveResultSequence persists the current result sequence to disk.
 func (c *Client) saveResultSequence(seq uint64) error {
 	seqFile := filepath.Join(c.opts.KeystoreDir, "result.seq")
@@ -277,7 +298,7 @@ func (c *Client) saveResultSequence(seq uint64) error {
 }
 
 // executeAndQueueResult runs the executor, builds a signed result, and appends to outbox.
-func (c *Client) executeAndQueueResult(ctx context.Context, cmd *pb.CommandEnvelope, seqMu *sync.Mutex, seqPtr *uint64) {
+func (c *Client) executeAndQueueResult(ctx context.Context, cmd *pb.CommandEnvelope, seqMu *sync.Mutex, seqPtr *uint64, prevHashPtr *[]byte) {
 	// Execute the command
 	result := c.opts.Executor.Execute(ctx, cmd)
 
@@ -285,12 +306,15 @@ func (c *Client) executeAndQueueResult(ctx context.Context, cmd *pb.CommandEnvel
 	result.CommandId = cmd.CommandId
 	result.HostId = c.opts.HostID
 
-	// Get and increment sequence
+	// Get and increment sequence + read prev hash atomically
 	seqMu.Lock()
 	seq := *seqPtr
 	*seqPtr++
+	prev := make([]byte, 32)
+	copy(prev, *prevHashPtr)
 	seqMu.Unlock()
 	result.Sequence = seq
+	result.PrevResultHash = prev
 
 	// Set timestamps if not already set
 	if result.StartedAt == nil {
@@ -298,15 +322,6 @@ func (c *Client) executeAndQueueResult(ctx context.Context, cmd *pb.CommandEnvel
 	}
 	if result.CompletedAt == nil {
 		result.CompletedAt = timestamppb.Now()
-	}
-
-	// Set prev_result_hash (genesis)
-	if seq == 1 {
-		result.PrevResultHash = make([]byte, 32) // All zeros
-	} else {
-		// For simplicity, just use zeros. In a more complete implementation,
-		// this would chain from the previous result in outbox.
-		result.PrevResultHash = make([]byte, 32)
 	}
 
 	// Mark as final
@@ -335,11 +350,24 @@ func (c *Client) executeAndQueueResult(ctx context.Context, cmd *pb.CommandEnvel
 		return
 	}
 
-	// Persist the next sequence so a restart resumes at seq+1, not the
-	// just-used value (which would collide with the server's stored seq).
+	// Compute new prev_hash for chain link: sha256(canonical bytes of this result).
+	// Canonical form clears signature; we reuse what BuildAndSign signs over by
+	// re-marshalling deterministically with signature cleared.
+	canonClone, _ := proto.Clone(result).(*pb.ResultEnvelope)
+	canonClone.Signature = nil
+	canonBytes, _ := proto.MarshalOptions{Deterministic: true}.Marshal(canonClone)
+	newHash := sha256.Sum256(canonBytes)
+	seqMu.Lock()
+	*prevHashPtr = newHash[:]
+	seqMu.Unlock()
+
+	// Persist next seq + new prev hash so a restart picks up the chain.
 	if c.opts.KeystoreDir != "" {
 		if err := c.saveResultSequence(seq + 1); err != nil {
 			log.Printf("failed to save result sequence: %v", err)
+		}
+		if err := c.saveResultPrevHash(newHash[:]); err != nil {
+			log.Printf("failed to save prev hash: %v", err)
 		}
 	}
 
