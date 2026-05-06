@@ -62,6 +62,10 @@ export function MissionControlShell({ initialHostId }: { initialHostId: string |
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  useEffect(() => {
+    if (selectedId) setFocusMode('overview');
+  }, [selectedId]);
+
   const hostsQ = useQuery<Host[]>({ queryKey: ['hosts'], queryFn: () => listHosts({}) });
   const pendingQ = useQuery<PendingToken[]>({
     queryKey: ['enrollment-tokens'],

@@ -59,4 +59,9 @@ describe('PaneChrome', () => {
     render(<PaneChrome label="Focus" tabs={tabs} value="a" onChange={() => {}} actions={[]}>HELLO</PaneChrome>);
     expect(screen.getByText('HELLO')).toBeInTheDocument();
   });
+
+  it('shows active overflow tab label in More trigger', () => {
+    render(<PaneChrome label="Focus" tabs={tabs} value="e" onChange={() => {}} actions={[]}>x</PaneChrome>);
+    expect(screen.getByRole('button', { name: /Epsilon/ })).toBeInTheDocument();
+  });
 });

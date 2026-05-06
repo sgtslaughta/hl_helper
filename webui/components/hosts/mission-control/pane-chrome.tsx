@@ -40,6 +40,7 @@ export function PaneChrome({ label, tabs, value, onChange, actions, children }: 
   const primary = tabs.filter(t => !t.overflow);
   const overflow = tabs.filter(t => t.overflow);
   const active = tabs.find(t => t.key === value);
+  const activeOverflow = overflow.find(t => t.key === value);
 
   return (
     <section className="flex h-full flex-col rounded border border-hairline bg-surface" aria-label={label}>
@@ -79,10 +80,12 @@ export function PaneChrome({ label, tabs, value, onChange, actions, children }: 
               <DropdownMenu.Trigger asChild>
                 <button
                   type="button"
-                  className="px-3 py-2 text-sm text-text-dim hover:text-text"
-                  aria-label="More tabs"
+                  className={`px-3 py-2 text-sm border-b-2 ${
+                    activeOverflow ? 'border-accent text-text' : 'border-transparent text-text-dim hover:text-text'
+                  }`}
+                  aria-label={activeOverflow ? `${activeOverflow.label} (more tabs)` : 'More tabs'}
                 >
-                  More ▾
+                  {activeOverflow ? `${activeOverflow.label} ▾` : 'More ▾'}
                 </button>
               </DropdownMenu.Trigger>
               <DropdownMenu.Content

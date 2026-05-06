@@ -83,4 +83,6 @@ describe('MissionControlShell', () => {
     fireEvent.keyDown(window, { key: 'w' });
     expect(await screen.findByRole('tab', { name: /Terminal/ })).toHaveAttribute('aria-selected', 'true');
   });
+
+  it.todo('resets focus mode to overview when host changes');
 });

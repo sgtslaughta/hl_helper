@@ -4,7 +4,7 @@ import { Disclosure } from '@/components/primitives/disclosure';
 import { RiskBadge } from '@/components/primitives/risk-badge';
 import { TypedConfirmation } from '@/components/primitives/typed-confirmation';
 import { type ActionType, riskCatalog } from '@/lib/risk-catalog';
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useState, useEffect } from 'react';
 
 interface Props {
 	action: ActionType;
@@ -27,6 +27,14 @@ export function ActionConfirmDialog({
 	const [match, setMatch] = useState(false);
 	const requiresType = entry.riskClass === 'irreversible';
 	const canConfirm = !requiresType || match;
+
+	useEffect(() => {
+		function onKey(e: KeyboardEvent) {
+			if (e.key === 'Escape') onClose();
+		}
+		window.addEventListener('keydown', onKey);
+		return () => window.removeEventListener('keydown', onKey);
+	}, [onClose]);
 
 	const path = entry.technical.pathTemplate.replace('{id}', host.id);
 
