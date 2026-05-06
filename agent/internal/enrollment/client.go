@@ -4,6 +4,7 @@ package enrollment
 import (
 	"bytes"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -91,12 +92,13 @@ func Run(ks *keystore.FileKeystore, opts EnrollOptions) (*EnrollResponse, error)
 	csrPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrDER})
 
 	// Step 4: Build request
+	// Server expects the raw 32-byte Ed25519 public key, base64-encoded
+	// (see server/app/api/v1/enroll.py: len(agent_pubkey) != 32 → 400).
 	signingPub := ks.SigningPub()
-	pubKeyDER, err := x509.MarshalPKIXPublicKey(signingPub)
-	if err != nil {
-		return nil, fmt.Errorf("marshal signing pubkey: %w", err)
+	if len(signingPub) != ed25519.PublicKeySize {
+		return nil, fmt.Errorf("unexpected signing pubkey size: %d", len(signingPub))
 	}
-	agentPubKeyB64 := base64.StdEncoding.EncodeToString(pubKeyDER)
+	agentPubKeyB64 := base64.StdEncoding.EncodeToString(signingPub)
 
 	req := enrollRequest{
 		Token:          opts.Token,

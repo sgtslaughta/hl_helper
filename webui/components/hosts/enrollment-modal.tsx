@@ -195,6 +195,12 @@ function InstallStep({
 				</button>
 				<pre className="overflow-auto whitespace-pre-wrap break-all">{minted.install_command}</pre>
 			</div>
+			<div className="rounded border border-yellow-500/40 bg-yellow-500/10 p-2 text-xs text-yellow-200">
+				<strong className="font-semibold">Requires sudo.</strong> The script installs the agent
+				to <code>/usr/local/bin</code>, writes a sudoers entry at{' '}
+				<code>/etc/sudoers.d/hl-agent</code>, and registers a systemd unit. Run as root or have
+				<code className="mx-1">sudo</code>available — you will be prompted for your password.
+			</div>
 			<div className="flex items-center gap-3 text-sm">
 				<span className="text-text-dim">
 					Expires in <Countdown to={minted.expires_at} />
