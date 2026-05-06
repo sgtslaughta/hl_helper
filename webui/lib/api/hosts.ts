@@ -40,6 +40,9 @@ export interface ShellExecBody {
 export interface PkgUpdateBody {
 	classes: string[];
 }
+export interface RevokeHostBody {
+	reason: string;
+}
 
 function action<TBody extends object>(
 	id: string,
@@ -76,6 +79,18 @@ export function pkgUpdateHost(
 	principal: string,
 ): Promise<ActionResponse> {
 	return action(id, 'pkg-update', body, principal);
+}
+
+export function revokeHostCert(
+	id: string,
+	body: RevokeHostBody,
+	principal: string,
+): Promise<ActionResponse> {
+	return apiFetch<ActionResponse>(`/v1/hosts/${encodeURIComponent(id)}/revoke`, {
+		method: 'POST',
+		body: JSON.stringify(body),
+		headers: { 'X-Acting-Principal': principal },
+	});
 }
 
 export function deleteHost(id: string, principal: string): Promise<void> {
