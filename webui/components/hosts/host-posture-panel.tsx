@@ -1,10 +1,10 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
-import { apiFetch } from '@/lib/api-client';
-import { BlueprintSkeleton } from '@/components/skeletons/blueprint-skeleton';
 import { EmptyState } from '@/components/empty-states/empty-state';
 import { Disclosure } from '@/components/primitives/disclosure';
+import { BlueprintSkeleton } from '@/components/skeletons/blueprint-skeleton';
+import { apiFetch } from '@/lib/api-client';
+import { useQuery } from '@tanstack/react-query';
 
 interface Finding {
 	id: string;
@@ -37,24 +37,16 @@ export function HostPosturePanel({ hostId }: { hostId: string }) {
 		queryKey: ['hosts', hostId, 'posture'],
 		queryFn: () =>
 			apiFetch<PostureResponse>(
-				`/v1/posture?subject_kind=host&subject_id=${encodeURIComponent(hostId)}`
+				`/v1/posture?subject_kind=host&subject_id=${encodeURIComponent(hostId)}`,
 			),
 	});
 
 	if (q.isLoading) return <BlueprintSkeleton rows={4} />;
-	if (q.isError)
-		return (
-			<EmptyState title="Failed to load posture" description="Try again." />
-		);
+	if (q.isError) return <EmptyState title="Failed to load posture" description="Try again." />;
 
 	const findings = q.data?.findings ?? [];
 	if (findings.length === 0)
-		return (
-			<EmptyState
-				title="No findings"
-				description="This host has no open posture issues."
-			/>
-		);
+		return <EmptyState title="No findings" description="This host has no open posture issues." />;
 
 	const counts = findings.reduce<Record<string, number>>((a, f) => {
 		a[f.severity] = (a[f.severity] ?? 0) + 1;
@@ -64,9 +56,7 @@ export function HostPosturePanel({ hostId }: { hostId: string }) {
 	return (
 		<div className="space-y-4">
 			<div className="rounded border border-hairline bg-surface p-4">
-				<h3 className="mb-2 text-h4 font-semibold text-text">
-					Posture summary
-				</h3>
+				<h3 className="mb-2 text-h4 font-semibold text-text">Posture summary</h3>
 				<div className="flex flex-wrap gap-3 text-sm">
 					<span className="text-text-dim">
 						{findings.length} finding{findings.length === 1 ? '' : 's'}
@@ -95,25 +85,15 @@ export function HostPosturePanel({ hostId }: { hostId: string }) {
 							<p className="text-text-dim">
 								Rule: <code className="text-text">{f.rule}</code>
 							</p>
-							{f.last_seen ? (
-								<p className="text-text-dim">
-									Last seen: {f.last_seen}
-								</p>
-							) : null}
+							{f.last_seen ? <p className="text-text-dim">Last seen: {f.last_seen}</p> : null}
 							<div className="flex gap-3 text-xs">
 								{f.fix_action_url ? (
-									<a
-										href={f.fix_action_url}
-										className="text-blue-400 hover:underline"
-									>
+									<a href={f.fix_action_url} className="text-blue-400 hover:underline">
 										Fix
 									</a>
 								) : null}
 								{f.docs_url ? (
-									<a
-										href={f.docs_url}
-										className="text-blue-400 hover:underline"
-									>
+									<a href={f.docs_url} className="text-blue-400 hover:underline">
 										Docs
 									</a>
 								) : null}

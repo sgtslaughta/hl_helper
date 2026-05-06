@@ -1,10 +1,10 @@
 'use client';
 
-import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
-import { apiFetch } from '@/lib/api-client';
-import { BlueprintSkeleton } from '@/components/skeletons/blueprint-skeleton';
 import { EmptyState } from '@/components/empty-states/empty-state';
+import { BlueprintSkeleton } from '@/components/skeletons/blueprint-skeleton';
+import { apiFetch } from '@/lib/api-client';
+import { useQuery } from '@tanstack/react-query';
+import Link from 'next/link';
 
 interface TaskListItem {
 	id: string;
@@ -29,17 +29,11 @@ const STATUS_COLORS: Record<string, string> = {
 export function HostTasksPanel({ hostId }: { hostId: string }) {
 	const q = useQuery<TasksPage>({
 		queryKey: ['hosts', hostId, 'tasks'],
-		queryFn: () =>
-			apiFetch<TasksPage>(
-				`/v1/tasks?host_id=${encodeURIComponent(hostId)}&limit=50`
-			),
+		queryFn: () => apiFetch<TasksPage>(`/v1/tasks?host_id=${encodeURIComponent(hostId)}&limit=50`),
 	});
 
 	if (q.isLoading) return <BlueprintSkeleton rows={5} />;
-	if (q.isError)
-		return (
-			<EmptyState title="Failed to load tasks" description="Try again." />
-		);
+	if (q.isError) return <EmptyState title="Failed to load tasks" description="Try again." />;
 
 	const items = q.data?.items ?? [];
 	if (items.length === 0)
@@ -55,45 +49,25 @@ export function HostTasksPanel({ hostId }: { hostId: string }) {
 			<table className="w-full text-sm">
 				<thead className="border-b border-hairline bg-surface-2">
 					<tr>
-						<th className="px-4 py-2 text-left font-semibold text-text">
-							Kind
-						</th>
-						<th className="px-4 py-2 text-left font-semibold text-text">
-							Status
-						</th>
-						<th className="px-4 py-2 text-left font-semibold text-text">
-							Risk
-						</th>
-						<th className="px-4 py-2 text-left font-semibold text-text">
-							Created
-						</th>
+						<th className="px-4 py-2 text-left font-semibold text-text">Kind</th>
+						<th className="px-4 py-2 text-left font-semibold text-text">Status</th>
+						<th className="px-4 py-2 text-left font-semibold text-text">Risk</th>
+						<th className="px-4 py-2 text-left font-semibold text-text">Created</th>
 					</tr>
 				</thead>
 				<tbody>
 					{items.map(t => (
-						<tr
-							key={t.id}
-							className="border-b border-hairline hover:bg-surface-2"
-						>
+						<tr key={t.id} className="border-b border-hairline hover:bg-surface-2">
 							<td className="px-4 py-2 text-text">
-								<Link
-									href={`/tasks/${t.id}`}
-									className="hover:underline"
-								>
+								<Link href={`/tasks/${t.id}`} className="hover:underline">
 									{t.kind}
 								</Link>
 							</td>
-							<td
-								className={`px-4 py-2 ${
-									STATUS_COLORS[t.status] ?? 'text-text-dim'
-								}`}
-							>
+							<td className={`px-4 py-2 ${STATUS_COLORS[t.status] ?? 'text-text-dim'}`}>
 								{t.status}
 							</td>
 							<td className="px-4 py-2 text-text-dim">{t.risk}</td>
-							<td className="px-4 py-2 text-text-dim font-mono text-xs">
-								{t.created_at}
-							</td>
+							<td className="px-4 py-2 text-text-dim font-mono text-xs">{t.created_at}</td>
 						</tr>
 					))}
 				</tbody>
