@@ -100,6 +100,11 @@ export function EnrollmentModal({ onClose }: Props) {
 								<li>Revoke at any time before redemption.</li>
 							</ul>
 						</Disclosure>
+						{mintMut.isError ? (
+							<div className="rounded border border-red-500/40 bg-red-500/10 p-2 text-sm text-red-300">
+								{mintMut.error instanceof Error ? mintMut.error.message : 'Mint failed'}
+							</div>
+						) : null}
 						<footer className="flex justify-end gap-2 pt-2">
 							<button
 								type="button"
@@ -114,7 +119,7 @@ export function EnrollmentModal({ onClose }: Props) {
 								onClick={() => mintMut.mutate()}
 								className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-black disabled:opacity-50"
 							>
-								Mint token
+								{mintMut.isPending ? 'Minting…' : 'Mint token'}
 							</button>
 						</footer>
 					</div>
