@@ -117,18 +117,25 @@ func (c *Client) runOnce(ctx context.Context) error {
 func (c *Client) tlsCreds() (credentials.TransportCredentials, error) {
 	chain, key, err := c.opts.Keystore.TLSCertAndKey()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("load tls cert+key: %w", err)
 	}
 	if len(chain) == 0 || len(key) == 0 {
 		return nil, fmt.Errorf("transport: keystore has no TLS material — enroll first")
 	}
 	cert, err := tls.X509KeyPair(chain, key)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("X509KeyPair: %w", err)
+	}
+	if cert.Leaf == nil && len(cert.Certificate) > 0 {
+		if leaf, err := x509.ParseCertificate(cert.Certificate[0]); err == nil {
+			cert.Leaf = leaf
+			log.Printf("transport: loaded client cert subj=%q pubkey=%T sigAlgo=%s",
+				leaf.Subject.String(), leaf.PublicKey, leaf.SignatureAlgorithm)
+		}
 	}
 	rootPEM, err := c.opts.Keystore.RootCAPEM()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("load root CA: %w", err)
 	}
 	pool := x509.NewCertPool()
 	if rootPEM != nil {
@@ -138,6 +145,13 @@ func (c *Client) tlsCreds() (credentials.TransportCredentials, error) {
 		Certificates: []tls.Certificate{cert},
 		RootCAs:      pool,
 		MinVersion:   tls.VersionTLS13,
+		GetClientCertificate: func(req *tls.CertificateRequestInfo) (*tls.Certificate, error) {
+			log.Printf(
+				"transport: server requested client cert (sigSchemes=%v ackedAcceptableCAs=%d)",
+				req.SignatureSchemes, len(req.AcceptableCAs),
+			)
+			return &cert, nil
+		},
 	}
 	return credentials.NewTLS(cfg), nil
 }
