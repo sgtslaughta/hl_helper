@@ -242,6 +242,14 @@ class CommandDispatcher:
         dispatched_candidates = []
         denied = []
         payload_kind = self._get_payload_kind(payload)
+        # Map dispatcher payload_kind to RBAC catalog action name.
+        # Catalog uses "host:exec" for arbitrary shell, etc.
+        _action_name = {
+            "shell_exec": "host:exec",
+            "reboot": "host:reboot",
+            "shutdown": "host:shutdown",
+            "pkg_update": "host:pkg_update",
+        }.get(payload_kind, f"host:{payload_kind}")
 
         for host_id in all_hosts:
             # Check if principal has host:<action> permission on this host.
@@ -250,7 +258,7 @@ class CommandDispatcher:
             ctx = AuthContext()
             try:
                 decision = await self._rbac_provider.is_authorized(
-                    principal, f"host:{payload_kind}", resource, ctx
+                    principal, _action_name, resource, ctx
                 )
                 if decision.allow:
                     dispatched_candidates.append(host_id)
@@ -261,7 +269,7 @@ class CommandDispatcher:
                 structlog.get_logger().exception(
                     "rbac_provider_exception",
                     host_id=host_id,
-                    action=f"host:{payload_kind}",
+                    action=_action_name,
                     exc=e,
                 )
                 denied.append(host_id)

@@ -124,6 +124,15 @@ func (c *Client) runOnce(ctx context.Context) error {
 		hbInterval = 15 * time.Second
 	}
 
+	// gRPC bidi stream Send is NOT goroutine-safe. Serialize all senders
+	// (heartbeat + outbox drain) through this mutex.
+	var sendMu sync.Mutex
+	sendMsg := func(msg *pb.AgentToServer) error {
+		sendMu.Lock()
+		defer sendMu.Unlock()
+		return stream.Send(msg)
+	}
+
 	// Heartbeat sender goroutine. Lifecycle is bound to ctx + send-error.
 	hbCtx, hbCancel := context.WithCancel(ctx)
 	defer hbCancel()
@@ -131,7 +140,7 @@ func (c *Client) runOnce(ctx context.Context) error {
 	go func() {
 		// Send one immediately on stream open so server registers the host
 		// promptly (avoids ~15s of "offline" right after connect).
-		if err := stream.Send(&pb.AgentToServer{
+		if err := sendMsg(&pb.AgentToServer{
 			Msg: &pb.AgentToServer_Heartbeat{
 				Heartbeat: &pb.Heartbeat{
 					HostId: c.opts.HostID,
@@ -149,7 +158,7 @@ func (c *Client) runOnce(ctx context.Context) error {
 			case <-hbCtx.Done():
 				return
 			case <-t.C:
-				if err := stream.Send(&pb.AgentToServer{
+				if err := sendMsg(&pb.AgentToServer{
 					Msg: &pb.AgentToServer_Heartbeat{
 						Heartbeat: &pb.Heartbeat{
 							HostId: c.opts.HostID,
@@ -187,6 +196,9 @@ func (c *Client) runOnce(ctx context.Context) error {
 						log.Printf("outbox peek error: %v", err)
 						continue
 					}
+					if len(entries) > 0 {
+						log.Printf("outbox: draining %d entries", len(entries))
+					}
 					for _, entry := range entries {
 						// Unmarshal the result from outbox
 						result := &pb.ResultEnvelope{}
@@ -194,7 +206,7 @@ func (c *Client) runOnce(ctx context.Context) error {
 							log.Printf("failed to unmarshal result from outbox: %v", err)
 							continue
 						}
-						if err := stream.Send(&pb.AgentToServer{
+						if err := sendMsg(&pb.AgentToServer{
 							Msg: &pb.AgentToServer_Result{
 								Result: result,
 							},
@@ -202,6 +214,7 @@ func (c *Client) runOnce(ctx context.Context) error {
 							outboxErr <- err
 							return
 						}
+						log.Printf("outbox: sent result id=%d cmd=%s", entry.ID, result.CommandId)
 						if err := c.opts.Outbox.Ack(entry.ID); err != nil {
 							log.Printf("outbox ack error for id %d: %v", entry.ID, err)
 						}
