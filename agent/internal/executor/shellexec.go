@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"os/exec"
+	"syscall"
 	"time"
 
 	pb "github.com/hlhelper/hl-agent/proto/fleet/v1"
@@ -27,6 +28,16 @@ func RunShell(ctx context.Context, command string, timeoutSec int) (stdout, stde
 	}
 
 	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", command)
+	// Run sh in its own process group so we can kill the whole tree
+	// (subprocesses sh spawned) on timeout — exec.CommandContext only
+	// signals the direct child by default.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return nil
+		}
+		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
 
 	// Use buffers to capture output
 	cmd.Stdout = &bytes.Buffer{}

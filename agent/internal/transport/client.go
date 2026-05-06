@@ -306,16 +306,6 @@ func (c *Client) executeAndQueueResult(ctx context.Context, cmd *pb.CommandEnvel
 	result.CommandId = cmd.CommandId
 	result.HostId = c.opts.HostID
 
-	// Get and increment sequence + read prev hash atomically
-	seqMu.Lock()
-	seq := *seqPtr
-	*seqPtr++
-	prev := make([]byte, 32)
-	copy(prev, *prevHashPtr)
-	seqMu.Unlock()
-	result.Sequence = seq
-	result.PrevResultHash = prev
-
 	// Set timestamps if not already set
 	if result.StartedAt == nil {
 		result.StartedAt = timestamppb.Now()
@@ -323,45 +313,50 @@ func (c *Client) executeAndQueueResult(ctx context.Context, cmd *pb.CommandEnvel
 	if result.CompletedAt == nil {
 		result.CompletedAt = timestamppb.Now()
 	}
-
-	// Mark as final
 	result.Final = true
 
-	// Sign the result
 	signer := c.opts.Signer
 	if signer == nil {
 		signer = c.opts.Keystore
 	}
+
+	// SERIALIZED REGION: claim seq + prev hash, sign, marshal, append, update
+	// prev hash. The chain (seq, prev_hash) MUST be linear from the server's
+	// perspective; concurrent result goroutines that overlap break it.
+	seqMu.Lock()
+	seq := *seqPtr
+	*seqPtr++
+	result.Sequence = seq
+	prev := make([]byte, 32)
+	copy(prev, *prevHashPtr)
+	result.PrevResultHash = prev
+
 	if err := executor.BuildAndSign(result, signer); err != nil {
+		seqMu.Unlock()
 		log.Printf("failed to sign result for command %s: %v", cmd.CommandId, err)
 		return
 	}
 
-	// Marshal to bytes and append to outbox
 	resultBytes, err := marshal(result)
 	if err != nil {
+		seqMu.Unlock()
 		log.Printf("failed to marshal result for command %s: %v", cmd.CommandId, err)
 		return
 	}
 
-	_, err = c.opts.Outbox.Append(resultBytes)
-	if err != nil {
+	if _, err := c.opts.Outbox.Append(resultBytes); err != nil {
+		seqMu.Unlock()
 		log.Printf("failed to append result to outbox for command %s: %v", cmd.CommandId, err)
 		return
 	}
 
-	// Compute new prev_hash for chain link: sha256(canonical bytes of this result).
-	// Canonical form clears signature; we reuse what BuildAndSign signs over by
-	// re-marshalling deterministically with signature cleared.
 	canonClone, _ := proto.Clone(result).(*pb.ResultEnvelope)
 	canonClone.Signature = nil
 	canonBytes, _ := proto.MarshalOptions{Deterministic: true}.Marshal(canonClone)
 	newHash := sha256.Sum256(canonBytes)
-	seqMu.Lock()
 	*prevHashPtr = newHash[:]
 	seqMu.Unlock()
 
-	// Persist next seq + new prev hash so a restart picks up the chain.
 	if c.opts.KeystoreDir != "" {
 		if err := c.saveResultSequence(seq + 1); err != nil {
 			log.Printf("failed to save result sequence: %v", err)
