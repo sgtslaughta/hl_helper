@@ -7,13 +7,15 @@ import { useState } from 'react';
 
 interface Props {
 	onClose: () => void;
+	defaultHostId?: string;
+	lockHost?: boolean;
 }
 
-export function NewTaskModal({ onClose }: Props) {
+export function NewTaskModal({ onClose, defaultHostId, lockHost }: Props) {
 	const cap = useCanPerform('shell-exec');
 	const qc = useQueryClient();
-	const hostsQ = useQuery({ queryKey: ['hosts'], queryFn: () => listHosts() });
-	const [hostId, setHostId] = useState('');
+	const hostsQ = useQuery({ queryKey: ['hosts'], queryFn: () => listHosts(), enabled: !lockHost });
+	const [hostId, setHostId] = useState(defaultHostId ?? '');
 	const [command, setCommand] = useState('');
 	const [timeoutS, setTimeoutS] = useState(60);
 	const [result, setResult] = useState<string>('');
@@ -22,6 +24,7 @@ export function NewTaskModal({ onClose }: Props) {
 		mutationFn: () => shellExecHost(hostId, { command, timeout_s: timeoutS }, cap.principal ?? ''),
 		onSuccess: r => {
 			qc.invalidateQueries({ queryKey: ['tasks'] });
+			if (defaultHostId) qc.invalidateQueries({ queryKey: ['hosts', defaultHostId, 'tasks'] });
 			if (r.pending_approval_ids.length > 0) {
 				setResult(`Task created — awaiting approval (id ${r.task_id.slice(0, 8)})`);
 			} else if (r.dispatched.length > 0) {
@@ -66,24 +69,31 @@ export function NewTaskModal({ onClose }: Props) {
 					<p className="text-sm text-red-400">{cap.reason}</p>
 				) : (
 					<>
-						<div className="mb-3">
-							<label htmlFor="nt-host" className="block text-sm font-medium text-text">
-								Host
-							</label>
-							<select
-								id="nt-host"
-								value={hostId}
-								onChange={e => setHostId(e.target.value)}
-								className="mt-1 w-full rounded border border-hairline bg-surface-2 px-2 py-1.5 text-sm text-text"
-							>
-								<option value="">Select a host…</option>
-								{hosts.map((h: Host) => (
-									<option key={h.id} value={h.id}>
-										{h.hostname} ({h.status}) — {h.id.slice(0, 8)}
-									</option>
-								))}
-							</select>
-						</div>
+						{lockHost ? (
+							<div className="mb-3">
+								<span className="block text-sm font-medium text-text">Host</span>
+								<p className="mt-1 font-mono text-xs text-text-dim">{hostId}</p>
+							</div>
+						) : (
+							<div className="mb-3">
+								<label htmlFor="nt-host" className="block text-sm font-medium text-text">
+									Host
+								</label>
+								<select
+									id="nt-host"
+									value={hostId}
+									onChange={e => setHostId(e.target.value)}
+									className="mt-1 w-full rounded border border-hairline bg-surface-2 px-2 py-1.5 text-sm text-text"
+								>
+									<option value="">Select a host…</option>
+									{hosts.map((h: Host) => (
+										<option key={h.id} value={h.id}>
+											{h.hostname} ({h.status}) — {h.id.slice(0, 8)}
+										</option>
+									))}
+								</select>
+							</div>
+						)}
 
 						<div className="mb-3">
 							<label htmlFor="nt-cmd" className="block text-sm font-medium text-text">

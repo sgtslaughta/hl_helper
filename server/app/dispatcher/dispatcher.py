@@ -316,9 +316,9 @@ class CommandDispatcher:
                     Approval.subject_id == payload_kind,
                     Approval.requester_id == _principal_identity(principal),
                     Approval.state == ApprovalState.APPROVED,
-                )
+                ).limit(1)
             )
-            approved_row = existing_q.scalar_one_or_none()
+            approved_row = existing_q.scalars().first()
             if approved_row is None:
                 pending = await self._approval_engine.request(
                     subject_type="command",
