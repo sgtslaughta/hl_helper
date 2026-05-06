@@ -153,12 +153,32 @@ function InstallStep({
 	onRevoke: () => void;
 	onWatch: () => void;
 }) {
-	function copy() {
-		void navigator.clipboard.writeText(minted.install_command);
+	async function copy() {
+		const text = minted.install_command;
+		try {
+			if (navigator.clipboard && window.isSecureContext) {
+				await navigator.clipboard.writeText(text);
+				return;
+			}
+		} catch {
+			// fall through to legacy path
+		}
+		// Legacy fallback for non-secure contexts (HTTP localhost on some browsers).
+		const ta = document.createElement('textarea');
+		ta.value = text;
+		ta.style.position = 'fixed';
+		ta.style.left = '-9999px';
+		document.body.appendChild(ta);
+		ta.select();
+		try {
+			document.execCommand('copy');
+		} finally {
+			document.body.removeChild(ta);
+		}
 	}
 	const [copied, setCopied] = useState(false);
-	function doCopy() {
-		copy();
+	async function doCopy() {
+		await copy();
 		setCopied(true);
 		setTimeout(() => setCopied(false), 1500);
 	}

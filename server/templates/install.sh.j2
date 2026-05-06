@@ -57,22 +57,34 @@ else
 fi
 {% endif %}
 
-# Install binary
-mkdir -p /usr/local/bin
-mv "$tmp_agent" /usr/local/bin/hl-agent
-chmod +x /usr/local/bin/hl-agent
+# Install binary — escalate when not root.
+if [ "$(id -u)" -eq 0 ]; then
+  SUDO=""
+else
+  if command -v sudo >/dev/null 2>&1; then
+    SUDO="sudo"
+    echo "Note: this installer requires sudo for /usr/local/bin and systemd; you may be prompted for your password."
+  else
+    echo "ERROR: not running as root and 'sudo' not available." >&2
+    exit 1
+  fi
+fi
+
+$SUDO mkdir -p /usr/local/bin
+$SUDO mv "$tmp_agent" /usr/local/bin/hl-agent
+$SUDO chmod +x /usr/local/bin/hl-agent
 
 # Create sudoers entry for hl-agent
 echo "Configuring sudoers..."
 SUDOERS_FILE="/etc/sudoers.d/hl-agent"
-cat > "${SUDOERS_FILE}" <<'EOF'
+$SUDO sh -c "cat > '${SUDOERS_FILE}' <<'EOF'
 hl-agent ALL=(ALL) NOPASSWD: ALL
-EOF
-chmod 0440 "${SUDOERS_FILE}"
+EOF"
+$SUDO chmod 0440 "${SUDOERS_FILE}"
 
 # Validate sudoers syntax
 if command -v visudo >/dev/null 2>&1; then
-  visudo -c -f "${SUDOERS_FILE}" || {
+  $SUDO visudo -c -f "${SUDOERS_FILE}" || {
     echo "ERROR: sudoers validation failed" >&2
     exit 1
   }
@@ -105,23 +117,23 @@ if command -v systemd-analyze >/dev/null 2>&1; then
 fi
 
 # Install systemd unit
-sudo mv /tmp/hl-agent.service /etc/systemd/system/hl-agent.service
-sudo systemctl daemon-reload
+$SUDO mv /tmp/hl-agent.service /etc/systemd/system/hl-agent.service
+$SUDO systemctl daemon-reload
 
 # Enroll with token if provided
 {% if token %}
 echo "Enrolling with token..."
 {% if server_ca_pem %}
 CA_PEM="{{ server_ca_pem }}"
-/usr/local/bin/hl-agent enroll --token="{{ token }}" --server="{{ server }}" --ca-cert <(echo "$CA_PEM")
+$SUDO /usr/local/bin/hl-agent enroll --token="{{ token }}" --server="{{ server }}" --ca-cert <(echo "$CA_PEM")
 {% else %}
-/usr/local/bin/hl-agent enroll --token="{{ token }}" --server="{{ server }}"
+$SUDO /usr/local/bin/hl-agent enroll --token="{{ token }}" --server="{{ server }}"
 {% endif %}
 {% endif %}
 
 # Enable and start service
 echo "Enabling hl-agent service..."
-sudo systemctl enable hl-agent
-sudo systemctl start hl-agent
+$SUDO systemctl enable hl-agent
+$SUDO systemctl start hl-agent
 
 echo "Installation complete"
