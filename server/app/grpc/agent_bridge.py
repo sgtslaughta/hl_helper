@@ -167,7 +167,7 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
                 # The agent should fix signature issues on its side.
                 await self._dispatcher.ack(host_id, msg.result.command_id)
             elif kind == "heartbeat":
-                # Update Host.last_seen_at
+                # Update Host.last_seen_at and mark healthy
                 if self._sessionmaker is not None:
                     from server.app.models.host import Host
 
@@ -176,6 +176,7 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
                             host = await session.get(Host, host_id)
                             if host:
                                 host.last_seen_at = datetime.now(timezone.utc)
+                                host.status = "healthy"
                                 await session.commit()
                     except Exception as e:
                         log.warning(

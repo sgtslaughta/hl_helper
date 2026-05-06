@@ -13,6 +13,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/hlhelper/hl-agent/internal/keystore"
 	"github.com/hlhelper/hl-agent/internal/outbox"
@@ -20,13 +21,15 @@ import (
 )
 
 type Options struct {
-	Endpoint    string
-	Keystore    keystore.Keystore
-	Outbox      *outbox.Outbox
-	OnCommand   func(*pb.CommandEnvelope)
-	BaseBackoff time.Duration
-	MaxBackoff  time.Duration
-	DialOptions []grpc.DialOption // override (tests use bufconn)
+	Endpoint          string
+	HostID            string // sent in heartbeats; from manifest.json
+	Keystore          keystore.Keystore
+	Outbox            *outbox.Outbox
+	OnCommand         func(*pb.CommandEnvelope)
+	BaseBackoff       time.Duration
+	MaxBackoff        time.Duration
+	HeartbeatInterval time.Duration // default 15s when zero
+	DialOptions       []grpc.DialOption // override (tests use bufconn)
 }
 
 type Client struct{ opts Options }
@@ -97,6 +100,51 @@ func (c *Client) runOnce(ctx context.Context) error {
 		return err
 	}
 
+	hbInterval := c.opts.HeartbeatInterval
+	if hbInterval <= 0 {
+		hbInterval = 15 * time.Second
+	}
+
+	// Heartbeat sender goroutine. Lifecycle is bound to ctx + send-error.
+	hbCtx, hbCancel := context.WithCancel(ctx)
+	defer hbCancel()
+	hbErr := make(chan error, 1)
+	go func() {
+		// Send one immediately on stream open so server registers the host
+		// promptly (avoids ~15s of "offline" right after connect).
+		if err := stream.Send(&pb.AgentToServer{
+			Msg: &pb.AgentToServer_Heartbeat{
+				Heartbeat: &pb.Heartbeat{
+					HostId: c.opts.HostID,
+					At:     timestamppb.Now(),
+				},
+			},
+		}); err != nil {
+			hbErr <- err
+			return
+		}
+		t := time.NewTicker(hbInterval)
+		defer t.Stop()
+		for {
+			select {
+			case <-hbCtx.Done():
+				return
+			case <-t.C:
+				if err := stream.Send(&pb.AgentToServer{
+					Msg: &pb.AgentToServer_Heartbeat{
+						Heartbeat: &pb.Heartbeat{
+							HostId: c.opts.HostID,
+							At:     timestamppb.Now(),
+						},
+					},
+				}); err != nil {
+					hbErr <- err
+					return
+				}
+			}
+		}
+	}()
+
 	recvErr := make(chan error, 1)
 	go func() {
 		for {
@@ -111,7 +159,12 @@ func (c *Client) runOnce(ctx context.Context) error {
 		}
 	}()
 
-	return <-recvErr
+	select {
+	case e := <-recvErr:
+		return e
+	case e := <-hbErr:
+		return e
+	}
 }
 
 func (c *Client) tlsCreds() (credentials.TransportCredentials, error) {

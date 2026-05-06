@@ -140,6 +140,10 @@ func runCmd() *cobra.Command {
 			if endpoint == "" {
 				return fmt.Errorf("manifest missing grpc_endpoint")
 			}
+			hostID := manifest["host_id"]
+			if hostID == "" {
+				return fmt.Errorf("manifest missing host_id")
+			}
 
 			ks, err := keystore.OpenFile(dir)
 			if err != nil {
@@ -158,6 +162,7 @@ func runCmd() *cobra.Command {
 
 			client := transport.New(transport.Options{
 				Endpoint: endpoint,
+				HostID:   hostID,
 				Keystore: ks,
 				Outbox:   ob,
 				OnCommand: func(env *pb.CommandEnvelope) {

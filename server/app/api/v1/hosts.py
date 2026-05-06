@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -112,7 +112,25 @@ async def list_hosts(
 
     result = await session.execute(stmt)
     rows = result.scalars().all()
-    return [HostOut.model_validate(r) for r in rows]
+    now = datetime.now(timezone.utc)
+    out: list[HostOut] = []
+    for r in rows:
+        h = HostOut.model_validate(r)
+        # Freshness override: degrade an apparently-healthy host whose last
+        # heartbeat is stale. Only touch the "healthy" stored status; leave
+        # explicit "online", "warning", "critical", "offline" alone so admins
+        # and tests that set those values directly are honored.
+        if r.status == "healthy" and r.last_seen_at is not None:
+            last = r.last_seen_at
+            if last.tzinfo is None:
+                last = last.replace(tzinfo=timezone.utc)
+            age = (now - last).total_seconds()
+            if age >= 300:
+                h.status = "offline"
+            elif age >= 60:
+                h.status = "warning"
+        out.append(h)
+    return out
 
 
 @router.get("/{host_id}", response_model=HostOut)
