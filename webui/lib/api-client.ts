@@ -29,6 +29,16 @@ export async function apiFetch<T>(path: string, options: FetchOptions = {}): Pro
 		headers['Idempotency-Key'] = options.idempotencyKey || generateIdempotencyKey();
 	}
 
+	// Cookie-based session auth requires CSRF on state-changing methods.
+	// Read hls_csrf cookie and mirror into X-CSRF-Token header.
+	const method = (options.method || 'GET').toUpperCase();
+	const isStateChanging =
+		method === 'POST' || method === 'PATCH' || method === 'PUT' || method === 'DELETE';
+	if (isStateChanging && typeof document !== 'undefined' && !headers['X-CSRF-Token']) {
+		const match = document.cookie.match(/(?:^|;\s*)hls_csrf=([^;]+)/);
+		if (match) headers['X-CSRF-Token'] = decodeURIComponent(match[1]);
+	}
+
 	const resp = await fetch(url, {
 		...options,
 		headers,
