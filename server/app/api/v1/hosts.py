@@ -115,6 +115,19 @@ async def list_hosts(
     return [HostOut.model_validate(r) for r in rows]
 
 
+@router.get("/{host_id}", response_model=HostOut)
+async def get_host(
+    host_id: str,
+    actor: str = Depends(admin_required),
+    session: AsyncSession = Depends(get_session),
+) -> HostOut:
+    """Get a single host by id."""
+    row = await session.get(Host, host_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="host_not_found")
+    return HostOut.model_validate(row)
+
+
 @router.delete("/{host_id}", status_code=204)
 async def revoke_host(
     host_id: str,
