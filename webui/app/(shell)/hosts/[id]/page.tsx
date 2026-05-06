@@ -8,6 +8,9 @@ import { getHost, type Host } from '@/lib/api/hosts';
 import { HostOverviewCard } from '@/components/hosts/host-overview-card';
 import { HostActionButtons } from '@/components/hosts/host-action-buttons';
 import { HostTabs } from '@/components/hosts/host-tabs';
+import { HostTasksPanel } from '@/components/hosts/host-tasks-panel';
+import { HostPosturePanel } from '@/components/hosts/host-posture-panel';
+import { HostAuditPanel } from '@/components/hosts/host-audit-panel';
 import { BlueprintSkeleton } from '@/components/skeletons/blueprint-skeleton';
 import { EmptyState } from '@/components/empty-states/empty-state';
 
@@ -51,10 +54,10 @@ export default function HostDetailPage() {
       <HostTabs
         panels={{
           overview,
-          tasks: placeholder('Tasks'),
-          posture: placeholder('Posture'),
+          tasks: <HostTasksPanel hostId={id} />,
+          posture: <HostPosturePanel hostId={id} />,
           terminal: placeholder('Terminal'),
-          audit: placeholder('Audit'),
+          audit: <HostAuditPanel hostId={id} />,
         }}
       />
     </div>
