@@ -156,7 +156,10 @@ func runCmd() *cobra.Command {
 			ob, err := outbox.OpenWithKeyFile(
 				filepath.Join(dir, "outbox.db"),
 				filepath.Join(dir, "outbox.key"),
-				outbox.Options{},
+				outbox.Options{
+					MaxEntries: 10_000,
+					MaxBytes:   64 * 1024 * 1024,
+				},
 			)
 			if err != nil {
 				return fmt.Errorf("open outbox: %w", err)
