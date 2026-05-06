@@ -467,17 +467,30 @@ async def whoami(
     if principal is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
 
-    # Fetch user info
+    # Fetch user info + role bindings
+    from server.app.models.binding import Binding, PrincipalType
+    from server.app.models.role import Role
+
     async with app_state.sessionmaker() as db_session:
         user = await db_session.scalar(select(User).where(User.id == principal.user_id))
-
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+        if not user:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+        role_rows = (
+            await db_session.execute(
+                select(Role.name)
+                .join(Binding, Binding.role_id == Role.id)
+                .where(
+                    Binding.principal_type == PrincipalType.USER,
+                    Binding.principal_id == user.id,
+                )
+            )
+        ).all()
+        roles = sorted({r[0] for r in role_rows})
 
     return WhoamiResponse(
         id=user.id,
         email=user.email,
-        roles=[],  # TODO(c3-rbac-wire): populate from bindings
+        roles=roles,
         groups=[],  # TODO(c3-rbac-wire): populate from groups
     )
 

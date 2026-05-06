@@ -6,17 +6,27 @@ import { apiFetch } from './api-client';
 
 export interface User {
 	id: string;
-	username: string;
+	username?: string;
 	email: string;
 	full_name?: string;
-	created_at: string;
+	created_at?: string;
 	roles: string[];
-	permissions: string[];
+	permissions?: string[];
+	groups?: string[];
 }
 
 export interface Session {
 	user: User;
 	authenticated: boolean;
+}
+
+// Backend /v1/auth/whoami returns a flat shape: {id, email, roles, groups}.
+// Wrap into Session for legacy callers.
+interface WhoamiResponse {
+	id: string;
+	email: string;
+	roles: string[];
+	groups: string[];
 }
 
 export function useAuth() {
@@ -27,10 +37,13 @@ export function useAuth() {
 		error,
 	} = useQuery({
 		queryKey: ['auth', 'session'],
-		queryFn: async () => {
+		queryFn: async (): Promise<Session | null> => {
 			try {
-				const response = await apiFetch<Session>('/v1/auth/whoami');
-				return response;
+				const r = await apiFetch<WhoamiResponse>('/v1/auth/whoami');
+				return {
+					user: { id: r.id, email: r.email, roles: r.roles, groups: r.groups },
+					authenticated: true,
+				};
 			} catch {
 				return null;
 			}
