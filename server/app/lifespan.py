@@ -411,17 +411,20 @@ async def app_lifespan(app: Any) -> AsyncIterator[None]:
 
     # Bridge bus 'command.issued' events into grpc dispatcher's live per-host queue.
     from server.app.grpc.command_bridge import run_command_bridge
+    from server.app.dispatcher.sweeper import run_command_sweeper
     bridge_task = asyncio.create_task(
         run_command_bridge(state.bus, state.dispatcher, state.sessionmaker)
     )
+    sweeper_task = asyncio.create_task(run_command_sweeper(state.sessionmaker))
 
     yield
 
-    bridge_task.cancel()
-    try:
-        await bridge_task
-    except (asyncio.CancelledError, Exception):
-        pass
+    for t in (bridge_task, sweeper_task):
+        t.cancel()
+        try:
+            await t
+        except (asyncio.CancelledError, Exception):
+            pass
 
     # Shutdown: stop gRPC server, session service, and close engine
     if state.grpc_server:

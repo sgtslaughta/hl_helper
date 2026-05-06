@@ -404,7 +404,15 @@ class CommandDispatcher:
             command_id = str(uuid4())
             nonce = os.urandom(16)
             issued_at = now
-            expires_at = now + timedelta(seconds=300)  # Default 300s TTL
+            # TTL: take ShellExec.timeout_s when present, else 300s default.
+            # Add a 30s slack so the server-side sweeper doesn't race the
+            # agent's own timeout.
+            payload_to = (
+                payload.timeout_s
+                if isinstance(payload, ShellExecPayload) and payload.timeout_s > 0
+                else 300
+            )
+            expires_at = now + timedelta(seconds=payload_to + 30)
 
             # Build capability claims
             claims = CapabilityClaims(
