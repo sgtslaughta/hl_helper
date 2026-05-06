@@ -172,8 +172,6 @@ async def list_tasks(
     async with sm() as session:
         query = select(Task)
         if host_id is not None:
-            from server.app.models.task_run import TaskRun
-
             query = (
                 query.join(TaskRun, TaskRun.task_id == Task.id)
                 .where(TaskRun.host_id == host_id)
