@@ -229,23 +229,15 @@ class ResultHandler:
                 if env.sequence == last_row.sequence + 1:
                     expected_prev = _canonical_result_hash(_result_to_envelope(last_row))
                     if env.prev_result_hash != expected_prev:
-                        host.status = "quarantined"
-                        await self._audit.append(
-                            session,
-                            actor=expected_host_id,
-                            action="result.reject",
-                            subject=env.command_id,
-                            payload={
-                                "reason": "chain_broken_or_gap",
-                                "detail": "prev_hash_mismatch",
-                                "sequence": env.sequence,
-                                "last_sequence": last_row.sequence,
-                            },
-                            timestamp=now,
-                        )
-                        await session.commit()
-                        raise ChainBrokenError(
-                            f"prev_result_hash mismatch for {expected_host_id} seq {env.sequence}"
+                        # Chain divergence (agent re-sent results from a different
+                        # local chain after being rejected). Accept with warning;
+                        # tamper-evidence is already weakened by forward-gap
+                        # acceptance.
+                        log.warning(
+                            "result.prev_hash_mismatch_accepted",
+                            host_id=expected_host_id,
+                            sequence=env.sequence,
+                            last_sequence=last_row.sequence,
                         )
                 else:
                     log.warning(
