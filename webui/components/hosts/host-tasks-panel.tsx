@@ -3,11 +3,12 @@
 import { EmptyState } from '@/components/empty-states/empty-state';
 import { BlueprintSkeleton } from '@/components/skeletons/blueprint-skeleton';
 import { NewTaskModal } from '@/components/tasks/new-task-modal';
+import { TaskResultPreview } from '@/components/tasks/task-result-preview';
 import { apiFetch } from '@/lib/api-client';
 import { useCanPerform } from '@/lib/rbac';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 
 interface TaskListItem {
 	id: string;
@@ -34,6 +35,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 export function HostTasksPanel({ hostId }: { hostId: string }) {
 	const [showNew, setShowNew] = useState(false);
+	const [expandedId, setExpandedId] = useState<string | null>(null);
 	const cap = useCanPerform('shell-exec');
 	const q = useQuery<TasksPage>({
 		queryKey: ['hosts', hostId, 'tasks'],
@@ -81,6 +83,10 @@ export function HostTasksPanel({ hostId }: { hostId: string }) {
 			</div>
 		);
 
+	function toggle(id: string) {
+		setExpandedId(prev => (prev === id ? null : id));
+	}
+
 	return (
 		<div>
 			{headerBar}
@@ -93,26 +99,70 @@ export function HostTasksPanel({ hostId }: { hostId: string }) {
 							<th className="px-4 py-2 text-left font-semibold text-text">Status</th>
 							<th className="px-4 py-2 text-left font-semibold text-text">Risk</th>
 							<th className="px-4 py-2 text-left font-semibold text-text">Created</th>
+							<th className="px-4 py-2 text-right font-semibold text-text" aria-label="Actions" />
 						</tr>
 					</thead>
 					<tbody>
-						{items.map(t => (
-							<tr key={t.id} className="border-b border-hairline hover:bg-surface-2">
-								<td className="px-4 py-2 text-text">
-									<Link href={`/tasks/${t.id}`} className="hover:underline">
-										{t.kind}
-									</Link>
-								</td>
-								<td className="px-4 py-2 text-text-dim font-mono text-xs max-w-[320px] truncate" title={t.summary ?? ''}>
-									{t.summary ?? ''}
-								</td>
-								<td className={`px-4 py-2 ${STATUS_COLORS[t.status] ?? 'text-text-dim'}`}>
-									{t.status}
-								</td>
-								<td className="px-4 py-2 text-text-dim">{t.risk}</td>
-								<td className="px-4 py-2 text-text-dim font-mono text-xs">{t.created_at}</td>
-							</tr>
-						))}
+						{items.map(t => {
+							const expanded = expandedId === t.id;
+							return (
+								<Fragment key={t.id}>
+									<tr
+										tabIndex={0}
+										aria-expanded={expanded}
+										onClick={() => toggle(t.id)}
+										onKeyDown={e => {
+											if (e.key === 'Enter' || e.key === ' ') {
+												e.preventDefault();
+												toggle(t.id);
+											} else if (e.key === 'Escape' && expanded) {
+												e.preventDefault();
+												toggle(t.id);
+											}
+										}}
+										className={`cursor-pointer border-b border-hairline hover:bg-surface-2 ${
+											expanded ? 'bg-surface-2' : ''
+										}`}
+									>
+										<td className="px-4 py-2 text-text">
+											<span className="mr-1 inline-block w-3 text-text-dim" aria-hidden>
+												{expanded ? '▾' : '▸'}
+											</span>
+											{t.kind}
+										</td>
+										<td
+											className="px-4 py-2 text-text-dim font-mono text-xs max-w-[320px] truncate"
+											title={t.summary ?? ''}
+										>
+											{t.summary ?? ''}
+										</td>
+										<td className={`px-4 py-2 ${STATUS_COLORS[t.status] ?? 'text-text-dim'}`}>{t.status}</td>
+										<td className="px-4 py-2 text-text-dim">{t.risk}</td>
+										<td className="px-4 py-2 text-text-dim font-mono text-xs">{t.created_at}</td>
+										<td className="px-4 py-2 text-right">
+											<Link
+												href={`/tasks/${t.id}`}
+												aria-label="Open task detail"
+												onClick={e => e.stopPropagation()}
+												onKeyDown={e => e.stopPropagation()}
+												className="inline-block rounded px-2 text-text-dim hover:text-text"
+											>
+												↗
+											</Link>
+										</td>
+									</tr>
+									{expanded ? (
+										<tr>
+											<td colSpan={6} className="border-b border-hairline bg-surface px-4 py-3">
+												<section aria-label={`Result for ${t.kind}`}>
+													<TaskResultPreview taskId={t.id} hostId={hostId} />
+												</section>
+											</td>
+										</tr>
+									) : null}
+								</Fragment>
+							);
+						})}
 					</tbody>
 				</table>
 			</div>
