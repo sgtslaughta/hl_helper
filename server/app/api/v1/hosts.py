@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -144,6 +144,28 @@ async def get_host(
     if row is None:
         raise HTTPException(status_code=404, detail="host_not_found")
     return HostOut.model_validate(row)
+
+
+@router.post("/prune-stale", status_code=200)
+async def prune_stale_hosts(
+    actor: str = Depends(admin_required),
+    session: AsyncSession = Depends(get_session),
+    older_than_minutes: int = 30,
+) -> dict[str, int]:
+    """Delete host rows that never produced a heartbeat and were enrolled
+    more than ``older_than_minutes`` minutes ago. Useful for cleaning up
+    failed-enrollment leftovers from the UI without going through revocation.
+    """
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(minutes=max(0, older_than_minutes))
+    stmt = select(Host).where(Host.last_seen_at.is_(None), Host.enrolled_at < cutoff)
+    rows = (await session.execute(stmt)).scalars().all()
+    deleted = 0
+    for r in rows:
+        await session.delete(r)
+        deleted += 1
+    await session.commit()
+    return {"deleted": deleted}
 
 
 @router.delete("/{host_id}", status_code=204)
