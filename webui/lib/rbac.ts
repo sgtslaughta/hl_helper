@@ -24,8 +24,10 @@ export function useCanPerform(action: ActionType): CanPerform {
 	if (isLoading) return { allowed: false, reason: 'Loading permissions…' };
 	if (!user) return { allowed: false, reason: 'Not signed in.' };
 	if (ADMIN_ACTIONS.has(action)) {
-		if (user.roles.includes('admin')) return { allowed: true, principal: user.id };
-		return { allowed: false, reason: 'Requires admin role.', principal: user.id };
+		// Backend admin_required accepts admin OR owner role; mirror that here.
+		if (user.roles.includes('admin') || user.roles.includes('owner'))
+			return { allowed: true, principal: user.id };
+		return { allowed: false, reason: 'Requires admin or owner role.', principal: user.id };
 	}
 	return { allowed: true, principal: user.id };
 }
