@@ -1,5 +1,7 @@
 'use client';
 
+import { useQuery } from '@tanstack/react-query';
+import { apiFetch } from '@/lib/api-client';
 import type { Host } from '@/lib/api/hosts';
 
 export type FocusMode =
@@ -16,6 +18,55 @@ export type FocusMode =
 interface Props {
   host: Host;
   onJump: (mode: FocusMode) => void;
+}
+
+interface TaskItem {
+  id: string;
+  kind: string;
+  status: string;
+  created_at: string;
+  risk: string;
+  summary?: string;
+}
+
+interface TasksPage {
+  items: TaskItem[];
+  next_cursor: string | null;
+}
+
+interface AuditEntry {
+  sequence: number;
+  timestamp: string;
+  actor: string;
+  action: string;
+  subject: string | null;
+  payload: Record<string, unknown>;
+  prev_hash: string;
+  entry_hash: string;
+}
+
+interface AuditPage {
+  items: AuditEntry[];
+  next_cursor: string | null;
+}
+
+interface Finding {
+  id: string;
+  severity: string;
+  title: string;
+  summary: string;
+  fix_action_url: string | null;
+  docs_url: string | null;
+  rule: string;
+  subject_kind: string;
+  subject_id: string | null;
+  first_seen: string | null;
+  last_seen: string | null;
+  suppressed_until: string | null;
+}
+
+interface PostureResponse {
+  findings: Finding[];
 }
 
 function Kpi({ label, value, sub }: { label: string; value: string; sub?: string }) {
@@ -60,6 +111,85 @@ function uptimeFmt(s: number | undefined): string {
   return d > 0 ? `${d}d` : `${Math.floor(s / 3600)}h`;
 }
 
+function TasksRibbon({ hostId }: { hostId: string }) {
+  const q = useQuery<TasksPage>({
+    queryKey: ['hosts', hostId, 'tasks'],
+    queryFn: () => apiFetch<TasksPage>(`/v1/tasks?host_id=${encodeURIComponent(hostId)}&limit=50`),
+  });
+
+  if (q.isLoading) return <div className="text-text-dim">…</div>;
+  if (q.isError) return <div className="text-red-300">failed</div>;
+
+  const items = q.data?.items ?? [];
+  const displayed = items.slice(0, 3);
+
+  if (displayed.length === 0) return <div className="text-text-dim">none</div>;
+
+  return (
+    <div className="flex flex-col gap-1">
+      {displayed.map(t => (
+        <div key={t.id} className="text-text-dim truncate">
+          {t.summary ?? t.kind}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AuditRibbon({ hostId }: { hostId: string }) {
+  const q = useQuery<AuditPage>({
+    queryKey: ['hosts', hostId, 'audit'],
+    queryFn: () =>
+      apiFetch<AuditPage>(`/v1/audit?subject=${encodeURIComponent(hostId)}&limit=50`),
+  });
+
+  if (q.isLoading) return <div className="text-text-dim">…</div>;
+  if (q.isError) return <div className="text-red-300">failed</div>;
+
+  const items = q.data?.items ?? [];
+  const displayed = items.slice(0, 3);
+
+  if (displayed.length === 0) return <div className="text-text-dim">none</div>;
+
+  return (
+    <div className="flex flex-col gap-1">
+      {displayed.map(e => (
+        <div key={e.sequence} className="text-text-dim truncate text-xs">
+          {e.actor} {e.action} {e.subject || '—'}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PostureRibbon({ hostId }: { hostId: string }) {
+  const q = useQuery<PostureResponse>({
+    queryKey: ['hosts', hostId, 'posture'],
+    queryFn: () =>
+      apiFetch<PostureResponse>(
+        `/v1/posture?subject_kind=host&subject_id=${encodeURIComponent(hostId)}`,
+      ),
+  });
+
+  if (q.isLoading) return <div className="text-text-dim">…</div>;
+  if (q.isError) return <div className="text-red-300">failed</div>;
+
+  const items = q.data?.findings ?? [];
+  const displayed = items.slice(0, 5);
+
+  if (displayed.length === 0) return <div className="text-text-dim">none</div>;
+
+  return (
+    <div className="flex flex-col gap-1">
+      {displayed.map(f => (
+        <div key={f.id} className="text-text-dim truncate text-xs">
+          [{f.severity}] {f.title}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function OverviewDashboard({ host, onJump }: Props) {
   const labelKeys = Object.values(host.labels ?? {});
   return (
@@ -93,24 +223,24 @@ export function OverviewDashboard({ host, onJump }: Props) {
 
           <SectionHeader title="Active tasks" onJump={() => onJump('tasks')} jumpLabel="Tasks →" />
           <div className="rounded border border-hairline bg-surface-2 p-2 text-xs text-text-dim">
-            (live task ribbon — wired in next task)
+            <TasksRibbon hostId={host.id} />
           </div>
 
           <SectionHeader title="Audit" onJump={() => onJump('audit')} jumpLabel="Audit →" />
           <div className="rounded border border-hairline bg-surface-2 p-2 text-xs text-text-dim">
-            (recent events — wired in next task)
+            <AuditRibbon hostId={host.id} />
           </div>
         </div>
 
         <div>
           <SectionHeader title="Posture" onJump={() => onJump('posture')} jumpLabel="Posture →" />
           <div className="rounded border border-hairline bg-surface-2 p-2 text-xs text-text-dim">
-            (top posture checks — wired in next task)
+            <PostureRibbon hostId={host.id} />
           </div>
 
           <SectionHeader title="Advisories" onJump={() => onJump('advisories')} jumpLabel="Advisories →" />
           <div className="rounded border border-hairline bg-surface-2 p-2 text-xs text-text-dim">
-            (CVE list — wired in next task)
+            none
           </div>
         </div>
       </div>

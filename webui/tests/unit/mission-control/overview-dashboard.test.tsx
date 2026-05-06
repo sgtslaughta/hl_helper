@@ -1,5 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { OverviewDashboard } from '@/components/hosts/mission-control/overview-dashboard';
 import type { Host } from '@/lib/api/hosts';
 
@@ -21,16 +22,34 @@ const host: Host = {
   uptime_s: 14 * 86400,
 };
 
+const renderWithQueryClient = (element: React.ReactElement) => {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={qc}>
+      {element}
+    </QueryClientProvider>,
+  );
+};
+
 describe('OverviewDashboard', () => {
+  beforeEach(() => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+      new Response(JSON.stringify({}), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+  });
+
   it('renders all 6 KPI cards', () => {
-    render(<OverviewDashboard host={host} onJump={() => {}} />);
+    renderWithQueryClient(<OverviewDashboard host={host} onJump={() => {}} />);
     for (const l of ['Status', 'CPU', 'Mem', 'Disk', 'Net', 'Uptime']) {
       expect(screen.getByText(l)).toBeInTheDocument();
     }
   });
 
   it('renders identity strip with hostname/os/labels', () => {
-    render(<OverviewDashboard host={host} onJump={() => {}} />);
+    renderWithQueryClient(<OverviewDashboard host={host} onJump={() => {}} />);
     expect(screen.getByText(/linux/)).toBeInTheDocument();
     expect(screen.getByText('prod')).toBeInTheDocument();
     expect(screen.getByText('web')).toBeInTheDocument();
@@ -38,15 +57,36 @@ describe('OverviewDashboard', () => {
 
   it('clicking the Tasks jump link calls onJump("tasks")', () => {
     const onJump = vi.fn();
-    render(<OverviewDashboard host={host} onJump={onJump} />);
+    renderWithQueryClient(<OverviewDashboard host={host} onJump={onJump} />);
     fireEvent.click(screen.getByRole('button', { name: /jump to Tasks/i }));
     expect(onJump).toHaveBeenCalledWith('tasks');
   });
 
   it('clicking the Posture jump link calls onJump("posture")', () => {
     const onJump = vi.fn();
-    render(<OverviewDashboard host={host} onJump={onJump} />);
+    renderWithQueryClient(<OverviewDashboard host={host} onJump={onJump} />);
     fireEvent.click(screen.getByRole('button', { name: /jump to Posture/i }));
     expect(onJump).toHaveBeenCalledWith('posture');
+  });
+
+  it('shows active task name from query', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes('/v1/tasks')) {
+        return new Response(
+          JSON.stringify({
+            items: [{ id: 't1', kind: 'shell', status: 'running', created_at: '2026-05-06T18:00:00Z', risk: 'low', summary: 'apt upgrade' }],
+            next_cursor: null,
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      return new Response(JSON.stringify({}), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    renderWithQueryClient(<OverviewDashboard host={host} onJump={() => {}} />);
+    expect(await screen.findByText(/apt upgrade/)).toBeInTheDocument();
   });
 });
