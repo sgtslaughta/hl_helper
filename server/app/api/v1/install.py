@@ -11,6 +11,11 @@ from jinja2 import Environment, FileSystemLoader
 
 router = APIRouter(prefix="/v1", tags=["install"])
 
+# Unprefixed alias so older copy-pasted curl commands like
+#   curl -fsSL <origin>/install.sh | sh
+# continue to work alongside the canonical /v1/install.sh path.
+alias_router = APIRouter(tags=["install"])
+
 
 @router.get("/install.sh", response_class=Response)
 async def get_install_script(
@@ -55,4 +60,17 @@ async def get_install_script(
         content=rendered,
         media_type="text/plain",
         headers={"X-Install-Signature": signature_b64},
+    )
+
+
+@alias_router.get("/install.sh", response_class=Response)
+async def get_install_script_alias(
+    request: Request,
+    token: str = "",
+    server: str = "",
+    grpc_endpoint: str = "",
+) -> Response:
+    """Alias for /v1/install.sh at root path."""
+    return await get_install_script(
+        request, token=token, server=server, grpc_endpoint=grpc_endpoint
     )
