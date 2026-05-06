@@ -149,10 +149,8 @@ async def stack(engine: AsyncEngine, sm, tmp_path):
         scope_evaluator=None,  # will test scope separately
     )
 
-    class Stack:
-        pass
-
-    stack_obj = Stack()
+    from types import SimpleNamespace
+    stack_obj = SimpleNamespace()
     stack_obj.engine = engine
     stack_obj.sm = sm
     stack_obj.dispatcher = dispatcher

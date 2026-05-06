@@ -10,11 +10,14 @@ import (
 	"path/filepath"
 	"runtime"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/hlhelper/hl-agent/internal/decom"
 	"github.com/hlhelper/hl-agent/internal/enrollment"
+	"github.com/hlhelper/hl-agent/internal/executor"
 	"github.com/hlhelper/hl-agent/internal/keystore"
 	"github.com/hlhelper/hl-agent/internal/outbox"
 	"github.com/hlhelper/hl-agent/internal/transport"
@@ -161,10 +164,13 @@ func runCmd() *cobra.Command {
 			defer ob.Close()
 
 			client := transport.New(transport.Options{
-				Endpoint: endpoint,
-				HostID:   hostID,
-				Keystore: ks,
-				Outbox:   ob,
+				Endpoint:    endpoint,
+				HostID:      hostID,
+				Keystore:    ks,
+				Outbox:      ob,
+				Executor:    &ShellExecutor{},
+				Signer:      ks,
+				KeystoreDir: dir,
 				OnCommand: func(env *pb.CommandEnvelope) {
 					fmt.Fprintf(cmd.OutOrStdout(), "command received: id=%s\n", env.GetCommandId())
 				},
@@ -229,4 +235,46 @@ func rotateSigningKeyCmd() *cobra.Command {
 			return fmt.Errorf("rotate-signing-key: not yet implemented")
 		},
 	}
+}
+
+// ShellExecutor implements transport.Executor using RunShell.
+type ShellExecutor struct{}
+
+func (e *ShellExecutor) Execute(ctx context.Context, cmd *pb.CommandEnvelope) *pb.ResultEnvelope {
+	// Extract ShellExec payload
+	shellExec := cmd.GetShellExec()
+	if shellExec == nil {
+		return &pb.ResultEnvelope{
+			StartedAt:       timestamppb.Now(),
+			CompletedAt:     timestamppb.Now(),
+			Status:          pb.ResultStatus_RESULT_REJECTED,
+			RejectionReason: "not a shell_exec command",
+		}
+	}
+
+	// Extract timeout from the command
+	timeoutSec := int(shellExec.TimeoutSeconds)
+	if timeoutSec <= 0 {
+		timeoutSec = 30
+	}
+
+	// Create a timeout context
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
+	defer cancel()
+
+	// Run the shell command
+	cmdStr := shellExec.Command
+	stdout, stderr, exitCode, status := executor.RunShell(ctx, cmdStr, timeoutSec)
+
+	// Build the result envelope
+	result := &pb.ResultEnvelope{
+		StartedAt:   timestamppb.Now(),
+		CompletedAt: timestamppb.Now(),
+		ExitCode:    exitCode,
+		StdoutChunk: stdout,
+		StderrChunk: stderr,
+		Status:      status,
+	}
+
+	return result
 }

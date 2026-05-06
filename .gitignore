@@ -47,3 +47,7 @@ site/
 # Internal design docs (kept locally, out of VCS)
 docs/superpowers/
 fleet.db
+
+# Built agent binaries
+agent/bin/
+agent/hl-agent
