@@ -2,15 +2,23 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"os"
+	"os/signal"
+	"path/filepath"
 	"runtime"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
 	"github.com/hlhelper/hl-agent/internal/decom"
 	"github.com/hlhelper/hl-agent/internal/enrollment"
 	"github.com/hlhelper/hl-agent/internal/keystore"
+	"github.com/hlhelper/hl-agent/internal/outbox"
+	"github.com/hlhelper/hl-agent/internal/transport"
+	pb "github.com/hlhelper/hl-agent/proto/fleet/v1"
 )
 
 var (
@@ -40,6 +48,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(
 		versionCmd(),
 		enrollCmd(),
+		runCmd(),
 		serviceCmd(),
 		decommissionCmd(),
 		rotateSigningKeyCmd(),
@@ -109,6 +118,64 @@ func enrollCmd() *cobra.Command {
 	enrollCmd.MarkFlagRequired("token")
 
 	return enrollCmd
+}
+
+func runCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "run",
+		Short: "run the agent (connect to server and stream commands)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dir, _ := cmd.Flags().GetString("dir")
+
+			// Load enrollment manifest for grpc_endpoint.
+			mfBytes, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
+			if err != nil {
+				return fmt.Errorf("read manifest (run hl-agent enroll first): %w", err)
+			}
+			var manifest map[string]string
+			if err := json.Unmarshal(mfBytes, &manifest); err != nil {
+				return fmt.Errorf("parse manifest: %w", err)
+			}
+			endpoint := manifest["grpc_endpoint"]
+			if endpoint == "" {
+				return fmt.Errorf("manifest missing grpc_endpoint")
+			}
+
+			ks, err := keystore.OpenFile(dir)
+			if err != nil {
+				return fmt.Errorf("open keystore: %w", err)
+			}
+
+			ob, err := outbox.OpenWithKeyFile(
+				filepath.Join(dir, "outbox.db"),
+				filepath.Join(dir, "outbox.key"),
+				outbox.Options{},
+			)
+			if err != nil {
+				return fmt.Errorf("open outbox: %w", err)
+			}
+			defer ob.Close()
+
+			client := transport.New(transport.Options{
+				Endpoint: endpoint,
+				Keystore: ks,
+				Outbox:   ob,
+				OnCommand: func(env *pb.CommandEnvelope) {
+					fmt.Fprintf(cmd.OutOrStdout(), "command received: id=%s\n", env.GetCommandId())
+				},
+			})
+
+			ctx, cancel := signal.NotifyContext(
+				context.Background(), os.Interrupt, syscall.SIGTERM,
+			)
+			defer cancel()
+
+			fmt.Fprintf(cmd.OutOrStdout(), "hl-agent connecting to %s\n", endpoint)
+			return client.Run(ctx)
+		},
+	}
+	cmd.Flags().String("dir", "/var/lib/hl-agent", "keystore directory")
+	return cmd
 }
 
 func serviceCmd() *cobra.Command {
