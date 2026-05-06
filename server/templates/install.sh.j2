@@ -31,7 +31,7 @@ fi
 
 # Download agent binary with CA pinning
 echo "Downloading hl-agent for $agent_arch..."
-agent_url="https://${SERVER}/agent/${agent_arch}/hl-agent"
+agent_url="{{ server }}/agent/${agent_arch}/hl-agent"
 tmp_agent="/tmp/hl-agent-$$"
 
 {% if server_ca_pem %}

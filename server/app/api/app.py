@@ -18,6 +18,7 @@ from server.app.api.v1.enrollment_tokens import router as enrollment_tokens_rout
 from server.app.api.v1.events_ws import router as events_ws_router
 from server.app.api.v1.groups import router as groups_router
 from server.app.api.v1.hosts import router as hosts_router
+from server.app.api.v1.agent_dist import router as agent_dist_router
 from server.app.api.v1.install import alias_router as install_alias_router
 from server.app.api.v1.install import router as install_router
 from server.app.api.v1.integrations import router as integrations_router
@@ -83,6 +84,7 @@ def create_app() -> FastAPI:
     app.include_router(hosts_router)
     app.include_router(install_router)
     app.include_router(install_alias_router)
+    app.include_router(agent_dist_router)
     app.include_router(integrations_router)
     app.include_router(mfa_router)
     app.include_router(notifications_router)
