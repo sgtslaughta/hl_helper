@@ -153,6 +153,7 @@ class EnrollmentService:
         csr_pem: bytes,
         hostname: str,
         agent_pubkey: bytes,  # raw 32B Ed25519
+        labels: dict[str, str] | None = None,
         now: datetime | None = None,
     ) -> EnrollmentResult:
         """Validate token, sign CSR, persist Host row, mark token redeemed atomically.
@@ -287,7 +288,7 @@ class EnrollmentService:
             cert_expires_at=cert_expires_at,
             enrolled_at=now,
             status="offline",
-            labels={},
+            labels=dict(labels or {}),
         )
 
         # 13. Persist Host

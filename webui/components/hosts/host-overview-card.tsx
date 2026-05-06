@@ -6,8 +6,10 @@ export function HostOverviewCard({ host }: { host: Host }) {
 	const fields: { k: string; v: string }[] = [
 		{ k: 'Hostname', v: host.hostname },
 		{ k: 'Display name', v: host.display_name ?? '—' },
-		{ k: 'OS', v: host.labels?.os ?? '—' },
-		{ k: 'Version', v: host.labels?.version ?? '—' },
+		{ k: 'OS', v: host.labels?.os_pretty ?? host.labels?.os ?? '—' },
+		{ k: 'OS version', v: host.labels?.os_version ?? '—' },
+		{ k: 'Architecture', v: host.labels?.arch ?? '—' },
+		{ k: 'Kernel', v: host.labels?.kernel ?? '—' },
 		{ k: 'Agent version', v: host.labels?.agent_version ?? '—' },
 		{ k: 'Enrolled at', v: host.enrolled_at },
 		{ k: 'Last seen', v: host.last_seen_at ?? 'never' },

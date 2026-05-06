@@ -30,10 +30,11 @@ type EnrollResponse struct {
 }
 
 type enrollRequest struct {
-	Token            string `json:"token"`
-	Hostname         string `json:"hostname"`
-	CSRPEM           string `json:"csr_pem"`
-	AgentPubKeyB64   string `json:"agent_pubkey_b64"`
+	Token          string            `json:"token"`
+	Hostname       string            `json:"hostname"`
+	CSRPEM         string            `json:"csr_pem"`
+	AgentPubKeyB64 string            `json:"agent_pubkey_b64"`
+	Labels         map[string]string `json:"labels,omitempty"`
 }
 
 type EnrollOptions struct {
@@ -109,6 +110,7 @@ func Run(ks *keystore.FileKeystore, opts EnrollOptions) (*EnrollResponse, error)
 		Hostname:       opts.Hostname,
 		CSRPEM:         string(csrPEM),
 		AgentPubKeyB64: agentPubKeyB64,
+		Labels:         collectHostLabels(),
 	}
 	reqBody, err := json.Marshal(req)
 	if err != nil {

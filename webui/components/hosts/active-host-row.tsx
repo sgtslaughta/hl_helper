@@ -19,8 +19,8 @@ export function ActiveHostRow({ host }: { host: Host }) {
 					{host.display_name ?? host.hostname}
 				</Link>
 			</td>
-			<td className="px-4 py-2 text-text-dim">{host.labels?.os ?? '—'}</td>
-			<td className="px-4 py-2 text-text-dim">{host.labels?.version ?? '—'}</td>
+			<td className="px-4 py-2 text-text-dim">{host.labels?.os_pretty ?? host.labels?.os ?? '—'}</td>
+			<td className="px-4 py-2 text-text-dim">{host.labels?.os_version ?? host.labels?.kernel ?? '—'}</td>
 			<td className={`px-4 py-2 ${STATUS_COLORS[host.status]}`}>{host.status}</td>
 			<td className="px-4 py-2 text-text-dim">{host.last_seen_at ?? '—'}</td>
 			<td className="px-4 py-2 text-right text-text-dim">…</td>

@@ -34,6 +34,7 @@ class EnrollRequest(BaseModel):
     hostname: str = Field(min_length=1, max_length=253)
     csr_pem: str  # PEM string
     agent_pubkey_b64: str  # base64-encoded raw 32B Ed25519
+    labels: dict[str, str] | None = None  # OS/arch/kernel/agent_version etc.
 
 
 class EnrollResponse(BaseModel):
@@ -93,6 +94,7 @@ async def enroll(
             csr_pem=csr_pem,
             hostname=body.hostname,
             agent_pubkey=agent_pubkey,
+            labels=body.labels or {},
         )
     except (TokenNotFoundError, TokenExpiredError, TokenAlreadyRedeemedError):
         # Return uniform 401 for all token failures (oracle mitigation)
