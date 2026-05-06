@@ -290,7 +290,9 @@ func TestTLSCertAndKeyConcatenatesLeafAndIntermediate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = ks.GenerateTLS()
+	// Generate the signing key — the leaf cert is bound to it (CSR is signed
+	// with this Ed25519 key), so TLSCertAndKey returns signing.key.
+	err = ks.GenerateSigning()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,13 +319,13 @@ func TestTLSCertAndKeyConcatenatesLeafAndIntermediate(t *testing.T) {
 		t.Fatalf("cert chain mismatch:\ngot:  %q\nwant: %q", string(certChain), string(expectedChain))
 	}
 
-	// Check key
-	tlsKeyData, err := os.ReadFile(filepath.Join(tmpdir, "tls.key"))
+	// Check key matches signing.key (Ed25519, paired with the leaf cert)
+	signingKeyData, err := os.ReadFile(filepath.Join(tmpdir, "signing.key"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(keyPEM) != string(tlsKeyData) {
-		t.Fatal("keyPEM does not match tls.key content")
+	if string(keyPEM) != string(signingKeyData) {
+		t.Fatal("keyPEM does not match signing.key content")
 	}
 }
 
