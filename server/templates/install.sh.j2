@@ -90,6 +90,21 @@ if command -v visudo >/dev/null 2>&1; then
   }
 fi
 
+# Ensure hl-agent system user exists (systemd unit runs as User=hl-agent).
+if ! id -u hl-agent >/dev/null 2>&1; then
+  echo "Creating system user hl-agent..."
+  if command -v useradd >/dev/null 2>&1; then
+    $SUDO useradd --system --home-dir /var/lib/hl-agent --shell /usr/sbin/nologin hl-agent
+  elif command -v adduser >/dev/null 2>&1; then
+    $SUDO adduser --system --home /var/lib/hl-agent --shell /usr/sbin/nologin hl-agent
+  else
+    echo "ERROR: neither 'useradd' nor 'adduser' available; cannot create hl-agent user." >&2
+    exit 1
+  fi
+fi
+$SUDO mkdir -p /var/lib/hl-agent
+$SUDO chown hl-agent:hl-agent /var/lib/hl-agent
+
 # Create systemd unit file
 echo "Creating systemd unit..."
 cat > /tmp/hl-agent.service <<'EOF'
@@ -129,6 +144,9 @@ $SUDO /usr/local/bin/hl-agent enroll --token="{{ token }}" --server="{{ server }
 {% else %}
 $SUDO /usr/local/bin/hl-agent enroll --token="{{ token }}" --server="{{ server }}"
 {% endif %}
+# Enrollment writes keys/certs as root; hand them to the service user.
+$SUDO chown -R hl-agent:hl-agent /var/lib/hl-agent
+$SUDO chmod 700 /var/lib/hl-agent
 {% endif %}
 
 # Enable and start service
