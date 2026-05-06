@@ -259,7 +259,8 @@ async def test_handle_chain_link_enforced(sm: async_sessionmaker, tmp_path) -> N
 async def test_handle_sequence_gap_rejected(
     sm: async_sessionmaker, tmp_path
 ) -> None:
-    """Skipped sequence (seq 1 -> seq 5) is rejected as chain break."""
+    """Forward sequence gap (seq 1 -> seq 5) is accepted with warning;
+    replay (seq 5 -> seq 5) is rejected."""
     backend = FileBackend.bootstrap(tmp_path / "audit")
     audit_chain = SqlAuditChain(backend)
     handler = ResultHandler(sm, audit_chain)
@@ -287,7 +288,7 @@ async def test_handle_sequence_gap_rejected(
     )
     result1 = await handler.handle(env1, expected_host_id=host_id)
 
-    # Second result seq=5 (skipped) — should be rejected
+    # Second result seq=5 (forward gap) — accepted with warning.
     env2 = make_signed_result(
         host_id=host_id,
         command_id="cmd-5",
@@ -295,20 +296,28 @@ async def test_handle_sequence_gap_rejected(
         prev_hash=b"\xff" * 32,
         agent_key=agent_key,
     )
+    await handler.handle(env2, expected_host_id=host_id)
 
+    # Replay seq=5 — must be rejected.
+    env3 = make_signed_result(
+        host_id=host_id,
+        command_id="cmd-5b",
+        sequence=5,
+        prev_hash=b"\xff" * 32,
+        agent_key=agent_key,
+    )
     with pytest.raises(ChainBrokenError):
-        await handler.handle(env2, expected_host_id=host_id)
+        await handler.handle(env3, expected_host_id=host_id)
 
-    # Verify first result accepted, second rejected
     async with session_scope(sm) as session:
         r1 = await session.get(Result, result1.id)
         assert r1 is not None
-        # Second result should NOT exist
         all_results = await session.execute(
             select(Result).where(Result.host_id == host_id)
         )
         rows = all_results.scalars().all()
-        assert len(rows) == 1
+        # Two accepted (seq 1 and seq 5), replay rejected.
+        assert len(rows) == 2
 
 
 @pytest.mark.asyncio
@@ -435,11 +444,11 @@ async def test_handle_chain_broken_quarantines_host(
     )
     await handler.handle(env1, expected_host_id=host_id)
 
-    # Second result seq=5 (gap) should quarantine host
+    # Contiguous seq=2 with wrong prev_hash should quarantine host.
     env2 = make_signed_result(
         host_id=host_id,
-        command_id="cmd-5",
-        sequence=5,
+        command_id="cmd-2",
+        sequence=2,
         prev_hash=b"\xff" * 32,
         agent_key=agent_key,
     )
@@ -447,7 +456,7 @@ async def test_handle_chain_broken_quarantines_host(
     with pytest.raises(ChainBrokenError):
         await handler.handle(env2, expected_host_id=host_id)
 
-    # Verify host is quarantined
     async with session_scope(sm) as session:
         host = await session.get(Host, host_id)
+        assert host is not None
         assert host.status == "quarantined"

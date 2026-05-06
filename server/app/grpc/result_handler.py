@@ -205,18 +205,18 @@ class ResultHandler:
                         f"First result for {expected_host_id} must have prev_hash = zeros"
                     )
             else:
-                # Subsequent result: ALWAYS enforce contiguous sequence AND matching prev_hash
-                if env.sequence != last_row.sequence + 1:
-                    # Gap detected: reject and quarantine
-                    host.status = "quarantined"
+                # Subsequent result. Replay (seq <= last) is rejected; forward
+                # gap (seq > last+1) is accepted with a warning — gaps mean
+                # we lost prior results, not that this one is invalid.
+                # Strict prev_hash linkage is only enforced when contiguous.
+                if env.sequence <= last_row.sequence:
                     await self._audit.append(
                         session,
                         actor=expected_host_id,
                         action="result.reject",
                         subject=env.command_id,
                         payload={
-                            "reason": "chain_broken_or_gap",
-                            "detail": "sequence_gap",
+                            "reason": "replay_or_old_seq",
                             "expected_seq": last_row.sequence + 1,
                             "actual_seq": env.sequence,
                         },
@@ -224,29 +224,35 @@ class ResultHandler:
                     )
                     await session.commit()
                     raise ChainBrokenError(
-                        f"Sequence gap for {expected_host_id}: expected {last_row.sequence + 1}, got {env.sequence}"
+                        f"Replay for {expected_host_id}: last={last_row.sequence}, got {env.sequence}"
                     )
-
-                # Compute expected prev_hash for this contiguous result
-                expected_prev = _canonical_result_hash(_result_to_envelope(last_row))
-                if env.prev_result_hash != expected_prev:
-                    host.status = "quarantined"
-                    await self._audit.append(
-                        session,
-                        actor=expected_host_id,
-                        action="result.reject",
-                        subject=env.command_id,
-                        payload={
-                            "reason": "chain_broken_or_gap",
-                            "detail": "prev_hash_mismatch",
-                            "sequence": env.sequence,
-                            "last_sequence": last_row.sequence,
-                        },
-                        timestamp=now,
-                    )
-                    await session.commit()
-                    raise ChainBrokenError(
-                        f"prev_result_hash mismatch for {expected_host_id} seq {env.sequence}"
+                if env.sequence == last_row.sequence + 1:
+                    expected_prev = _canonical_result_hash(_result_to_envelope(last_row))
+                    if env.prev_result_hash != expected_prev:
+                        host.status = "quarantined"
+                        await self._audit.append(
+                            session,
+                            actor=expected_host_id,
+                            action="result.reject",
+                            subject=env.command_id,
+                            payload={
+                                "reason": "chain_broken_or_gap",
+                                "detail": "prev_hash_mismatch",
+                                "sequence": env.sequence,
+                                "last_sequence": last_row.sequence,
+                            },
+                            timestamp=now,
+                        )
+                        await session.commit()
+                        raise ChainBrokenError(
+                            f"prev_result_hash mismatch for {expected_host_id} seq {env.sequence}"
+                        )
+                else:
+                    log.warning(
+                        "result.forward_gap_accepted",
+                        host_id=expected_host_id,
+                        expected_seq=last_row.sequence + 1,
+                        actual_seq=env.sequence,
                     )
 
             # 5. Insert Result row
