@@ -144,8 +144,10 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
         """
         from datetime import datetime, timezone
 
+        log.info("recv_loop.start", host_id=host_id)
         async for msg in request_iterator:
             kind = msg.WhichOneof("msg")
+            log.info("recv_loop.msg", host_id=host_id, kind=kind)
             if kind == "result":
                 # Result handling: verify signature, persist, audit.
                 # Always ack (both accepted and rejected) to avoid retry storm.

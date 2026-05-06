@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from grpc.aio import server as aio_server
 from grpc.aio import Server
@@ -29,6 +29,7 @@ def make_grpc_server(
     dispatcher: CommandDispatcher | None = None,
     result_handler: ResultHandler | None = None,
     revocation: RevocationService | None = None,
+    sessionmaker: Any | None = None,
 ) -> tuple[Server, str, CommandDispatcher]:
     """Build configured async gRPC server with mTLS + servicer wired.
 
@@ -48,7 +49,13 @@ def make_grpc_server(
     dispatcher = dispatcher or CommandDispatcher()
     server = aio_server()
     agent_bridge_pb2_grpc.add_AgentBridgeServicer_to_server(
-        AgentBridgeService(dispatcher, result_handler=result_handler, revocation=revocation), server  # type: ignore[no-untyped-call]
+        AgentBridgeService(  # type: ignore[no-untyped-call]
+            dispatcher,
+            result_handler=result_handler,
+            revocation=revocation,
+            sessionmaker=sessionmaker,
+        ),
+        server,
     )
     creds = make_server_credentials(server_cert_chain_pem, server_key_pem, client_ca_pem)
     bound_port = server.add_secure_port(bind_address, creds)

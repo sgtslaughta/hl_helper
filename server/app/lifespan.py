@@ -374,6 +374,7 @@ async def _start_grpc_server(state: AppState, grpc_host: str) -> None:
             dispatcher=state.dispatcher,
             result_handler=state.result_handler,
             revocation=state.revocation_service,
+            sessionmaker=state.sessionmaker,
         )
 
         await server.start()
