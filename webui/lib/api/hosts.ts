@@ -8,6 +8,14 @@ export interface Host {
 	enrolled_at: string;
 	last_seen_at: string | null;
 	labels: Record<string, string>;
+	os?: string;
+	os_version?: string;
+	arch?: string;
+	kernel?: string;
+	cpu_pct?: number;
+	mem_pct?: number;
+	disk_pct?: number;
+	uptime_s?: number;
 }
 
 export interface ActionResponse {
