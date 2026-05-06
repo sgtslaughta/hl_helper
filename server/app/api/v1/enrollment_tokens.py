@@ -91,7 +91,7 @@ async def mint(
 
     origin = _public_origin(request)
     install_command = (
-        f"curl -fsSL {origin}/install.sh | sh -s -- --server={origin} --token={plaintext}"
+        f"curl -fsSL '{origin}/v1/install.sh?token={plaintext}&server={origin}' | sh"
     )
     return MintResponse(
         token_id=row.id,

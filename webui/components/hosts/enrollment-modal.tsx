@@ -156,20 +156,26 @@ function InstallStep({
 	function copy() {
 		void navigator.clipboard.writeText(minted.install_command);
 	}
+	const [copied, setCopied] = useState(false);
+	function doCopy() {
+		copy();
+		setCopied(true);
+		setTimeout(() => setCopied(false), 1500);
+	}
 	return (
 		<div className="space-y-3">
 			<p className="text-sm text-text-dim">Run this command on the host you want to enroll.</p>
-			<div className="rounded border border-hairline bg-surface-2 p-2 font-mono text-xs">
+			<div className="relative rounded border border-hairline bg-surface-2 p-2 pr-20 font-mono text-xs">
+				<button
+					type="button"
+					onClick={doCopy}
+					className="absolute right-1 top-1 rounded border border-hairline bg-surface px-2 py-1 text-xs text-text hover:bg-surface-2"
+				>
+					{copied ? 'Copied ✓' : 'Copy'}
+				</button>
 				<pre className="overflow-auto whitespace-pre-wrap break-all">{minted.install_command}</pre>
 			</div>
 			<div className="flex items-center gap-3 text-sm">
-				<button
-					type="button"
-					onClick={copy}
-					className="rounded border border-hairline px-2 py-1 text-text hover:bg-surface-2"
-				>
-					Copy command
-				</button>
 				<span className="text-text-dim">
 					Expires in <Countdown to={minted.expires_at} />
 				</span>
