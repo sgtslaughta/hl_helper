@@ -335,9 +335,10 @@ func (c *Client) executeAndQueueResult(ctx context.Context, cmd *pb.CommandEnvel
 		return
 	}
 
-	// Persist the sequence counter
+	// Persist the next sequence so a restart resumes at seq+1, not the
+	// just-used value (which would collide with the server's stored seq).
 	if c.opts.KeystoreDir != "" {
-		if err := c.saveResultSequence(seq); err != nil {
+		if err := c.saveResultSequence(seq + 1); err != nil {
 			log.Printf("failed to save result sequence: %v", err)
 		}
 	}
