@@ -3,15 +3,20 @@
 import { Countdown } from '@/components/primitives/countdown';
 import { Disclosure } from '@/components/primitives/disclosure';
 import { RiskBadge } from '@/components/primitives/risk-badge';
-import { type MintResponse, mintEnrollmentToken, revokePendingToken } from '@/lib/api/enrollment';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import {
+	type MintResponse,
+	listPendingTokens,
+	mintEnrollmentToken,
+	revokePendingToken,
+} from '@/lib/api/enrollment';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import React, { useState } from 'react';
 
 interface Props {
 	onClose: () => void;
 }
 
-type Step = 'mint' | 'install';
+type Step = 'mint' | 'install' | 'watching';
 
 const TTL_OPTIONS: { label: string; value: number }[] = [
 	{ label: '5 minutes', value: 300 },
@@ -120,7 +125,12 @@ export function EnrollmentModal({ onClose }: Props) {
 						minted={minted}
 						onDone={onClose}
 						onRevoke={() => revokeMut.mutate(minted.token_id)}
+						onWatch={() => setStep('watching')}
 					/>
+				) : null}
+
+				{step === 'watching' && minted ? (
+					<WatchingStep minted={minted} onClose={onClose} onBackToMint={() => setStep('mint')} />
 				) : null}
 			</div>
 		</div>
@@ -131,10 +141,12 @@ function InstallStep({
 	minted,
 	onDone,
 	onRevoke,
+	onWatch,
 }: {
 	minted: MintResponse;
 	onDone: () => void;
 	onRevoke: () => void;
+	onWatch: () => void;
 }) {
 	function copy() {
 		void navigator.clipboard.writeText(minted.install_command);
@@ -182,14 +194,117 @@ function InstallStep({
 				>
 					Revoke token
 				</button>
-				<button
-					type="button"
-					onClick={onDone}
-					className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-black"
-				>
-					Done
-				</button>
+				<div className="flex gap-2">
+					<button
+						type="button"
+						onClick={onWatch}
+						className="rounded border border-hairline px-3 py-1.5 text-sm text-text hover:bg-surface-2"
+					>
+						Watch for redemption
+					</button>
+					<button
+						type="button"
+						onClick={onDone}
+						className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-black"
+					>
+						Done
+					</button>
+				</div>
 			</footer>
+		</div>
+	);
+}
+
+type WatchingState = 'waiting' | 'enrolled' | 'expired';
+
+function WatchingStep({
+	minted,
+	onClose,
+	onBackToMint,
+}: {
+	minted: MintResponse;
+	onClose: () => void;
+	onBackToMint: () => void;
+}) {
+	const [watchingState, setWatchingState] = useState<WatchingState>('waiting');
+	const expiresAt = new Date(minted.expires_at);
+
+	const { data: pendingTokens } = useQuery({
+		queryKey: ['enrollment-tokens'],
+		queryFn: listPendingTokens,
+		refetchInterval: 5000,
+		enabled: watchingState === 'waiting',
+	});
+
+	const isTokenPending = pendingTokens?.some(t => t.id === minted.token_id) ?? true;
+	const now = new Date();
+	const isExpired = now >= expiresAt;
+
+	React.useEffect(() => {
+		if (watchingState === 'waiting') {
+			if (isExpired) {
+				setWatchingState('expired');
+			} else if (!isTokenPending) {
+				setWatchingState('enrolled');
+			}
+		}
+	}, [isTokenPending, isExpired, watchingState]);
+
+	const handleExpire = () => {
+		setWatchingState('expired');
+	};
+
+	return (
+		<div className="space-y-3">
+			{watchingState === 'waiting' && (
+				<>
+					<div className="flex justify-center py-4">
+						<div className="h-6 w-6 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+					</div>
+					<p className="text-center text-sm text-text-dim">Waiting for agent to enroll…</p>
+					<div className="flex justify-center text-sm text-text-dim">
+						<Countdown to={minted.expires_at} onExpire={handleExpire} />
+					</div>
+				</>
+			)}
+
+			{watchingState === 'enrolled' && (
+				<>
+					<p className="text-center text-sm font-medium text-text">Enrolled ✓</p>
+					<p className="text-center text-sm text-text-dim">Host appeared in inventory.</p>
+					<footer className="flex justify-end gap-2 pt-2">
+						<button
+							type="button"
+							onClick={onClose}
+							className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-black"
+						>
+							Done
+						</button>
+					</footer>
+				</>
+			)}
+
+			{watchingState === 'expired' && (
+				<>
+					<p className="text-center text-sm text-red-400">Token expired without redemption.</p>
+					<footer className="flex justify-end gap-2 pt-2">
+						<button
+							type="button"
+							onClick={onBackToMint}
+							className="rounded border border-hairline px-3 py-1.5 text-sm text-text hover:bg-surface-2"
+						>
+							Mint new
+						</button>
+						<button
+							type="button"
+							onClick={onClose}
+							className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-black"
+						>
+							Close
+						</button>
+					</footer>
+				</>
+			)}
 		</div>
 	);
 }
