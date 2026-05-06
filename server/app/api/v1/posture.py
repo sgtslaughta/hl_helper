@@ -93,6 +93,8 @@ async def get_posture(
     request: Request,
     _: str = Depends(admin_required),
     include_suppressed: bool = Query(default=False),
+    subject_kind: str | None = Query(default=None),
+    subject_id: str | None = Query(default=None),
 ) -> PostureResponse:
     """@brief Run posture inspection, persist results, return from store.
 
@@ -102,6 +104,8 @@ async def get_posture(
 
     @param request            The incoming HTTP request.
     @param include_suppressed If True, include suppressed findings.
+    @param subject_kind       Filter findings by subject_kind (e.g., 'host').
+    @param subject_id         Filter findings by subject_id.
     @return PostureResponse with sorted findings.
     """
     app_state = get_app_state(request)
@@ -114,7 +118,12 @@ async def get_posture(
     )
 
     suppressed_filter = None if include_suppressed else False
-    rows = await list_findings(app_state.sessionmaker, suppressed=suppressed_filter)
+    rows = await list_findings(
+        app_state.sessionmaker,
+        suppressed=suppressed_filter,
+        subject_kind=subject_kind,
+        subject_id=subject_id,
+    )
 
     return PostureResponse(findings=[_row_to_out(r) for r in rows])
 
