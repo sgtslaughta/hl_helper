@@ -4,20 +4,12 @@ export const dynamic = 'force-dynamic';
 
 import { EmptyState } from '@/components/empty-states/empty-state';
 import { HostFilters } from '@/components/hosts/host-filters';
-import { HostRow } from '@/components/hosts/host-row';
+import { ActiveHostRow } from '@/components/hosts/active-host-row';
 import { BlueprintSkeleton } from '@/components/skeletons/blueprint-skeleton';
 import { apiFetch } from '@/lib/api-client';
+import type { Host } from '@/lib/api/hosts';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-
-interface Host {
-	id: string;
-	name: string;
-	status: 'healthy' | 'warning' | 'critical';
-	os: string;
-	version: string;
-	lastSeen?: string;
-}
 
 export default function HostsPage() {
 	const [status, setStatus] = useState('all');
@@ -61,7 +53,7 @@ export default function HostsPage() {
 					</thead>
 					<tbody>
 						{data.map(host => (
-							<HostRow key={host.id} host={host} />
+							<ActiveHostRow key={host.id} host={host} />
 						))}
 					</tbody>
 				</table>
