@@ -284,6 +284,24 @@ class CommandDispatcher:
         # Get principal identity early for approval event and audit
         principal_id = _principal_identity(principal)
 
+        # Step 3.5: Persist parent Task row early so it shows in /v1/tasks
+        # even while waiting for approval or even when RBAC denied every host.
+        # task_id reused across approval/idempotency/early-exit branches.
+        early_task_id = str(uuid4())
+        early_task = Task(
+            id=early_task_id,
+            kind=TaskKind(payload_kind),
+            payload=_payload_to_dict(payload),
+            target_selector=_selector_to_dict(targets),
+            idempotency_key=idempotency_key,
+            risk=TaskRisk(risk),
+            requires_approval=(risk == "high"),
+            created_by=principal_id,
+            status=TaskStatus.PENDING,
+        )
+        session.add(early_task)
+        await session.flush()
+
         # Step 4: Approval gating — high-risk dispatches require an approved row
         # before any host is enqueued. Pending approvals returned to caller.
         pending_approval_ids: list[str] = []
@@ -325,8 +343,9 @@ class CommandDispatcher:
                     )
 
                 # Block dispatch when no approval is in hand
+                await session.commit()
                 return DispatchResult(
-                    task_id="",
+                    task_id=early_task_id,
                     dispatched=[],
                     denied=denied,
                     pending_approval_ids=pending_approval_ids,
@@ -334,8 +353,9 @@ class CommandDispatcher:
 
         # Early exit when no candidates survived RBAC: no TaskRun, no FK violation.
         if not dispatched_candidates:
+            await session.commit()
             return DispatchResult(
-                task_id="",
+                task_id=early_task_id,
                 dispatched=[],
                 denied=denied,
                 pending_approval_ids=pending_approval_ids,
@@ -356,25 +376,12 @@ class CommandDispatcher:
                     if task_run is not None:
                         task_id = task_run.task_id
 
-        # Step 6: Create TaskRun — one per dispatch call, aggregating all commands
+        # Step 6: Create TaskRun — one per dispatch call, aggregating all commands.
+        # Reuse the early-created Task; only mint a TaskRun when not resuming
+        # an idempotency-keyed prior dispatch.
         if task_run_id is None:
-            task_id = str(uuid4())
+            task_id = early_task_id
             task_run_id = str(uuid4())
-
-            # Create parent Task row
-            task = Task(
-                id=task_id,
-                kind=TaskKind(payload_kind),
-                payload=_payload_to_dict(payload),
-                target_selector=_selector_to_dict(targets),
-                idempotency_key=idempotency_key,
-                risk=TaskRisk(risk),
-                requires_approval=(risk == "high"),
-                created_by=principal_id,
-                status=TaskStatus.PENDING,
-            )
-            session.add(task)
-
             task_run = TaskRun(
                 id=task_run_id,
                 task_id=task_id,

@@ -108,8 +108,8 @@ async def stack(engine: AsyncEngine, sm, tmp_path):
     # Grant admin all perms on both hosts
     rbac_provider.grant("user-admin", "host:reboot", host_prod.id)
     rbac_provider.grant("user-admin", "host:reboot", host_staging.id)
-    rbac_provider.grant("user-admin", "host:shell_exec", host_prod.id)
-    rbac_provider.grant("user-admin", "host:shell_exec", host_staging.id)
+    rbac_provider.grant("user-admin", "host:exec", host_prod.id)
+    rbac_provider.grant("user-admin", "host:exec", host_staging.id)
 
     # Grant operator only staging perms
     rbac_provider.grant("user-op", "host:reboot", host_staging.id)
