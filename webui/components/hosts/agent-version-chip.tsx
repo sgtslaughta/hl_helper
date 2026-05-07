@@ -1,4 +1,4 @@
-import { Badge } from "@/components/ui/badge";
+import { Badge } from "@/components/primitives/badge";
 
 export function AgentVersionChip({
   current, latest, status,
@@ -7,12 +7,12 @@ export function AgentVersionChip({
   latest?: string | null;
   status?: string | null;
 }) {
-  if (!current) return <Badge variant="outline">unknown</Badge>;
+  if (!current) return <Badge variant="dim">unknown</Badge>;
   const drift = latest && current !== latest;
   const updating = status && !["idle", "rolled_back"].includes(status);
   return (
     <Badge
-      variant={updating ? "default" : drift ? "secondary" : "outline"}
+      variant={updating ? "accent" : drift ? "warn" : "dim"}
       title={status ? `status: ${status}` : undefined}
     >
       {current}{drift && !updating && " ↑"}
