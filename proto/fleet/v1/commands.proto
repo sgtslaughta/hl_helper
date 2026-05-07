@@ -48,3 +48,31 @@ message PluginInvoke {
   string plugin_id = 1;
   bytes payload = 2;
 }
+
+message AgentUpdateCmd {
+  string release_id = 1;
+  bytes manifest_json = 2;
+  bytes manifest_sig = 3;
+  string binary_url = 4;
+  string download_token = 5;
+  string expected_sha256 = 6;
+  uint64 expected_size = 7;
+  bool force = 8;
+}
+
+message AgentUpdateResult {
+  string from_version = 1;
+  string to_version = 2;
+  enum Status {
+    STATUS_UNSPECIFIED = 0;
+    SUCCESS = 1;
+    SIG_INVALID = 2;
+    SHA_MISMATCH = 3;
+    DOWNLOAD_FAILED = 4;
+    SWAP_FAILED = 5;
+    HEALTH_CHECK_FAILED = 6;
+    ROLLED_BACK = 7;
+  }
+  Status status = 3;
+  string error = 4;
+}

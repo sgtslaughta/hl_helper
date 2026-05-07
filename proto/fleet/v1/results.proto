@@ -4,6 +4,7 @@ package fleet.v1;
 option go_package = "github.com/hlhelper/hl-agent/proto/fleet/v1";
 
 import "google/protobuf/timestamp.proto";
+import "fleet/v1/commands.proto";
 
 enum ResultStatus {
   RESULT_OK = 0;
@@ -26,5 +27,10 @@ message ResultEnvelope {
   ResultStatus status = 10;
   string rejection_reason = 11;
   bytes prev_result_hash = 12;
+
+  oneof payload {
+    AgentUpdateResult agent_update_result = 300;
+  }
+
   bytes signature = 200;
 }

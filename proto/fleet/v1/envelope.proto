@@ -38,6 +38,7 @@ message CommandEnvelope {
     DockerOp      docker_op      = 105;
     GetFacts      get_facts      = 106;
     PluginInvoke  plugin_invoke  = 107;
+    AgentUpdateCmd agent_update  = 108;
   }
 
   bytes signature = 200;
