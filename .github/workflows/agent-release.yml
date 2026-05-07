@@ -1,0 +1,61 @@
+name: agent-release
+
+on:
+  push:
+    tags:
+      - "agent-v*"
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            runner: ubuntu-latest
+          - os: linux
+            arch: arm64
+            runner: ubuntu-latest
+          - os: linux
+            arch: armv7
+            runner: ubuntu-latest
+          - os: darwin
+            arch: amd64
+            runner: macos-latest
+          - os: darwin
+            arch: arm64
+            runner: macos-latest
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - name: Build
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch == 'armv7' && 'arm' || matrix.arch }}
+          GOARM: ${{ matrix.arch == 'armv7' && '7' || '' }}
+          CGO_ENABLED: "0"
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/agent-v}
+          cd agent
+          go build -trimpath -buildvcs=false \
+            -ldflags "-s -w -X main.version=$VERSION -X main.commit=$GITHUB_SHA -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -o ../dist/hl-agent ./cmd/hl-agent
+      - name: Codesign (darwin only, ad-hoc)
+        if: matrix.os == 'darwin'
+        run: codesign --sign - --force ./dist/hl-agent
+      - name: Upload to server
+        env:
+          HL_SERVER: ${{ secrets.HL_RELEASE_SERVER }}
+          HL_CI_TOKEN: ${{ secrets.HL_CI_TOKEN }}
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/agent-v}
+          curl -fsS -X POST "$HL_SERVER/v1/agent-releases" \
+            -H "Authorization: Bearer $HL_CI_TOKEN" \
+            -F "binary=@./dist/hl-agent" \
+            -F "version=$VERSION" \
+            -F "channel=stable" \
+            -F "os=${{ matrix.os }}" \
+            -F "arch=${{ matrix.arch }}"
