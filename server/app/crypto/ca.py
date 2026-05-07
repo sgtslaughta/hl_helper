@@ -257,6 +257,22 @@ class InternalCA:
         return cert.public_bytes(serialization.Encoding.PEM)
 
     # ------------------------------------------------------------------
+    # Signing
+    # ------------------------------------------------------------------
+
+    def sign_release_manifest(self, payload: bytes) -> bytes:
+        """Detached Ed25519 signature over canonical manifest JSON.
+
+        Uses same intermediate key whose public part is pinned to agents at
+        enrollment (server_signing_pubkey). No new key infra.
+        """
+        return self.int_key.sign(payload)
+
+    def signing_pubkey(self) -> ed25519.Ed25519PublicKey:
+        """Return the Ed25519 public key matching sign_release_manifest output."""
+        return self.int_key.public_key()
+
+    # ------------------------------------------------------------------
     # Verification
     # ------------------------------------------------------------------
 

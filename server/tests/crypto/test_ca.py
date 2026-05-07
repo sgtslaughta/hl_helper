@@ -10,6 +10,8 @@ from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
+from cryptography.exceptions import InvalidSignature
+
 from server.app.crypto.ca import InternalCA
 
 
@@ -247,3 +249,17 @@ def test_signing_private_key_file_mode_secure(tmp_path: Path) -> None:
     key_file = tmp_path / "signing" / "current.key"
     mode = key_file.stat().st_mode & 0o777
     assert mode == 0o600, f"Expected 0o600, got {oct(mode)}"
+
+
+def test_sign_release_manifest_round_trip(ca: InternalCA) -> None:
+    """Test that sign_release_manifest produces valid Ed25519 signatures."""
+    payload = b'{"version":"0.4.2"}'
+    sig = ca.sign_release_manifest(payload)
+    assert isinstance(sig, bytes)
+    assert len(sig) == 64
+
+    pub = ca.signing_pubkey()
+    pub.verify(sig, payload)
+
+    with pytest.raises(InvalidSignature):
+        pub.verify(sig, payload + b"x")
