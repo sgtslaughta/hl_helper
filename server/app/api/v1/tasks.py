@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict
@@ -11,6 +11,8 @@ from sqlalchemy import and_, select
 
 from server.app.api.middleware.admin_auth import admin_required
 from server.app.models import Task, TaskRun
+from server.app.models.agent_release import AgentRelease, ReleaseStatus
+from server.app.models.host import Host
 from server.app.models.task import TaskKind, TaskStatus, TaskRisk
 from server.app.models.task_run import TaskRunStatus
 from server.app.pagination import apply_cursor, build_page
@@ -125,6 +127,72 @@ class TasksPage(BaseModel):
     next_cursor: str | None
 
 
+async def _validate_agent_update(payload: dict[str, object], host: Host, session) -> None:
+    """Validate AGENT_UPDATE task payload.
+
+    Checks:
+    - release_id (UUID) is required and references existing AgentRelease
+    - Release must not be yanked
+    - Release OS/arch must match host OS/arch
+    - If host.agent_version == release.version and force is not true, reject
+
+    Raises HTTPException 400 on validation failure.
+    """
+    rid_raw = payload.get("release_id")
+    if not rid_raw:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="release_id required",
+        )
+
+    # Parse release_id as UUID
+    try:
+        rid = UUID(str(rid_raw)) if not isinstance(rid_raw, UUID) else rid_raw
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="release_id invalid",
+        )
+
+    # Fetch release
+    rel = await session.get(AgentRelease, str(rid))
+    if not rel:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="release not found",
+        )
+
+    # Check if yanked
+    if rel.status == ReleaseStatus.YANKED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="release is yanked",
+        )
+
+    # Check OS match
+    host_os = (host.labels or {}).get("os")
+    if host_os and rel.os != host_os:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"os mismatch: host={host_os} release={rel.os}",
+        )
+
+    # Check arch match
+    host_arch = (host.labels or {}).get("arch")
+    if host_arch and rel.arch != host_arch:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"arch mismatch: host={host_arch} release={rel.arch}",
+        )
+
+    # Check version — if same and force is not true, reject
+    if not payload.get("force") and host.agent_version == rel.version:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="host already on this version (use force=true)",
+        )
+
+
 def _get_acting_principal(request: Request) -> str:
     """Extract and validate X-Acting-Principal header.
 
@@ -152,6 +220,15 @@ async def create_task(
     sm = _sessionmaker(request)
     task_id = str(uuid4())
     async with sm() as session:
+        # Validate AGENT_UPDATE tasks before persistence
+        if body.kind == TaskKind.AGENT_UPDATE:
+            # Extract host_id from target_selector
+            host_id = body.target_selector.get("host_id")
+            if host_id:
+                host = await session.get(Host, str(host_id))
+                if host:
+                    await _validate_agent_update(body.payload, host, session)
+
         task = Task(
             id=task_id,
             kind=body.kind,

@@ -803,3 +803,137 @@ async def test_list_tasks_host_id_filter(auth, sm, mock_settings):
             r2 = await c.get("/v1/tasks?host_id=h-Z", headers=auth)
             assert r2.status_code == 200
             assert r2.json()["items"] == []
+
+
+@pytest.mark.asyncio
+async def test_create_agent_update_task(auth, sm, mock_settings, host_id, published_release_id):
+    """POST /v1/tasks with agent_update kind and published release returns 201."""
+    app = create_app()
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
+    with mock.patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=mock_settings,
+    ):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://t"
+        ) as c:
+            body = {
+                "kind": "agent_update",
+                "payload": {"release_id": published_release_id, "force": False, "reason": "patch"},
+                "target_selector": {"host_id": host_id},
+            }
+            r = await c.post("/v1/tasks", json=body, headers=auth)
+            assert r.status_code == 201
+            d = r.json()
+            assert d["kind"] == "agent_update"
+            assert d["payload"]["release_id"] == published_release_id
+
+
+@pytest.mark.asyncio
+async def test_agent_update_rejects_yanked_release(auth, sm, mock_settings, host_id, yanked_release_id):
+    """POST /v1/tasks rejects yanked release."""
+    app = create_app()
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
+    with mock.patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=mock_settings,
+    ):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://t"
+        ) as c:
+            body = {
+                "kind": "agent_update",
+                "payload": {"release_id": yanked_release_id},
+                "target_selector": {"host_id": host_id},
+            }
+            r = await c.post("/v1/tasks", json=body, headers=auth)
+            assert r.status_code == 400
+            assert "yank" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_agent_update_rejects_arch_mismatch(auth, sm, mock_settings, host_id_arm64, amd64_release_id):
+    """POST /v1/tasks rejects release with mismatched arch."""
+    app = create_app()
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
+    with mock.patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=mock_settings,
+    ):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://t"
+        ) as c:
+            body = {
+                "kind": "agent_update",
+                "payload": {"release_id": amd64_release_id},
+                "target_selector": {"host_id": host_id_arm64},
+            }
+            r = await c.post("/v1/tasks", json=body, headers=auth)
+            assert r.status_code == 400
+            assert "arch" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_agent_update_rejects_same_version_without_force(auth, sm, mock_settings, host_with_v042, v042_release_id):
+    """POST /v1/tasks rejects same version without force=true."""
+    app = create_app()
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
+    with mock.patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=mock_settings,
+    ):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://t"
+        ) as c:
+            body = {
+                "kind": "agent_update",
+                "payload": {"release_id": v042_release_id, "force": False},
+                "target_selector": {"host_id": host_with_v042},
+            }
+            r = await c.post("/v1/tasks", json=body, headers=auth)
+            assert r.status_code == 400
+            assert "version" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_agent_update_rejects_missing_release_id(auth, sm, mock_settings, host_id):
+    """POST /v1/tasks rejects agent_update without release_id."""
+    app = create_app()
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
+    with mock.patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=mock_settings,
+    ):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://t"
+        ) as c:
+            body = {
+                "kind": "agent_update",
+                "payload": {},
+                "target_selector": {"host_id": host_id},
+            }
+            r = await c.post("/v1/tasks", json=body, headers=auth)
+            assert r.status_code == 400
+            assert "release_id" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_agent_update_rejects_nonexistent_release(auth, sm, mock_settings, host_id):
+    """POST /v1/tasks rejects nonexistent release_id."""
+    app = create_app()
+    app.state.app_state = make_test_app_state(sessionmaker=sm)
+    with mock.patch(
+        "server.app.api.middleware.admin_auth.load_settings",
+        return_value=mock_settings,
+    ):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://t"
+        ) as c:
+            body = {
+                "kind": "agent_update",
+                "payload": {"release_id": str(uuid4())},
+                "target_selector": {"host_id": host_id},
+            }
+            r = await c.post("/v1/tasks", json=body, headers=auth)
+            assert r.status_code == 400
+            assert "not found" in r.json()["detail"].lower()
