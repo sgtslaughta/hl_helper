@@ -32,6 +32,13 @@ var (
 	date    = "unknown"
 )
 
+// Sync ldflag-injected version into the enrollment package so labels match
+// heartbeats. Single source of truth: only main.version is overridden by
+// the Makefile's -X ldflag.
+func init() {
+	enrollment.AgentVersion = version
+}
+
 // configPath holds the path to the agent configuration file, set via the --config flag.
 var configPath string
 
