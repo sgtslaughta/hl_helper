@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 
 router = APIRouter(tags=["agent-dist"])
 
@@ -32,7 +32,7 @@ def _dist_dir() -> Path:
     return Path(__file__).resolve().parents[4] / "agent" / "bin"
 
 
-@router.get("/agent/{arch}/hl-agent")
+@router.get("/agent/{arch}/hl-agent", deprecated=True)
 async def get_agent_binary(arch: str) -> FileResponse:
     """Return the hl-agent binary for the given arch.
 
@@ -55,3 +55,14 @@ async def get_agent_binary(arch: str) -> FileResponse:
         media_type="application/octet-stream",
         filename="hl-agent",
     )
+
+
+@router.get("/agent/{arch}/latest", deprecated=True)
+async def latest_agent(arch: str) -> RedirectResponse:
+    """Redirect to /v1/agent-releases/latest with os and arch params.
+
+    This endpoint is deprecated. Use /v1/agent-releases/latest instead.
+    """
+    if arch not in _ALLOWED_ARCHES:
+        raise HTTPException(status_code=400, detail=f"unsupported arch: {arch}")
+    return RedirectResponse(url=f"/v1/agent-releases/latest?os=linux&arch={arch}")
