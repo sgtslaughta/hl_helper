@@ -17,7 +17,9 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from grpc.aio import Server
+from sqlalchemy import inspect, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from sqlalchemy.schema import CreateColumn
 
 from server.app.audit.sql_chain import SqlAuditChain
 from server.app.auth.capability import CapabilityIssuer
@@ -40,6 +42,92 @@ from server.app.revocation.service import RevocationService
 from server.app.settings.config import FleetSettings
 
 logger = logging.getLogger(__name__)
+
+
+def _reconcile_added_columns(connection) -> None:
+    """ALTER TABLE ADD COLUMN for any model column missing on the live DB.
+
+    `Base.metadata.create_all` only creates missing tables; it does NOT add
+    columns added later to existing models. This bridges that gap so dev
+    iteration without alembic remains schema-correct, and prod fallback
+    after a partial migration converges to the model's view of truth.
+
+    Idempotent. Skips columns that already exist. Logs each ALTER applied.
+
+    Limitations (SQLite): cannot ADD COLUMN with a non-constant default,
+    cannot add a NOT NULL column without a default. Models with such
+    constraints must use proper alembic migrations; this helper handles
+    the simple additive case (nullable cols, cols w/ static defaults).
+    """
+    inspector = inspect(connection)
+    dialect = connection.dialect
+
+    import enum as _enum
+
+    for table in Base.metadata.sorted_tables:
+        if not inspector.has_table(table.name):
+            continue
+        live_cols = {c["name"] for c in inspector.get_columns(table.name)}
+        for col in table.columns:
+            if col.name in live_cols:
+                continue
+            try:
+                col_ddl = CreateColumn(col).compile(dialect=dialect).string.strip()
+                # SQLite ALTER TABLE ADD COLUMN requires a DEFAULT for NOT NULL.
+                # CreateColumn omits Python-side defaults, so synthesize one
+                # from col.default when present and the column is NOT NULL.
+                if not col.nullable and "DEFAULT" not in col_ddl.upper():
+                    default_literal = _python_default_literal(col)
+                    if default_literal is not None:
+                        col_ddl = f"{col_ddl} DEFAULT {default_literal}"
+                    else:
+                        # No usable default — fall back to nullable so the
+                        # ALTER succeeds. App writes will populate it.
+                        col_ddl = col_ddl.replace("NOT NULL", "").strip()
+
+                stmt = f'ALTER TABLE "{table.name}" ADD COLUMN {col_ddl}'
+                connection.execute(text(stmt))
+                logger.info(
+                    "schema.reconcile.add_column table=%s col=%s ddl=%s",
+                    table.name,
+                    col.name,
+                    col_ddl,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "schema.reconcile.failed table=%s col=%s err=%s",
+                    table.name,
+                    col.name,
+                    exc,
+                )
+
+
+def _python_default_literal(col) -> str | None:
+    """Render a Python-side `Column.default` as a SQL literal for ALTER ADD.
+
+    Handles ScalarElementColumnDefault for enums + simple primitives. Returns
+    None when the default cannot be safely embedded (callable, server-side, etc.).
+    For Enum members, uses the enum NAME (matches SAEnum's default storage:
+    names not values).
+    """
+    import enum as _enum
+
+    default = col.default
+    if default is None:
+        return None
+    arg = getattr(default, "arg", None)
+    if arg is None or callable(arg):
+        return None
+    if isinstance(arg, _enum.Enum):
+        return f"'{arg.name}'"
+    if isinstance(arg, bool):
+        return "1" if arg else "0"
+    if isinstance(arg, (int, float)):
+        return str(arg)
+    if isinstance(arg, str):
+        escaped = arg.replace("'", "''")
+        return f"'{escaped}'"
+    return None
 
 
 class _PermissiveRbacProvider:
@@ -201,10 +289,15 @@ async def build_app_state(settings: FleetSettings) -> AppState:
     else:
         signing_backend = FileBackend.bootstrap(signing_dir)
 
-    # Setup database
+    # Setup database — create_all + reconcile new columns on existing tables.
+    # `create_all` only creates missing tables; it does NOT add columns added
+    # to existing models. `_reconcile_added_columns` issues ALTER TABLE ADD
+    # COLUMN for any model column not present in the live schema. Idempotent;
+    # safe to run on every boot. Mirrors what alembic migrations apply in prod.
     engine = make_engine(settings.db_url)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_reconcile_added_columns)
     sm = make_sessionmaker(engine)
 
     # Setup event bus (singleton shared across all components)
