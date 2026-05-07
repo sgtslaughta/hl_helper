@@ -4,6 +4,7 @@ import { EmptyState } from '@/components/empty-states/empty-state';
 import { ActionConfirmDialog } from '@/components/hosts/action-confirm-dialog';
 import { BlueprintSkeleton } from '@/components/skeletons/blueprint-skeleton';
 import { TaskResultPreview } from '@/components/tasks/task-result-preview';
+import { Badge } from '@/components/primitives/badge';
 import { apiFetch } from '@/lib/api-client';
 import { type Host, shellExecHost } from '@/lib/api/hosts';
 import { useCanPerform } from '@/lib/rbac';
@@ -32,6 +33,9 @@ interface TaskListItem {
 	created_at: string;
 	risk: string;
 	summary?: string;
+	payload?: Record<string, unknown>;
+	result?: { status: string };
+	host_update_status?: string;
 }
 interface TasksPage {
 	items: TaskListItem[];
@@ -60,6 +64,24 @@ const RISK_TONE: Record<string, string> = {
 };
 
 const PAGE_SIZES = [10, 25, 50] as const;
+
+function renderTaskDetail(task: TaskListItem): React.ReactNode {
+	switch (task.kind) {
+		case 'agent_update': {
+			const p = task.payload as { release_id: string; force?: boolean; reason?: string };
+			const status = task.result?.status ?? task.host_update_status ?? 'queued';
+			return (
+				<div className="space-y-1">
+					<div className="text-xs text-text-dim">Update to release {p.release_id.slice(0, 8)}</div>
+					<Badge size="sm">{status}</Badge>
+					{p.reason && <div className="text-xs">{p.reason}</div>}
+				</div>
+			);
+		}
+		default:
+			return task.summary ?? '—';
+	}
+}
 
 interface PanelProps {
 	hostId: string;
@@ -263,7 +285,7 @@ export function HostTasksPanel({ hostId, host }: PanelProps) {
 											className="px-3 py-2 text-text-dim max-w-[320px] truncate"
 											title={t.summary ?? ''}
 										>
-											{t.summary ?? '—'}
+											{renderTaskDetail(t)}
 										</td>
 										<td className="px-3 py-2">
 											<span className={`mc-pip border ${riskTone}`} style={{ padding: '2px 6px' }}>

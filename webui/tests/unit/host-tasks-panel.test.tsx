@@ -18,6 +18,7 @@ vi.mock('@/components/tasks/task-result-preview', () => ({
 const tasks = [
   { id: 't1', kind: 'shell_exec', status: 'completed', risk: 'low', created_at: '2026-05-06T18:00Z', summary: 'uname -a' },
   { id: 't2', kind: 'shell_exec', status: 'running', risk: 'low', created_at: '2026-05-06T18:01Z', summary: 'apt upgrade' },
+  { id: 't3', kind: 'agent_update', status: 'pending', risk: 'medium', created_at: '2026-05-06T18:02Z', summary: undefined, payload: { release_id: 'abc123def456', force: false, reason: 'Security update' }, host_update_status: 'queued' },
 ];
 
 beforeEach(() => {
@@ -87,5 +88,13 @@ describe('HostTasksPanel inline expansion', () => {
     row.focus();
     fireEvent.keyDown(row, { key: 'Enter' });
     expect(await screen.findByTestId('preview')).toBeInTheDocument();
+  });
+
+  it('renders agent_update task with release ID, status, and reason', async () => {
+    render(wrap(<HostTasksPanel hostId="h1" />));
+    const detail = await screen.findByText(/Update to release/);
+    expect(detail).toBeInTheDocument();
+    expect(screen.getByText(/abc123de/)).toBeInTheDocument();
+    expect(screen.getByText('Security update')).toBeInTheDocument();
   });
 });
