@@ -44,6 +44,9 @@ data/
 # Local dev runtime (tokens, pids, logs, sqlite)
 .dev/
 
+# Local planning docs (kept out of VCS)
+plans/
+
 # MkDocs build output
 site/
 
