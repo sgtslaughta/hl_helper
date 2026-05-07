@@ -23,15 +23,24 @@ quiet() { "$@" >/dev/null 2>&1; }
 printf "${C_BOLD}hl-agent installer${C_RESET}  ${C_DIM}{{ server }}${C_RESET}\n"
 echo
 
-# ----- arch detect ---------------------------------------------------------
+# ----- arch + os detect ----------------------------------------------------
 arch=$(uname -m)
 case "$arch" in
   x86_64)  agent_arch="amd64" ;;
   aarch64) agent_arch="arm64" ;;
+  arm64)   agent_arch="arm64" ;;
   armv7l)  agent_arch="armv7" ;;
   *) fail "Unsupported architecture: $arch" ;;
 esac
-ok "Architecture: $agent_arch"
+case "$(uname -s)" in
+  Linux)  agent_os="linux" ;;
+  Darwin) agent_os="darwin" ;;
+  *) fail "Unsupported OS: $(uname -s)" ;;
+esac
+ok "Platform: ${agent_os}/${agent_arch}"
+
+# Tooling check
+command -v jq >/dev/null 2>&1 || fail "jq required (apt install jq / brew install jq)"
 
 # ----- gRPC reachability diag (optional) ----------------------------------
 grpc_endpoint="{{ grpc_endpoint | default('') }}"
@@ -52,17 +61,38 @@ else
   note "Will use sudo for system files; you may be prompted for your password."
 fi
 
-# ----- download binary -----------------------------------------------------
-step "Downloading agent binary"
-agent_url="{{ server }}/agent/${agent_arch}/hl-agent"
-tmp_agent="/tmp/hl-agent-$$"
+# ----- resolve + verify latest release (token-gated) -----------------------
+[ -n "{{ token }}" ] || fail "enrollment token required (re-issue install URL)"
+
 {% if server_ca_pem %}
 CA_PEM="{{ server_ca_pem }}"
-curl --cacert <(echo "$CA_PEM") -fsSL "$agent_url" -o "$tmp_agent" || fail "Download failed: $agent_url"
+CURL_OPTS="--cacert <(echo \"$CA_PEM\")"
 {% else %}
-curl -fsSL "$agent_url" -o "$tmp_agent" || fail "Download failed: $agent_url"
+CURL_OPTS=""
 {% endif %}
-ok "Binary downloaded ($(du -h "$tmp_agent" | cut -f1))"
+
+step "Resolving latest release"
+info_url="{{ server }}/v1/install/agent-release-info?token={{ token }}&os=${agent_os}&arch=${agent_arch}"
+tmp_info="/tmp/hl-release-$$.json"
+curl ${CURL_OPTS} -fsSL "$info_url" -o "$tmp_info" \
+  || fail "Could not resolve release (token rejected or no published binary for ${agent_os}/${agent_arch})"
+
+release_ver=$(jq -r .version "$tmp_info")
+expected_sha=$(jq -r .sha256 "$tmp_info")
+expected_size=$(jq -r .size "$tmp_info")
+[ -n "$release_ver" ] && [ -n "$expected_sha" ] || { rm -f "$tmp_info"; fail "malformed release info"; }
+ok "Release $release_ver (${expected_size} bytes)"
+rm -f "$tmp_info"
+
+step "Downloading agent binary"
+agent_url="{{ server }}/v1/install/agent-binary?token={{ token }}&os=${agent_os}&arch=${agent_arch}"
+tmp_agent="/tmp/hl-agent-$$"
+curl ${CURL_OPTS} -fsSL "$agent_url" -o "$tmp_agent" || fail "Download failed: $agent_url"
+
+# Verify sha256 against signed manifest (mandatory).
+actual_sha=$(sha256sum "$tmp_agent" 2>/dev/null | cut -d' ' -f1 || shasum -a 256 "$tmp_agent" | cut -d' ' -f1)
+[ "$actual_sha" = "$expected_sha" ] || { rm -f "$tmp_agent"; fail "sha256 mismatch: expected $expected_sha got $actual_sha"; }
+ok "Binary verified ($(du -h "$tmp_agent" | cut -f1), sha256 ok)"
 
 {% if release_signing_pubkey_pem %}
 step "Verifying signature"
