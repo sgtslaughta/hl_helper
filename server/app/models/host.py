@@ -2,16 +2,28 @@
 
 from __future__ import annotations
 
+import enum
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Index, JSON, String, func
+from sqlalchemy import DateTime, Enum as SAEnum, Index, JSON, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from server.app.models.base import Base
 
 if TYPE_CHECKING:
     from server.app.models.group_membership import GroupMembership
+
+
+class AgentUpdateStatus(str, enum.Enum):
+    """Agent update status enum."""
+
+    IDLE = "idle"
+    DOWNLOADING = "downloading"
+    SWAPPING = "swapping"
+    HEALTHCHECKING = "healthchecking"
+    ROLLED_BACK = "rolled_back"
+    FAILED = "failed"
 
 
 class Host(Base):
@@ -51,6 +63,15 @@ class Host(Base):
         DateTime(timezone=True), nullable=True
     )
     heartbeat_interval_s: Mapped[int] = mapped_column(default=30)
+    agent_version: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    agent_version_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    agent_update_status: Mapped[AgentUpdateStatus] = mapped_column(
+        SAEnum(AgentUpdateStatus), nullable=False, default=AgentUpdateStatus.IDLE
+    )
+    agent_update_target_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    pinned_release_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
     memberships: Mapped[list[GroupMembership]] = relationship(
         "GroupMembership",

@@ -446,3 +446,36 @@ async def test_host_labels_default_not_shared(sm: async_sessionmaker) -> None:
         assert a.labels == {"env": "prod"}
         assert b.labels == {}, f"expected empty, got {b.labels}"
 
+
+@pytest.mark.asyncio
+async def test_host_agent_version_fields(sm: async_sessionmaker) -> None:
+    """Host can store agent version tracking fields."""
+    from server.app.models.host import AgentUpdateStatus
+
+    host_id = str(uuid4())
+    release_id = str(uuid4())
+    now = datetime.now(timezone.utc)
+
+    async with session_scope(sm) as session:
+        h = Host(
+            id=host_id,
+            hostname="agent-version-host",
+            agent_pubkey=b"12345678" * 4,
+        )
+        h.agent_version = "0.4.2"
+        h.agent_update_status = AgentUpdateStatus.IDLE
+        h.agent_version_updated_at = now
+        h.agent_update_target_version = "0.5.0"
+        h.pinned_release_id = release_id
+        session.add(h)
+        await session.commit()
+
+    async with session_scope(sm) as session:
+        fetched = await session.get(Host, host_id)
+        assert fetched is not None
+        assert fetched.agent_version == "0.4.2"
+        assert fetched.agent_update_status == AgentUpdateStatus.IDLE
+        assert fetched.agent_version_updated_at is not None
+        assert fetched.agent_update_target_version == "0.5.0"
+        assert fetched.pinned_release_id == release_id
+
