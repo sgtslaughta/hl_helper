@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
@@ -25,6 +26,7 @@ import (
 	"github.com/hlhelper/hl-agent/internal/keystore"
 	"github.com/hlhelper/hl-agent/internal/outbox"
 	"github.com/hlhelper/hl-agent/internal/survey"
+	"github.com/hlhelper/hl-agent/internal/updater"
 	pb "github.com/hlhelper/hl-agent/proto/fleet/v1"
 
 	"github.com/shirou/gopsutil/v3/disk"
@@ -102,11 +104,24 @@ type Options struct {
 	DialOptions       []grpc.DialOption // override (tests use bufconn)
 	KeystoreDir       string        // optional; for persisting result sequence counter
 	AgentVersion      string        // optional; included in heartbeats for visibility
+	StateDir          string        // optional; for updater state and pending check
 }
 
-type Client struct{ opts Options }
+type Client struct {
+	opts Options
+	// firstHealthyOnce ensures the first-healthy callback fires exactly once
+	firstHealthyOnce atomic.Bool
+	// firstHealthyCB is called on first successful heartbeat ack after pending was detected
+	firstHealthyCB func(string)
+}
 
 func New(opts Options) *Client { return &Client{opts: opts} }
+
+// SetFirstHealthyCallback sets the callback to invoke on first successful heartbeat.
+// Used to confirm updates on startup.
+func (c *Client) SetFirstHealthyCallback(cb func(string)) {
+	c.firstHealthyCB = cb
+}
 
 func (c *Client) Run(ctx context.Context) error {
 	backoff := c.opts.BaseBackoff
@@ -300,14 +315,24 @@ func (c *Client) runOnce(ctx context.Context) error {
 				recvErr <- e
 				return
 			}
+			// Invoke first-healthy callback on first successful message received
+			if c.firstHealthyCB != nil && c.firstHealthyOnce.CompareAndSwap(false, true) {
+				c.firstHealthyCB(c.opts.AgentVersion)
+			}
 			switch m := msg.Msg.(type) {
 			case *pb.ServerToAgent_Command:
 				cmd := m.Command
-				if c.opts.Executor != nil && c.opts.Outbox != nil {
-					go c.executeAndQueueResult(ctx, cmd, &resultSeqMu, &resultSeq, &prevHash)
-				}
-				if c.opts.OnCommand != nil {
-					c.opts.OnCommand(cmd)
+				// Check if this is an agent update command
+				if cmd.GetAgentUpdate() != nil {
+					go c.handleAgentUpdate(ctx, cmd, sendMsg)
+				} else {
+					// Regular command dispatch
+					if c.opts.Executor != nil && c.opts.Outbox != nil {
+						go c.executeAndQueueResult(ctx, cmd, &resultSeqMu, &resultSeq, &prevHash)
+					}
+					if c.opts.OnCommand != nil {
+						c.opts.OnCommand(cmd)
+					}
 				}
 			case *pb.ServerToAgent_HbConfig:
 				ivl := int32(m.HbConfig.IntervalS)
@@ -500,6 +525,93 @@ func (c *Client) tlsCreds() (credentials.TransportCredentials, error) {
 		},
 	}
 	return credentials.NewTLS(cfg), nil
+}
+
+// mapErrToUpdateStatus maps updater errors to AgentUpdateResult status codes.
+func mapErrToUpdateStatus(err error) pb.AgentUpdateResult_Status {
+	if errors.Is(err, updater.ErrSigInvalid) {
+		return pb.AgentUpdateResult_SIG_INVALID
+	}
+	if errors.Is(err, updater.ErrSHAMismatch) {
+		return pb.AgentUpdateResult_SHA_MISMATCH
+	}
+	if errors.Is(err, updater.ErrSizeMismatch) {
+		return pb.AgentUpdateResult_SHA_MISMATCH // Size mismatch treated as SHA/integrity error
+	}
+	return pb.AgentUpdateResult_DOWNLOAD_FAILED
+}
+
+// handleAgentUpdate processes an AgentUpdateCmd from the server.
+// It spawns a goroutine to perform the update, handling relaunch and error reporting.
+func (c *Client) handleAgentUpdate(ctx context.Context, env *pb.CommandEnvelope, sendMsg func(*pb.AgentToServer) error) {
+	cmd := env.GetAgentUpdate()
+	if cmd == nil {
+		return
+	}
+
+	installPath, err := os.Executable()
+	if err != nil {
+		log.Printf("agent update: failed to get executable path: %v", err)
+		return
+	}
+
+	stateDir := c.opts.StateDir
+	if stateDir == "" {
+		stateDir = "/var/lib/hl-agent"
+	}
+	updaterDir := filepath.Join(stateDir, "updates")
+
+	// Construct the Updater
+	upd := &updater.Updater{
+		StateDir:    updaterDir,
+		InstallPath: installPath,
+		CurrentVer:  c.opts.AgentVersion,
+		HTTPClient:  &http.Client{Timeout: 5 * time.Minute},
+		Relaunch:    updater.SyscallRelaunch,
+	}
+
+	// Build the Cmd from protobuf message
+	updateCmd := updater.Cmd{
+		ReleaseID:      cmd.ReleaseId,
+		ManifestJSON:   cmd.ManifestJson,
+		ManifestSig:    cmd.ManifestSig,
+		BinaryURL:      cmd.BinaryUrl,
+		DownloadToken:  cmd.DownloadToken,
+		ExpectedSHA256: cmd.ExpectedSha256,
+		ExpectedSize:   int64(cmd.ExpectedSize),
+		Force:          cmd.Force,
+	}
+
+	// Apply the update
+	err = upd.Apply(ctx, updateCmd)
+	if err != nil {
+		// Error occurred; report failure
+		status := mapErrToUpdateStatus(err)
+		result := &pb.ResultEnvelope{
+			CommandId:   env.CommandId,
+			HostId:      c.opts.HostID,
+			StartedAt:   timestamppb.Now(),
+			CompletedAt: timestamppb.Now(),
+			Status:      pb.ResultStatus_RESULT_FAIL,
+			Payload: &pb.ResultEnvelope_AgentUpdateResult{
+				AgentUpdateResult: &pb.AgentUpdateResult{
+					Status: status,
+					Error:  err.Error(),
+				},
+			},
+		}
+		_ = sendMsg(&pb.AgentToServer{
+			Msg: &pb.AgentToServer_Result{
+				Result: result,
+			},
+		})
+		log.Printf("agent update failed: %v", err)
+		return
+	}
+
+	// Apply calls Relaunch which never returns on success
+	// If we reach here, something went wrong
+	log.Printf("agent update: relaunch returned unexpectedly")
 }
 
 // buildHeartbeat assembles a heartbeat message with current minimal metrics.

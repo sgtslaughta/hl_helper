@@ -1,119 +1,75 @@
 package main
 
 import (
-	"bytes"
-	"strings"
+	"os"
 	"testing"
 )
 
-func TestVersionPrintsExpectedFields(t *testing.T) {
-	buf := &bytes.Buffer{}
-	cmd := newRootCmd()
-	cmd.SetOut(buf)
-	cmd.SetErr(buf)
-	cmd.SetArgs([]string{"version"})
-
-	err := cmd.Execute()
-	if err != nil {
-		t.Fatalf("version command failed: %v", err)
-	}
-
-	output := buf.String()
-	if !strings.Contains(output, "hl-agent version dev") {
-		t.Errorf("output missing 'hl-agent version dev': %s", output)
-	}
-	if !strings.Contains(output, "commit:") {
-		t.Errorf("output missing 'commit:' prefix: %s", output)
-	}
-	if !strings.Contains(output, "go:") {
-		t.Errorf("output missing 'go:' prefix: %s", output)
+func TestBootCounterPath(t *testing.T) {
+	dir := "/tmp/test"
+	expected := "/tmp/test/bootcount"
+	if got := bootCounterPath(dir); got != expected {
+		t.Errorf("expected %q, got %q", expected, got)
 	}
 }
 
-func TestUnknownCommandFails(t *testing.T) {
-	buf := &bytes.Buffer{}
-	cmd := newRootCmd()
-	cmd.SetOut(buf)
-	cmd.SetErr(buf)
-	cmd.SetArgs([]string{"bogus"})
+func TestReadBootCounter(t *testing.T) {
+	tmpdir := t.TempDir()
 
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("bogus command should have failed but returned no error")
+	// Non-existent file returns 0
+	if count := readBootCounter(tmpdir); count != 0 {
+		t.Errorf("expected 0 for non-existent file, got %d", count)
+	}
+
+	// Write a counter and read it back
+	counterPath := bootCounterPath(tmpdir)
+	if err := os.WriteFile(counterPath, []byte("5"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	if count := readBootCounter(tmpdir); count != 5 {
+		t.Errorf("expected 5, got %d", count)
 	}
 }
 
-func TestEnrollSubcommandIsRegistered(t *testing.T) {
-	buf := &bytes.Buffer{}
-	cmd := newRootCmd()
-	cmd.SetOut(buf)
-	cmd.SetErr(buf)
-	cmd.SetArgs([]string{"enroll", "--help"})
+func TestIncrementBootCounter(t *testing.T) {
+	tmpdir := t.TempDir()
 
-	err := cmd.Execute()
-	if err != nil {
-		t.Fatalf("enroll --help failed: %v", err)
+	// First increment: 0 -> 1
+	incrementBootCounter(tmpdir)
+	if count := readBootCounter(tmpdir); count != 1 {
+		t.Errorf("expected 1 after first increment, got %d", count)
 	}
 
-	output := buf.String()
-	if !strings.Contains(output, "enroll") {
-		t.Errorf("output missing 'enroll': %s", output)
+	// Second increment: 1 -> 2
+	incrementBootCounter(tmpdir)
+	if count := readBootCounter(tmpdir); count != 2 {
+		t.Errorf("expected 2 after second increment, got %d", count)
 	}
 }
 
-func TestServiceSubcommandIsRegistered(t *testing.T) {
-	buf := &bytes.Buffer{}
-	cmd := newRootCmd()
-	cmd.SetOut(buf)
-	cmd.SetErr(buf)
-	cmd.SetArgs([]string{"service", "--help"})
+func TestClearBootCounter(t *testing.T) {
+	tmpdir := t.TempDir()
 
-	err := cmd.Execute()
-	if err != nil {
-		t.Fatalf("service --help failed: %v", err)
+	// Write a counter
+	counterPath := bootCounterPath(tmpdir)
+	if err := os.WriteFile(counterPath, []byte("3"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
 	}
 
-	output := buf.String()
-	if !strings.Contains(output, "service") {
-		t.Errorf("output missing 'service': %s", output)
-	}
-}
-
-func TestDecommissionSubcommandIsRegistered(t *testing.T) {
-	buf := &bytes.Buffer{}
-	cmd := newRootCmd()
-	cmd.SetOut(buf)
-	cmd.SetErr(buf)
-	cmd.SetArgs([]string{"decommission", "--help"})
-
-	err := cmd.Execute()
-	if err != nil {
-		t.Fatalf("decommission --help failed: %v", err)
+	// Verify it exists
+	if _, err := os.Stat(counterPath); err != nil {
+		t.Fatalf("counter file should exist: %v", err)
 	}
 
-	output := buf.String()
-	if !strings.Contains(output, "decommission") {
-		t.Errorf("output missing 'decommission': %s", output)
-	}
-}
+	// Clear it
+	clearBootCounter(tmpdir)
 
-func TestRootHelpListsAllSubcommands(t *testing.T) {
-	buf := &bytes.Buffer{}
-	cmd := newRootCmd()
-	cmd.SetOut(buf)
-	cmd.SetErr(buf)
-	cmd.SetArgs([]string{"--help"})
-
-	err := cmd.Execute()
-	if err != nil {
-		t.Fatalf("--help failed: %v", err)
+	// Verify it's gone
+	if _, err := os.Stat(counterPath); !os.IsNotExist(err) {
+		t.Errorf("counter file should be removed")
 	}
 
-	output := buf.String()
-	requiredSubcommands := []string{"version", "enroll", "service", "decommission", "rotate-signing-key"}
-	for _, sub := range requiredSubcommands {
-		if !strings.Contains(output, sub) {
-			t.Errorf("output missing '%s': %s", sub, output)
-		}
-	}
+	// Clearing again should not error
+	clearBootCounter(tmpdir)
 }

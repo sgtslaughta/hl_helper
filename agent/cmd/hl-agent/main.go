@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/hlhelper/hl-agent/internal/keystore"
 	"github.com/hlhelper/hl-agent/internal/outbox"
 	"github.com/hlhelper/hl-agent/internal/transport"
+	"github.com/hlhelper/hl-agent/internal/updater"
 	pb "github.com/hlhelper/hl-agent/proto/fleet/v1"
 )
 
@@ -32,6 +34,33 @@ var (
 
 // configPath holds the path to the agent configuration file, set via the --config flag.
 var configPath string
+
+// onFirstHealthyHeartbeat is called after the first successful heartbeat on a new binary.
+// Used to confirm update health and clear the pending marker.
+var onFirstHealthyHeartbeat func(string)
+
+func bootCounterPath(dir string) string {
+	return filepath.Join(dir, "bootcount")
+}
+
+func readBootCounter(dir string) int {
+	b, err := os.ReadFile(bootCounterPath(dir))
+	if err != nil {
+		return 0
+	}
+	n, _ := strconv.Atoi(string(b))
+	return n
+}
+
+func incrementBootCounter(dir string) {
+	n := readBootCounter(dir) + 1
+	_ = os.MkdirAll(dir, 0o755)
+	_ = os.WriteFile(bootCounterPath(dir), []byte(strconv.Itoa(n)), 0o644)
+}
+
+func clearBootCounter(dir string) {
+	_ = os.Remove(bootCounterPath(dir))
+}
 
 func main() {
 	if err := newRootCmd().Execute(); err != nil {
@@ -163,6 +192,42 @@ func runCmd() *cobra.Command {
 				return fmt.Errorf("open keystore: %w", err)
 			}
 
+			// Handle pending updates: check boot counter and potentially rollback
+			stateDir := os.Getenv("HL_STATE_DIR")
+			if stateDir == "" {
+				stateDir = "/var/lib/hl-agent"
+			}
+			updaterDir := filepath.Join(stateDir, "updates")
+			installPath, err := os.Executable()
+			if err != nil {
+				return fmt.Errorf("get executable path: %w", err)
+			}
+
+			_, _, pending := updater.ReadPending(updaterDir)
+			if pending {
+				bootCount := readBootCounter(updaterDir)
+				if bootCount >= 2 {
+					// Too many boot attempts, rollback
+					handler := updater.Handler{StateDir: updaterDir, InstallPath: installPath}
+					if err := handler.Rollback(); err != nil {
+						fmt.Fprintf(cmd.ErrOrStderr(), "warn: rollback failed: %v\n", err)
+					}
+					clearBootCounter(updaterDir)
+					// Relaunch with current binary to avoid re-executing new binary
+					_ = updater.SyscallRelaunch(installPath, os.Args, os.Environ())
+					return fmt.Errorf("relaunch after rollback failed")
+				}
+				// Increment boot counter and set up first-healthy callback
+				incrementBootCounter(updaterDir)
+				onFirstHealthyHeartbeat = func(ver string) {
+					handler := updater.Handler{StateDir: updaterDir, InstallPath: installPath}
+					if err := handler.ConfirmHealthy(ver); err != nil {
+						fmt.Fprintf(cmd.ErrOrStderr(), "warn: confirm healthy failed: %v\n", err)
+					}
+					clearBootCounter(updaterDir)
+				}
+			}
+
 			ob, err := outbox.OpenWithKeyFile(
 				filepath.Join(dir, "outbox.db"),
 				filepath.Join(dir, "outbox.key"),
@@ -185,10 +250,16 @@ func runCmd() *cobra.Command {
 				Signer:       ks,
 				KeystoreDir:  dir,
 				AgentVersion: version,
+				StateDir:     stateDir,
 				OnCommand: func(env *pb.CommandEnvelope) {
 					fmt.Fprintf(cmd.OutOrStdout(), "command received: id=%s\n", env.GetCommandId())
 				},
 			})
+
+			// Set the first-healthy callback if a pending update was detected
+			if onFirstHealthyHeartbeat != nil {
+				client.SetFirstHealthyCallback(onFirstHealthyHeartbeat)
+			}
 
 			ctx, cancel := signal.NotifyContext(
 				context.Background(), os.Interrupt, syscall.SIGTERM,
