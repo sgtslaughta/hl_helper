@@ -22,6 +22,7 @@ class TaskKind(str, Enum):
     CONTAINER_UPDATE = "container_update"
     FILE_TRANSFER = "file_transfer"
     CUSTOM = "custom"
+    AGENT_UPDATE = "agent_update"
 
 
 class TaskStatus(str, Enum):

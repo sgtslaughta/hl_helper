@@ -151,3 +151,9 @@ async def test_command_sequence_per_host_independent(sm):
         )
         session.add_all([ca, cb])
         await session.commit()  # no error
+
+
+def test_task_kind_agent_update_exists():
+    """Test that TaskKind.AGENT_UPDATE exists with value 'agent_update'."""
+    from server.app.models.task import TaskKind
+    assert TaskKind.AGENT_UPDATE.value == "agent_update"
