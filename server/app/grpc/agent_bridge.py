@@ -429,10 +429,14 @@ async def _persist_heartbeat(
     if not host:
         return
 
-    # Update agent version if present
+    # Update agent version if present (top-level + mirrored into labels for
+    # legacy code paths and FleetRow display).
     if hb.agent_version and host.agent_version != hb.agent_version:
         host.agent_version = hb.agent_version
         host.agent_version_updated_at = datetime.now(timezone.utc)
+        labels = dict(host.labels or {})
+        labels["agent_version"] = hb.agent_version
+        host.labels = labels
 
     # Map proto update status to model enum
     status_str = _HB_STATUS_MAP.get(hb.update_status, "idle")

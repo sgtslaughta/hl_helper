@@ -49,6 +49,11 @@ class HostOut(BaseModel):
     metrics: dict[str, Any] | None = None
     metrics_at: datetime | None = None
     heartbeat_interval_s: int = 30
+    agent_version: str | None = None
+    agent_version_updated_at: datetime | None = None
+    agent_update_status: str = "idle"
+    agent_update_target_version: str | None = None
+    pinned_release_id: str | None = None
 
 
 class HostPatchRequest(BaseModel):
