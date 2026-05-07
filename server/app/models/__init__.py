@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from server.app.models.agent_release import AgentRelease, ReleaseChannel, ReleaseStatus
 from server.app.models.api_key import ApiKey
 from server.app.models.approval import Approval
 from server.app.models.audit import AuditCheckpoint, AuditEntry
@@ -39,6 +40,9 @@ from server.app.models.webhook import Webhook
 from server.app.posture.model import PostureFindingRow
 
 __all__ = [
+    "AgentRelease",
+    "ReleaseChannel",
+    "ReleaseStatus",
     "Base",
     "Host",
     "HostSequence",
