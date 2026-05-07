@@ -51,6 +51,7 @@ export interface Host {
 	metrics?: HostMetrics;
 	metrics_at?: string;
 	heartbeat_interval_s?: number;
+	agent_version?: string;
 }
 
 export interface ActionResponse {
