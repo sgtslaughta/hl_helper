@@ -22,6 +22,67 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type Heartbeat_AgentUpdateStatus int32
+
+const (
+	Heartbeat_AGENT_UPDATE_STATUS_UNSPECIFIED    Heartbeat_AgentUpdateStatus = 0
+	Heartbeat_AGENT_UPDATE_STATUS_IDLE           Heartbeat_AgentUpdateStatus = 1
+	Heartbeat_AGENT_UPDATE_STATUS_DOWNLOADING    Heartbeat_AgentUpdateStatus = 2
+	Heartbeat_AGENT_UPDATE_STATUS_SWAPPING       Heartbeat_AgentUpdateStatus = 3
+	Heartbeat_AGENT_UPDATE_STATUS_HEALTHCHECKING Heartbeat_AgentUpdateStatus = 4
+	Heartbeat_AGENT_UPDATE_STATUS_ROLLED_BACK    Heartbeat_AgentUpdateStatus = 5
+	Heartbeat_AGENT_UPDATE_STATUS_FAILED         Heartbeat_AgentUpdateStatus = 6
+)
+
+// Enum value maps for Heartbeat_AgentUpdateStatus.
+var (
+	Heartbeat_AgentUpdateStatus_name = map[int32]string{
+		0: "AGENT_UPDATE_STATUS_UNSPECIFIED",
+		1: "AGENT_UPDATE_STATUS_IDLE",
+		2: "AGENT_UPDATE_STATUS_DOWNLOADING",
+		3: "AGENT_UPDATE_STATUS_SWAPPING",
+		4: "AGENT_UPDATE_STATUS_HEALTHCHECKING",
+		5: "AGENT_UPDATE_STATUS_ROLLED_BACK",
+		6: "AGENT_UPDATE_STATUS_FAILED",
+	}
+	Heartbeat_AgentUpdateStatus_value = map[string]int32{
+		"AGENT_UPDATE_STATUS_UNSPECIFIED":    0,
+		"AGENT_UPDATE_STATUS_IDLE":           1,
+		"AGENT_UPDATE_STATUS_DOWNLOADING":    2,
+		"AGENT_UPDATE_STATUS_SWAPPING":       3,
+		"AGENT_UPDATE_STATUS_HEALTHCHECKING": 4,
+		"AGENT_UPDATE_STATUS_ROLLED_BACK":    5,
+		"AGENT_UPDATE_STATUS_FAILED":         6,
+	}
+)
+
+func (x Heartbeat_AgentUpdateStatus) Enum() *Heartbeat_AgentUpdateStatus {
+	p := new(Heartbeat_AgentUpdateStatus)
+	*p = x
+	return p
+}
+
+func (x Heartbeat_AgentUpdateStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (Heartbeat_AgentUpdateStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_fleet_v1_agent_bridge_proto_enumTypes[0].Descriptor()
+}
+
+func (Heartbeat_AgentUpdateStatus) Type() protoreflect.EnumType {
+	return &file_fleet_v1_agent_bridge_proto_enumTypes[0]
+}
+
+func (x Heartbeat_AgentUpdateStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use Heartbeat_AgentUpdateStatus.Descriptor instead.
+func (Heartbeat_AgentUpdateStatus) EnumDescriptor() ([]byte, []int) {
+	return file_fleet_v1_agent_bridge_proto_rawDescGZIP(), []int{6, 0}
+}
+
 type Disk struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Device        string                 `protobuf:"bytes,1,opt,name=device,proto3" json:"device,omitempty"`
@@ -535,15 +596,17 @@ func (x *HostMetrics) GetNetTxBps() uint64 {
 }
 
 type Heartbeat struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	HostId        string                 `protobuf:"bytes,1,opt,name=host_id,json=hostId,proto3" json:"host_id,omitempty"`
-	At            *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=at,proto3" json:"at,omitempty"`
-	LastAckedSeq  uint64                 `protobuf:"varint,3,opt,name=last_acked_seq,json=lastAckedSeq,proto3" json:"last_acked_seq,omitempty"`
-	Metrics       *HostMetrics           `protobuf:"bytes,4,opt,name=metrics,proto3" json:"metrics,omitempty"`
-	AgentVersion  string                 `protobuf:"bytes,5,opt,name=agent_version,json=agentVersion,proto3" json:"agent_version,omitempty"`
-	Signature     []byte                 `protobuf:"bytes,200,opt,name=signature,proto3" json:"signature,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state               protoimpl.MessageState      `protogen:"open.v1"`
+	HostId              string                      `protobuf:"bytes,1,opt,name=host_id,json=hostId,proto3" json:"host_id,omitempty"`
+	At                  *timestamppb.Timestamp      `protobuf:"bytes,2,opt,name=at,proto3" json:"at,omitempty"`
+	LastAckedSeq        uint64                      `protobuf:"varint,3,opt,name=last_acked_seq,json=lastAckedSeq,proto3" json:"last_acked_seq,omitempty"`
+	Metrics             *HostMetrics                `protobuf:"bytes,4,opt,name=metrics,proto3" json:"metrics,omitempty"`
+	AgentVersion        string                      `protobuf:"bytes,5,opt,name=agent_version,json=agentVersion,proto3" json:"agent_version,omitempty"`
+	UpdateStatus        Heartbeat_AgentUpdateStatus `protobuf:"varint,6,opt,name=update_status,json=updateStatus,proto3,enum=fleet.v1.Heartbeat_AgentUpdateStatus" json:"update_status,omitempty"`
+	UpdateTargetVersion string                      `protobuf:"bytes,7,opt,name=update_target_version,json=updateTargetVersion,proto3" json:"update_target_version,omitempty"`
+	Signature           []byte                      `protobuf:"bytes,200,opt,name=signature,proto3" json:"signature,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *Heartbeat) Reset() {
@@ -607,6 +670,20 @@ func (x *Heartbeat) GetMetrics() *HostMetrics {
 func (x *Heartbeat) GetAgentVersion() string {
 	if x != nil {
 		return x.AgentVersion
+	}
+	return ""
+}
+
+func (x *Heartbeat) GetUpdateStatus() Heartbeat_AgentUpdateStatus {
+	if x != nil {
+		return x.UpdateStatus
+	}
+	return Heartbeat_AGENT_UPDATE_STATUS_UNSPECIFIED
+}
+
+func (x *Heartbeat) GetUpdateTargetVersion() string {
+	if x != nil {
+		return x.UpdateTargetVersion
 	}
 	return ""
 }
@@ -1408,14 +1485,24 @@ const file_fleet_v1_agent_bridge_proto_rawDesc = "" +
 	"\n" +
 	"net_rx_bps\x18\a \x01(\x04R\bnetRxBps\x12\x1c\n" +
 	"\n" +
-	"net_tx_bps\x18\b \x01(\x04R\bnetTxBps\"\xeb\x01\n" +
+	"net_tx_bps\x18\b \x01(\x04R\bnetTxBps\"\xf8\x04\n" +
 	"\tHeartbeat\x12\x17\n" +
 	"\ahost_id\x18\x01 \x01(\tR\x06hostId\x12*\n" +
 	"\x02at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x02at\x12$\n" +
 	"\x0elast_acked_seq\x18\x03 \x01(\x04R\flastAckedSeq\x12/\n" +
 	"\ametrics\x18\x04 \x01(\v2\x15.fleet.v1.HostMetricsR\ametrics\x12#\n" +
-	"\ragent_version\x18\x05 \x01(\tR\fagentVersion\x12\x1d\n" +
-	"\tsignature\x18\xc8\x01 \x01(\fR\tsignature\"s\n" +
+	"\ragent_version\x18\x05 \x01(\tR\fagentVersion\x12J\n" +
+	"\rupdate_status\x18\x06 \x01(\x0e2%.fleet.v1.Heartbeat.AgentUpdateStatusR\fupdateStatus\x122\n" +
+	"\x15update_target_version\x18\a \x01(\tR\x13updateTargetVersion\x12\x1d\n" +
+	"\tsignature\x18\xc8\x01 \x01(\fR\tsignature\"\x8a\x02\n" +
+	"\x11AgentUpdateStatus\x12#\n" +
+	"\x1fAGENT_UPDATE_STATUS_UNSPECIFIED\x10\x00\x12\x1c\n" +
+	"\x18AGENT_UPDATE_STATUS_IDLE\x10\x01\x12#\n" +
+	"\x1fAGENT_UPDATE_STATUS_DOWNLOADING\x10\x02\x12 \n" +
+	"\x1cAGENT_UPDATE_STATUS_SWAPPING\x10\x03\x12&\n" +
+	"\"AGENT_UPDATE_STATUS_HEALTHCHECKING\x10\x04\x12#\n" +
+	"\x1fAGENT_UPDATE_STATUS_ROLLED_BACK\x10\x05\x12\x1e\n" +
+	"\x1aAGENT_UPDATE_STATUS_FAILED\x10\x06\"s\n" +
 	"\fHeartbeatAck\x127\n" +
 	"\tserver_at\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\bserverAt\x12*\n" +
 	"\x11next_expected_seq\x18\x02 \x01(\x04R\x0fnextExpectedSeq\"o\n" +
@@ -1476,59 +1563,62 @@ func file_fleet_v1_agent_bridge_proto_rawDescGZIP() []byte {
 	return file_fleet_v1_agent_bridge_proto_rawDescData
 }
 
+var file_fleet_v1_agent_bridge_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_fleet_v1_agent_bridge_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_fleet_v1_agent_bridge_proto_goTypes = []any{
-	(*Disk)(nil),                  // 0: fleet.v1.Disk
-	(*Nic)(nil),                   // 1: fleet.v1.Nic
-	(*HostSurvey)(nil),            // 2: fleet.v1.HostSurvey
-	(*HeartbeatConfig)(nil),       // 3: fleet.v1.HeartbeatConfig
-	(*RunSurvey)(nil),             // 4: fleet.v1.RunSurvey
-	(*HostMetrics)(nil),           // 5: fleet.v1.HostMetrics
-	(*Heartbeat)(nil),             // 6: fleet.v1.Heartbeat
-	(*HeartbeatAck)(nil),          // 7: fleet.v1.HeartbeatAck
-	(*ResumeRequest)(nil),         // 8: fleet.v1.ResumeRequest
-	(*CapabilityRequest)(nil),     // 9: fleet.v1.CapabilityRequest
-	(*CertRotateRequest)(nil),     // 10: fleet.v1.CertRotateRequest
-	(*CertIssueResponse)(nil),     // 11: fleet.v1.CertIssueResponse
-	(*ManifestUpdate)(nil),        // 12: fleet.v1.ManifestUpdate
-	(*Decommission)(nil),          // 13: fleet.v1.Decommission
-	(*DecommissionAck)(nil),       // 14: fleet.v1.DecommissionAck
-	(*AgentToServer)(nil),         // 15: fleet.v1.AgentToServer
-	(*ServerToAgent)(nil),         // 16: fleet.v1.ServerToAgent
-	(*timestamppb.Timestamp)(nil), // 17: google.protobuf.Timestamp
-	(*ResultEnvelope)(nil),        // 18: fleet.v1.ResultEnvelope
-	(*CommandEnvelope)(nil),       // 19: fleet.v1.CommandEnvelope
+	(Heartbeat_AgentUpdateStatus)(0), // 0: fleet.v1.Heartbeat.AgentUpdateStatus
+	(*Disk)(nil),                     // 1: fleet.v1.Disk
+	(*Nic)(nil),                      // 2: fleet.v1.Nic
+	(*HostSurvey)(nil),               // 3: fleet.v1.HostSurvey
+	(*HeartbeatConfig)(nil),          // 4: fleet.v1.HeartbeatConfig
+	(*RunSurvey)(nil),                // 5: fleet.v1.RunSurvey
+	(*HostMetrics)(nil),              // 6: fleet.v1.HostMetrics
+	(*Heartbeat)(nil),                // 7: fleet.v1.Heartbeat
+	(*HeartbeatAck)(nil),             // 8: fleet.v1.HeartbeatAck
+	(*ResumeRequest)(nil),            // 9: fleet.v1.ResumeRequest
+	(*CapabilityRequest)(nil),        // 10: fleet.v1.CapabilityRequest
+	(*CertRotateRequest)(nil),        // 11: fleet.v1.CertRotateRequest
+	(*CertIssueResponse)(nil),        // 12: fleet.v1.CertIssueResponse
+	(*ManifestUpdate)(nil),           // 13: fleet.v1.ManifestUpdate
+	(*Decommission)(nil),             // 14: fleet.v1.Decommission
+	(*DecommissionAck)(nil),          // 15: fleet.v1.DecommissionAck
+	(*AgentToServer)(nil),            // 16: fleet.v1.AgentToServer
+	(*ServerToAgent)(nil),            // 17: fleet.v1.ServerToAgent
+	(*timestamppb.Timestamp)(nil),    // 18: google.protobuf.Timestamp
+	(*ResultEnvelope)(nil),           // 19: fleet.v1.ResultEnvelope
+	(*CommandEnvelope)(nil),          // 20: fleet.v1.CommandEnvelope
 }
 var file_fleet_v1_agent_bridge_proto_depIdxs = []int32{
-	0,  // 0: fleet.v1.HostSurvey.disks:type_name -> fleet.v1.Disk
-	1,  // 1: fleet.v1.HostSurvey.nics:type_name -> fleet.v1.Nic
-	17, // 2: fleet.v1.HostSurvey.collected_at:type_name -> google.protobuf.Timestamp
-	17, // 3: fleet.v1.Heartbeat.at:type_name -> google.protobuf.Timestamp
-	5,  // 4: fleet.v1.Heartbeat.metrics:type_name -> fleet.v1.HostMetrics
-	17, // 5: fleet.v1.HeartbeatAck.server_at:type_name -> google.protobuf.Timestamp
-	17, // 6: fleet.v1.CertIssueResponse.not_after:type_name -> google.protobuf.Timestamp
-	17, // 7: fleet.v1.DecommissionAck.at:type_name -> google.protobuf.Timestamp
-	6,  // 8: fleet.v1.AgentToServer.heartbeat:type_name -> fleet.v1.Heartbeat
-	18, // 9: fleet.v1.AgentToServer.result:type_name -> fleet.v1.ResultEnvelope
-	8,  // 10: fleet.v1.AgentToServer.resume:type_name -> fleet.v1.ResumeRequest
-	9,  // 11: fleet.v1.AgentToServer.cap_req:type_name -> fleet.v1.CapabilityRequest
-	10, // 12: fleet.v1.AgentToServer.cert_rotate:type_name -> fleet.v1.CertRotateRequest
-	14, // 13: fleet.v1.AgentToServer.decom_ack:type_name -> fleet.v1.DecommissionAck
-	2,  // 14: fleet.v1.AgentToServer.host_survey:type_name -> fleet.v1.HostSurvey
-	19, // 15: fleet.v1.ServerToAgent.command:type_name -> fleet.v1.CommandEnvelope
-	7,  // 16: fleet.v1.ServerToAgent.hb_ack:type_name -> fleet.v1.HeartbeatAck
-	11, // 17: fleet.v1.ServerToAgent.cert_issue:type_name -> fleet.v1.CertIssueResponse
-	12, // 18: fleet.v1.ServerToAgent.manifest:type_name -> fleet.v1.ManifestUpdate
-	13, // 19: fleet.v1.ServerToAgent.decom:type_name -> fleet.v1.Decommission
-	3,  // 20: fleet.v1.ServerToAgent.hb_config:type_name -> fleet.v1.HeartbeatConfig
-	4,  // 21: fleet.v1.ServerToAgent.run_survey:type_name -> fleet.v1.RunSurvey
-	15, // 22: fleet.v1.AgentBridge.Stream:input_type -> fleet.v1.AgentToServer
-	16, // 23: fleet.v1.AgentBridge.Stream:output_type -> fleet.v1.ServerToAgent
-	23, // [23:24] is the sub-list for method output_type
-	22, // [22:23] is the sub-list for method input_type
-	22, // [22:22] is the sub-list for extension type_name
-	22, // [22:22] is the sub-list for extension extendee
-	0,  // [0:22] is the sub-list for field type_name
+	1,  // 0: fleet.v1.HostSurvey.disks:type_name -> fleet.v1.Disk
+	2,  // 1: fleet.v1.HostSurvey.nics:type_name -> fleet.v1.Nic
+	18, // 2: fleet.v1.HostSurvey.collected_at:type_name -> google.protobuf.Timestamp
+	18, // 3: fleet.v1.Heartbeat.at:type_name -> google.protobuf.Timestamp
+	6,  // 4: fleet.v1.Heartbeat.metrics:type_name -> fleet.v1.HostMetrics
+	0,  // 5: fleet.v1.Heartbeat.update_status:type_name -> fleet.v1.Heartbeat.AgentUpdateStatus
+	18, // 6: fleet.v1.HeartbeatAck.server_at:type_name -> google.protobuf.Timestamp
+	18, // 7: fleet.v1.CertIssueResponse.not_after:type_name -> google.protobuf.Timestamp
+	18, // 8: fleet.v1.DecommissionAck.at:type_name -> google.protobuf.Timestamp
+	7,  // 9: fleet.v1.AgentToServer.heartbeat:type_name -> fleet.v1.Heartbeat
+	19, // 10: fleet.v1.AgentToServer.result:type_name -> fleet.v1.ResultEnvelope
+	9,  // 11: fleet.v1.AgentToServer.resume:type_name -> fleet.v1.ResumeRequest
+	10, // 12: fleet.v1.AgentToServer.cap_req:type_name -> fleet.v1.CapabilityRequest
+	11, // 13: fleet.v1.AgentToServer.cert_rotate:type_name -> fleet.v1.CertRotateRequest
+	15, // 14: fleet.v1.AgentToServer.decom_ack:type_name -> fleet.v1.DecommissionAck
+	3,  // 15: fleet.v1.AgentToServer.host_survey:type_name -> fleet.v1.HostSurvey
+	20, // 16: fleet.v1.ServerToAgent.command:type_name -> fleet.v1.CommandEnvelope
+	8,  // 17: fleet.v1.ServerToAgent.hb_ack:type_name -> fleet.v1.HeartbeatAck
+	12, // 18: fleet.v1.ServerToAgent.cert_issue:type_name -> fleet.v1.CertIssueResponse
+	13, // 19: fleet.v1.ServerToAgent.manifest:type_name -> fleet.v1.ManifestUpdate
+	14, // 20: fleet.v1.ServerToAgent.decom:type_name -> fleet.v1.Decommission
+	4,  // 21: fleet.v1.ServerToAgent.hb_config:type_name -> fleet.v1.HeartbeatConfig
+	5,  // 22: fleet.v1.ServerToAgent.run_survey:type_name -> fleet.v1.RunSurvey
+	16, // 23: fleet.v1.AgentBridge.Stream:input_type -> fleet.v1.AgentToServer
+	17, // 24: fleet.v1.AgentBridge.Stream:output_type -> fleet.v1.ServerToAgent
+	24, // [24:25] is the sub-list for method output_type
+	23, // [23:24] is the sub-list for method input_type
+	23, // [23:23] is the sub-list for extension type_name
+	23, // [23:23] is the sub-list for extension extendee
+	0,  // [0:23] is the sub-list for field type_name
 }
 
 func init() { file_fleet_v1_agent_bridge_proto_init() }
@@ -1561,13 +1651,14 @@ func file_fleet_v1_agent_bridge_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_fleet_v1_agent_bridge_proto_rawDesc), len(file_fleet_v1_agent_bridge_proto_rawDesc)),
-			NumEnums:      0,
+			NumEnums:      1,
 			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_fleet_v1_agent_bridge_proto_goTypes,
 		DependencyIndexes: file_fleet_v1_agent_bridge_proto_depIdxs,
+		EnumInfos:         file_fleet_v1_agent_bridge_proto_enumTypes,
 		MessageInfos:      file_fleet_v1_agent_bridge_proto_msgTypes,
 	}.Build()
 	File_fleet_v1_agent_bridge_proto = out.File

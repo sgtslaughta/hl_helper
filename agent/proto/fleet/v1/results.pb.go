@@ -91,9 +91,13 @@ type ResultEnvelope struct {
 	Status          ResultStatus           `protobuf:"varint,10,opt,name=status,proto3,enum=fleet.v1.ResultStatus" json:"status,omitempty"`
 	RejectionReason string                 `protobuf:"bytes,11,opt,name=rejection_reason,json=rejectionReason,proto3" json:"rejection_reason,omitempty"`
 	PrevResultHash  []byte                 `protobuf:"bytes,12,opt,name=prev_result_hash,json=prevResultHash,proto3" json:"prev_result_hash,omitempty"`
-	Signature       []byte                 `protobuf:"bytes,200,opt,name=signature,proto3" json:"signature,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Types that are valid to be assigned to Payload:
+	//
+	//	*ResultEnvelope_AgentUpdateResult
+	Payload       isResultEnvelope_Payload `protobuf_oneof:"payload"`
+	Signature     []byte                   `protobuf:"bytes,200,opt,name=signature,proto3" json:"signature,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ResultEnvelope) Reset() {
@@ -210,6 +214,22 @@ func (x *ResultEnvelope) GetPrevResultHash() []byte {
 	return nil
 }
 
+func (x *ResultEnvelope) GetPayload() isResultEnvelope_Payload {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+func (x *ResultEnvelope) GetAgentUpdateResult() *AgentUpdateResult {
+	if x != nil {
+		if x, ok := x.Payload.(*ResultEnvelope_AgentUpdateResult); ok {
+			return x.AgentUpdateResult
+		}
+	}
+	return nil
+}
+
 func (x *ResultEnvelope) GetSignature() []byte {
 	if x != nil {
 		return x.Signature
@@ -217,11 +237,21 @@ func (x *ResultEnvelope) GetSignature() []byte {
 	return nil
 }
 
+type isResultEnvelope_Payload interface {
+	isResultEnvelope_Payload()
+}
+
+type ResultEnvelope_AgentUpdateResult struct {
+	AgentUpdateResult *AgentUpdateResult `protobuf:"bytes,300,opt,name=agent_update_result,json=agentUpdateResult,proto3,oneof"`
+}
+
+func (*ResultEnvelope_AgentUpdateResult) isResultEnvelope_Payload() {}
+
 var File_fleet_v1_results_proto protoreflect.FileDescriptor
 
 const file_fleet_v1_results_proto_rawDesc = "" +
 	"\n" +
-	"\x16fleet/v1/results.proto\x12\bfleet.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xfb\x03\n" +
+	"\x16fleet/v1/results.proto\x12\bfleet.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17fleet/v1/commands.proto\"\xd6\x04\n" +
 	"\x0eResultEnvelope\x12\x1d\n" +
 	"\n" +
 	"command_id\x18\x01 \x01(\tR\tcommandId\x12\x17\n" +
@@ -237,8 +267,10 @@ const file_fleet_v1_results_proto_rawDesc = "" +
 	"\x06status\x18\n" +
 	" \x01(\x0e2\x16.fleet.v1.ResultStatusR\x06status\x12)\n" +
 	"\x10rejection_reason\x18\v \x01(\tR\x0frejectionReason\x12(\n" +
-	"\x10prev_result_hash\x18\f \x01(\fR\x0eprevResultHash\x12\x1d\n" +
-	"\tsignature\x18\xc8\x01 \x01(\fR\tsignature*u\n" +
+	"\x10prev_result_hash\x18\f \x01(\fR\x0eprevResultHash\x12N\n" +
+	"\x13agent_update_result\x18\xac\x02 \x01(\v2\x1b.fleet.v1.AgentUpdateResultH\x00R\x11agentUpdateResult\x12\x1d\n" +
+	"\tsignature\x18\xc8\x01 \x01(\fR\tsignatureB\t\n" +
+	"\apayload*u\n" +
 	"\fResultStatus\x12\r\n" +
 	"\tRESULT_OK\x10\x00\x12\x0f\n" +
 	"\vRESULT_FAIL\x10\x01\x12\x13\n" +
@@ -264,22 +296,28 @@ var file_fleet_v1_results_proto_goTypes = []any{
 	(ResultStatus)(0),             // 0: fleet.v1.ResultStatus
 	(*ResultEnvelope)(nil),        // 1: fleet.v1.ResultEnvelope
 	(*timestamppb.Timestamp)(nil), // 2: google.protobuf.Timestamp
+	(*AgentUpdateResult)(nil),     // 3: fleet.v1.AgentUpdateResult
 }
 var file_fleet_v1_results_proto_depIdxs = []int32{
 	2, // 0: fleet.v1.ResultEnvelope.started_at:type_name -> google.protobuf.Timestamp
 	2, // 1: fleet.v1.ResultEnvelope.completed_at:type_name -> google.protobuf.Timestamp
 	0, // 2: fleet.v1.ResultEnvelope.status:type_name -> fleet.v1.ResultStatus
-	3, // [3:3] is the sub-list for method output_type
-	3, // [3:3] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	3, // 3: fleet.v1.ResultEnvelope.agent_update_result:type_name -> fleet.v1.AgentUpdateResult
+	4, // [4:4] is the sub-list for method output_type
+	4, // [4:4] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_fleet_v1_results_proto_init() }
 func file_fleet_v1_results_proto_init() {
 	if File_fleet_v1_results_proto != nil {
 		return
+	}
+	file_fleet_v1_commands_proto_init()
+	file_fleet_v1_results_proto_msgTypes[0].OneofWrappers = []any{
+		(*ResultEnvelope_AgentUpdateResult)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{

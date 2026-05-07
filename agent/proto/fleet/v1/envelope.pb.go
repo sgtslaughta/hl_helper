@@ -144,6 +144,7 @@ type CommandEnvelope struct {
 	//	*CommandEnvelope_DockerOp
 	//	*CommandEnvelope_GetFacts
 	//	*CommandEnvelope_PluginInvoke
+	//	*CommandEnvelope_AgentUpdate
 	Payload       isCommandEnvelope_Payload `protobuf_oneof:"payload"`
 	Signature     []byte                    `protobuf:"bytes,200,opt,name=signature,proto3" json:"signature,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -322,6 +323,15 @@ func (x *CommandEnvelope) GetPluginInvoke() *PluginInvoke {
 	return nil
 }
 
+func (x *CommandEnvelope) GetAgentUpdate() *AgentUpdateCmd {
+	if x != nil {
+		if x, ok := x.Payload.(*CommandEnvelope_AgentUpdate); ok {
+			return x.AgentUpdate
+		}
+	}
+	return nil
+}
+
 func (x *CommandEnvelope) GetSignature() []byte {
 	if x != nil {
 		return x.Signature
@@ -365,6 +375,10 @@ type CommandEnvelope_PluginInvoke struct {
 	PluginInvoke *PluginInvoke `protobuf:"bytes,107,opt,name=plugin_invoke,json=pluginInvoke,proto3,oneof"`
 }
 
+type CommandEnvelope_AgentUpdate struct {
+	AgentUpdate *AgentUpdateCmd `protobuf:"bytes,108,opt,name=agent_update,json=agentUpdate,proto3,oneof"`
+}
+
 func (*CommandEnvelope_PkgUpdate) isCommandEnvelope_Payload() {}
 
 func (*CommandEnvelope_Reboot) isCommandEnvelope_Payload() {}
@@ -381,6 +395,8 @@ func (*CommandEnvelope_GetFacts) isCommandEnvelope_Payload() {}
 
 func (*CommandEnvelope_PluginInvoke) isCommandEnvelope_Payload() {}
 
+func (*CommandEnvelope_AgentUpdate) isCommandEnvelope_Payload() {}
+
 var File_fleet_v1_envelope_proto protoreflect.FileDescriptor
 
 const file_fleet_v1_envelope_proto_rawDesc = "" +
@@ -388,7 +404,7 @@ const file_fleet_v1_envelope_proto_rawDesc = "" +
 	"\x17fleet/v1/envelope.proto\x12\bfleet.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17fleet/v1/commands.proto\"T\n" +
 	"\x0fCapabilityToken\x12\x18\n" +
 	"\abiscuit\x18\x01 \x01(\fR\abiscuit\x12'\n" +
-	"\x0fdeclared_scopes\x18\x02 \x03(\tR\x0edeclaredScopes\"\xd5\x06\n" +
+	"\x0fdeclared_scopes\x18\x02 \x03(\tR\x0edeclaredScopes\"\x94\a\n" +
 	"\x0fCommandEnvelope\x12\x1d\n" +
 	"\n" +
 	"command_id\x18\x01 \x01(\tR\tcommandId\x12\x17\n" +
@@ -412,7 +428,8 @@ const file_fleet_v1_envelope_proto_rawDesc = "" +
 	"\rfile_transfer\x18h \x01(\v2\x16.fleet.v1.FileTransferH\x00R\ffileTransfer\x121\n" +
 	"\tdocker_op\x18i \x01(\v2\x12.fleet.v1.DockerOpH\x00R\bdockerOp\x121\n" +
 	"\tget_facts\x18j \x01(\v2\x12.fleet.v1.GetFactsH\x00R\bgetFacts\x12=\n" +
-	"\rplugin_invoke\x18k \x01(\v2\x16.fleet.v1.PluginInvokeH\x00R\fpluginInvoke\x12\x1d\n" +
+	"\rplugin_invoke\x18k \x01(\v2\x16.fleet.v1.PluginInvokeH\x00R\fpluginInvoke\x12=\n" +
+	"\fagent_update\x18l \x01(\v2\x18.fleet.v1.AgentUpdateCmdH\x00R\vagentUpdate\x12\x1d\n" +
 	"\tsignature\x18\xc8\x01 \x01(\fR\tsignatureB\t\n" +
 	"\apayload*6\n" +
 	"\tRiskLevel\x12\f\n" +
@@ -447,6 +464,7 @@ var file_fleet_v1_envelope_proto_goTypes = []any{
 	(*DockerOp)(nil),              // 9: fleet.v1.DockerOp
 	(*GetFacts)(nil),              // 10: fleet.v1.GetFacts
 	(*PluginInvoke)(nil),          // 11: fleet.v1.PluginInvoke
+	(*AgentUpdateCmd)(nil),        // 12: fleet.v1.AgentUpdateCmd
 }
 var file_fleet_v1_envelope_proto_depIdxs = []int32{
 	3,  // 0: fleet.v1.CommandEnvelope.issued_at:type_name -> google.protobuf.Timestamp
@@ -461,11 +479,12 @@ var file_fleet_v1_envelope_proto_depIdxs = []int32{
 	9,  // 9: fleet.v1.CommandEnvelope.docker_op:type_name -> fleet.v1.DockerOp
 	10, // 10: fleet.v1.CommandEnvelope.get_facts:type_name -> fleet.v1.GetFacts
 	11, // 11: fleet.v1.CommandEnvelope.plugin_invoke:type_name -> fleet.v1.PluginInvoke
-	12, // [12:12] is the sub-list for method output_type
-	12, // [12:12] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	12, // 12: fleet.v1.CommandEnvelope.agent_update:type_name -> fleet.v1.AgentUpdateCmd
+	13, // [13:13] is the sub-list for method output_type
+	13, // [13:13] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_fleet_v1_envelope_proto_init() }
@@ -483,6 +502,7 @@ func file_fleet_v1_envelope_proto_init() {
 		(*CommandEnvelope_DockerOp)(nil),
 		(*CommandEnvelope_GetFacts)(nil),
 		(*CommandEnvelope_PluginInvoke)(nil),
+		(*CommandEnvelope_AgentUpdate)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{

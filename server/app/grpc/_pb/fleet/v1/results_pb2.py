@@ -23,9 +23,10 @@ _sym_db = _symbol_database.Default()
 
 
 from google.protobuf import timestamp_pb2 as google_dot_protobuf_dot_timestamp__pb2
+from fleet.v1 import commands_pb2 as fleet_dot_v1_dot_commands__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x16\x66leet/v1/results.proto\x12\x08\x66leet.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe7\x02\n\x0eResultEnvelope\x12\x12\n\ncommand_id\x18\x01 \x01(\t\x12\x0f\n\x07host_id\x18\x02 \x01(\t\x12\x10\n\x08sequence\x18\x03 \x01(\x04\x12.\n\nstarted_at\x18\x04 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x30\n\x0c\x63ompleted_at\x18\x05 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x11\n\texit_code\x18\x06 \x01(\x05\x12\x14\n\x0cstdout_chunk\x18\x07 \x01(\x0c\x12\x14\n\x0cstderr_chunk\x18\x08 \x01(\x0c\x12\r\n\x05\x66inal\x18\t \x01(\x08\x12&\n\x06status\x18\n \x01(\x0e\x32\x16.fleet.v1.ResultStatus\x12\x18\n\x10rejection_reason\x18\x0b \x01(\t\x12\x18\n\x10prev_result_hash\x18\x0c \x01(\x0c\x12\x12\n\tsignature\x18\xc8\x01 \x01(\x0c*u\n\x0cResultStatus\x12\r\n\tRESULT_OK\x10\x00\x12\x0f\n\x0bRESULT_FAIL\x10\x01\x12\x13\n\x0fRESULT_REJECTED\x10\x02\x12\x12\n\x0eRESULT_TIMEOUT\x10\x03\x12\x1c\n\x18RESULT_CAPABILITY_DENIED\x10\x04\x42-Z+github.com/hlhelper/hl-agent/proto/fleet/v1b\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x16\x66leet/v1/results.proto\x12\x08\x66leet.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17\x66leet/v1/commands.proto\"\xaf\x03\n\x0eResultEnvelope\x12\x12\n\ncommand_id\x18\x01 \x01(\t\x12\x0f\n\x07host_id\x18\x02 \x01(\t\x12\x10\n\x08sequence\x18\x03 \x01(\x04\x12.\n\nstarted_at\x18\x04 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x30\n\x0c\x63ompleted_at\x18\x05 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x11\n\texit_code\x18\x06 \x01(\x05\x12\x14\n\x0cstdout_chunk\x18\x07 \x01(\x0c\x12\x14\n\x0cstderr_chunk\x18\x08 \x01(\x0c\x12\r\n\x05\x66inal\x18\t \x01(\x08\x12&\n\x06status\x18\n \x01(\x0e\x32\x16.fleet.v1.ResultStatus\x12\x18\n\x10rejection_reason\x18\x0b \x01(\t\x12\x18\n\x10prev_result_hash\x18\x0c \x01(\x0c\x12;\n\x13\x61gent_update_result\x18\xac\x02 \x01(\x0b\x32\x1b.fleet.v1.AgentUpdateResultH\x00\x12\x12\n\tsignature\x18\xc8\x01 \x01(\x0c\x42\t\n\x07payload*u\n\x0cResultStatus\x12\r\n\tRESULT_OK\x10\x00\x12\x0f\n\x0bRESULT_FAIL\x10\x01\x12\x13\n\x0fRESULT_REJECTED\x10\x02\x12\x12\n\x0eRESULT_TIMEOUT\x10\x03\x12\x1c\n\x18RESULT_CAPABILITY_DENIED\x10\x04\x42-Z+github.com/hlhelper/hl-agent/proto/fleet/v1b\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -33,8 +34,8 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'fleet.v1.results_pb2', _glo
 if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
   _globals['DESCRIPTOR']._serialized_options = b'Z+github.com/hlhelper/hl-agent/proto/fleet/v1'
-  _globals['_RESULTSTATUS']._serialized_start=431
-  _globals['_RESULTSTATUS']._serialized_end=548
-  _globals['_RESULTENVELOPE']._serialized_start=70
-  _globals['_RESULTENVELOPE']._serialized_end=429
+  _globals['_RESULTSTATUS']._serialized_start=528
+  _globals['_RESULTSTATUS']._serialized_end=645
+  _globals['_RESULTENVELOPE']._serialized_start=95
+  _globals['_RESULTENVELOPE']._serialized_end=526
 # @@protoc_insertion_point(module_scope)

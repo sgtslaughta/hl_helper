@@ -67,6 +67,70 @@ func (FileTransfer_Dir) EnumDescriptor() ([]byte, []int) {
 	return file_fleet_v1_commands_proto_rawDescGZIP(), []int{4, 0}
 }
 
+type AgentUpdateResult_Status int32
+
+const (
+	AgentUpdateResult_STATUS_UNSPECIFIED  AgentUpdateResult_Status = 0
+	AgentUpdateResult_SUCCESS             AgentUpdateResult_Status = 1
+	AgentUpdateResult_SIG_INVALID         AgentUpdateResult_Status = 2
+	AgentUpdateResult_SHA_MISMATCH        AgentUpdateResult_Status = 3
+	AgentUpdateResult_DOWNLOAD_FAILED     AgentUpdateResult_Status = 4
+	AgentUpdateResult_SWAP_FAILED         AgentUpdateResult_Status = 5
+	AgentUpdateResult_HEALTH_CHECK_FAILED AgentUpdateResult_Status = 6
+	AgentUpdateResult_ROLLED_BACK         AgentUpdateResult_Status = 7
+)
+
+// Enum value maps for AgentUpdateResult_Status.
+var (
+	AgentUpdateResult_Status_name = map[int32]string{
+		0: "STATUS_UNSPECIFIED",
+		1: "SUCCESS",
+		2: "SIG_INVALID",
+		3: "SHA_MISMATCH",
+		4: "DOWNLOAD_FAILED",
+		5: "SWAP_FAILED",
+		6: "HEALTH_CHECK_FAILED",
+		7: "ROLLED_BACK",
+	}
+	AgentUpdateResult_Status_value = map[string]int32{
+		"STATUS_UNSPECIFIED":  0,
+		"SUCCESS":             1,
+		"SIG_INVALID":         2,
+		"SHA_MISMATCH":        3,
+		"DOWNLOAD_FAILED":     4,
+		"SWAP_FAILED":         5,
+		"HEALTH_CHECK_FAILED": 6,
+		"ROLLED_BACK":         7,
+	}
+)
+
+func (x AgentUpdateResult_Status) Enum() *AgentUpdateResult_Status {
+	p := new(AgentUpdateResult_Status)
+	*p = x
+	return p
+}
+
+func (x AgentUpdateResult_Status) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (AgentUpdateResult_Status) Descriptor() protoreflect.EnumDescriptor {
+	return file_fleet_v1_commands_proto_enumTypes[1].Descriptor()
+}
+
+func (AgentUpdateResult_Status) Type() protoreflect.EnumType {
+	return &file_fleet_v1_commands_proto_enumTypes[1]
+}
+
+func (x AgentUpdateResult_Status) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use AgentUpdateResult_Status.Descriptor instead.
+func (AgentUpdateResult_Status) EnumDescriptor() ([]byte, []int) {
+	return file_fleet_v1_commands_proto_rawDescGZIP(), []int{9, 0}
+}
+
 type PkgUpdate struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Classes       []string               `protobuf:"bytes,1,rep,name=classes,proto3" json:"classes,omitempty"`
@@ -499,6 +563,174 @@ func (x *PluginInvoke) GetPayload() []byte {
 	return nil
 }
 
+type AgentUpdateCmd struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	ReleaseId      string                 `protobuf:"bytes,1,opt,name=release_id,json=releaseId,proto3" json:"release_id,omitempty"`
+	ManifestJson   []byte                 `protobuf:"bytes,2,opt,name=manifest_json,json=manifestJson,proto3" json:"manifest_json,omitempty"`
+	ManifestSig    []byte                 `protobuf:"bytes,3,opt,name=manifest_sig,json=manifestSig,proto3" json:"manifest_sig,omitempty"`
+	BinaryUrl      string                 `protobuf:"bytes,4,opt,name=binary_url,json=binaryUrl,proto3" json:"binary_url,omitempty"`
+	DownloadToken  string                 `protobuf:"bytes,5,opt,name=download_token,json=downloadToken,proto3" json:"download_token,omitempty"`
+	ExpectedSha256 string                 `protobuf:"bytes,6,opt,name=expected_sha256,json=expectedSha256,proto3" json:"expected_sha256,omitempty"`
+	ExpectedSize   uint64                 `protobuf:"varint,7,opt,name=expected_size,json=expectedSize,proto3" json:"expected_size,omitempty"`
+	Force          bool                   `protobuf:"varint,8,opt,name=force,proto3" json:"force,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *AgentUpdateCmd) Reset() {
+	*x = AgentUpdateCmd{}
+	mi := &file_fleet_v1_commands_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AgentUpdateCmd) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AgentUpdateCmd) ProtoMessage() {}
+
+func (x *AgentUpdateCmd) ProtoReflect() protoreflect.Message {
+	mi := &file_fleet_v1_commands_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AgentUpdateCmd.ProtoReflect.Descriptor instead.
+func (*AgentUpdateCmd) Descriptor() ([]byte, []int) {
+	return file_fleet_v1_commands_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *AgentUpdateCmd) GetReleaseId() string {
+	if x != nil {
+		return x.ReleaseId
+	}
+	return ""
+}
+
+func (x *AgentUpdateCmd) GetManifestJson() []byte {
+	if x != nil {
+		return x.ManifestJson
+	}
+	return nil
+}
+
+func (x *AgentUpdateCmd) GetManifestSig() []byte {
+	if x != nil {
+		return x.ManifestSig
+	}
+	return nil
+}
+
+func (x *AgentUpdateCmd) GetBinaryUrl() string {
+	if x != nil {
+		return x.BinaryUrl
+	}
+	return ""
+}
+
+func (x *AgentUpdateCmd) GetDownloadToken() string {
+	if x != nil {
+		return x.DownloadToken
+	}
+	return ""
+}
+
+func (x *AgentUpdateCmd) GetExpectedSha256() string {
+	if x != nil {
+		return x.ExpectedSha256
+	}
+	return ""
+}
+
+func (x *AgentUpdateCmd) GetExpectedSize() uint64 {
+	if x != nil {
+		return x.ExpectedSize
+	}
+	return 0
+}
+
+func (x *AgentUpdateCmd) GetForce() bool {
+	if x != nil {
+		return x.Force
+	}
+	return false
+}
+
+type AgentUpdateResult struct {
+	state         protoimpl.MessageState   `protogen:"open.v1"`
+	FromVersion   string                   `protobuf:"bytes,1,opt,name=from_version,json=fromVersion,proto3" json:"from_version,omitempty"`
+	ToVersion     string                   `protobuf:"bytes,2,opt,name=to_version,json=toVersion,proto3" json:"to_version,omitempty"`
+	Status        AgentUpdateResult_Status `protobuf:"varint,3,opt,name=status,proto3,enum=fleet.v1.AgentUpdateResult_Status" json:"status,omitempty"`
+	Error         string                   `protobuf:"bytes,4,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AgentUpdateResult) Reset() {
+	*x = AgentUpdateResult{}
+	mi := &file_fleet_v1_commands_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AgentUpdateResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AgentUpdateResult) ProtoMessage() {}
+
+func (x *AgentUpdateResult) ProtoReflect() protoreflect.Message {
+	mi := &file_fleet_v1_commands_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AgentUpdateResult.ProtoReflect.Descriptor instead.
+func (*AgentUpdateResult) Descriptor() ([]byte, []int) {
+	return file_fleet_v1_commands_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *AgentUpdateResult) GetFromVersion() string {
+	if x != nil {
+		return x.FromVersion
+	}
+	return ""
+}
+
+func (x *AgentUpdateResult) GetToVersion() string {
+	if x != nil {
+		return x.ToVersion
+	}
+	return ""
+}
+
+func (x *AgentUpdateResult) GetStatus() AgentUpdateResult_Status {
+	if x != nil {
+		return x.Status
+	}
+	return AgentUpdateResult_STATUS_UNSPECIFIED
+}
+
+func (x *AgentUpdateResult) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
 var File_fleet_v1_commands_proto protoreflect.FileDescriptor
 
 const file_fleet_v1_commands_proto_rawDesc = "" +
@@ -536,7 +768,33 @@ const file_fleet_v1_commands_proto_rawDesc = "" +
 	"\x04keys\x18\x01 \x03(\tR\x04keys\"E\n" +
 	"\fPluginInvoke\x12\x1b\n" +
 	"\tplugin_id\x18\x01 \x01(\tR\bpluginId\x12\x18\n" +
-	"\apayload\x18\x02 \x01(\fR\apayloadB-Z+github.com/hlhelper/hl-agent/proto/fleet/v1b\x06proto3"
+	"\apayload\x18\x02 \x01(\fR\apayload\"\xa1\x02\n" +
+	"\x0eAgentUpdateCmd\x12\x1d\n" +
+	"\n" +
+	"release_id\x18\x01 \x01(\tR\treleaseId\x12#\n" +
+	"\rmanifest_json\x18\x02 \x01(\fR\fmanifestJson\x12!\n" +
+	"\fmanifest_sig\x18\x03 \x01(\fR\vmanifestSig\x12\x1d\n" +
+	"\n" +
+	"binary_url\x18\x04 \x01(\tR\tbinaryUrl\x12%\n" +
+	"\x0edownload_token\x18\x05 \x01(\tR\rdownloadToken\x12'\n" +
+	"\x0fexpected_sha256\x18\x06 \x01(\tR\x0eexpectedSha256\x12#\n" +
+	"\rexpected_size\x18\a \x01(\x04R\fexpectedSize\x12\x14\n" +
+	"\x05force\x18\b \x01(\bR\x05force\"\xca\x02\n" +
+	"\x11AgentUpdateResult\x12!\n" +
+	"\ffrom_version\x18\x01 \x01(\tR\vfromVersion\x12\x1d\n" +
+	"\n" +
+	"to_version\x18\x02 \x01(\tR\ttoVersion\x12:\n" +
+	"\x06status\x18\x03 \x01(\x0e2\".fleet.v1.AgentUpdateResult.StatusR\x06status\x12\x14\n" +
+	"\x05error\x18\x04 \x01(\tR\x05error\"\xa0\x01\n" +
+	"\x06Status\x12\x16\n" +
+	"\x12STATUS_UNSPECIFIED\x10\x00\x12\v\n" +
+	"\aSUCCESS\x10\x01\x12\x0f\n" +
+	"\vSIG_INVALID\x10\x02\x12\x10\n" +
+	"\fSHA_MISMATCH\x10\x03\x12\x13\n" +
+	"\x0fDOWNLOAD_FAILED\x10\x04\x12\x0f\n" +
+	"\vSWAP_FAILED\x10\x05\x12\x17\n" +
+	"\x13HEALTH_CHECK_FAILED\x10\x06\x12\x0f\n" +
+	"\vROLLED_BACK\x10\aB-Z+github.com/hlhelper/hl-agent/proto/fleet/v1b\x06proto3"
 
 var (
 	file_fleet_v1_commands_proto_rawDescOnce sync.Once
@@ -550,26 +808,30 @@ func file_fleet_v1_commands_proto_rawDescGZIP() []byte {
 	return file_fleet_v1_commands_proto_rawDescData
 }
 
-var file_fleet_v1_commands_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_fleet_v1_commands_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_fleet_v1_commands_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_fleet_v1_commands_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_fleet_v1_commands_proto_goTypes = []any{
-	(FileTransfer_Dir)(0), // 0: fleet.v1.FileTransfer.Dir
-	(*PkgUpdate)(nil),     // 1: fleet.v1.PkgUpdate
-	(*Reboot)(nil),        // 2: fleet.v1.Reboot
-	(*ShellExec)(nil),     // 3: fleet.v1.ShellExec
-	(*TerminalOpen)(nil),  // 4: fleet.v1.TerminalOpen
-	(*FileTransfer)(nil),  // 5: fleet.v1.FileTransfer
-	(*DockerOp)(nil),      // 6: fleet.v1.DockerOp
-	(*GetFacts)(nil),      // 7: fleet.v1.GetFacts
-	(*PluginInvoke)(nil),  // 8: fleet.v1.PluginInvoke
+	(FileTransfer_Dir)(0),         // 0: fleet.v1.FileTransfer.Dir
+	(AgentUpdateResult_Status)(0), // 1: fleet.v1.AgentUpdateResult.Status
+	(*PkgUpdate)(nil),             // 2: fleet.v1.PkgUpdate
+	(*Reboot)(nil),                // 3: fleet.v1.Reboot
+	(*ShellExec)(nil),             // 4: fleet.v1.ShellExec
+	(*TerminalOpen)(nil),          // 5: fleet.v1.TerminalOpen
+	(*FileTransfer)(nil),          // 6: fleet.v1.FileTransfer
+	(*DockerOp)(nil),              // 7: fleet.v1.DockerOp
+	(*GetFacts)(nil),              // 8: fleet.v1.GetFacts
+	(*PluginInvoke)(nil),          // 9: fleet.v1.PluginInvoke
+	(*AgentUpdateCmd)(nil),        // 10: fleet.v1.AgentUpdateCmd
+	(*AgentUpdateResult)(nil),     // 11: fleet.v1.AgentUpdateResult
 }
 var file_fleet_v1_commands_proto_depIdxs = []int32{
 	0, // 0: fleet.v1.FileTransfer.dir:type_name -> fleet.v1.FileTransfer.Dir
-	1, // [1:1] is the sub-list for method output_type
-	1, // [1:1] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	1, // 1: fleet.v1.AgentUpdateResult.status:type_name -> fleet.v1.AgentUpdateResult.Status
+	2, // [2:2] is the sub-list for method output_type
+	2, // [2:2] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_fleet_v1_commands_proto_init() }
@@ -582,8 +844,8 @@ func file_fleet_v1_commands_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_fleet_v1_commands_proto_rawDesc), len(file_fleet_v1_commands_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   8,
+			NumEnums:      2,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
