@@ -1,6 +1,6 @@
 'use client';
 
-import { ThemeProvider } from 'next-themes';
+import { ServiceWorkerCleanup } from '@/app/sw-unregister';
 import { BottomDrawer } from '@/components/shell/bottom-drawer';
 import { CommandPalette } from '@/components/shell/command-palette';
 import { KeyboardShortcutsOverlay } from '@/components/shell/keyboard-shortcuts-overlay';
@@ -8,11 +8,16 @@ import { Providers } from '@/components/shell/providers';
 import { Sidebar } from '@/components/shell/sidebar';
 import { StatusTicker } from '@/components/shell/ticker';
 import { Topbar } from '@/components/shell/topbar';
-import { ServiceWorkerCleanup } from '@/app/sw-unregister';
+import { ThemeProvider } from 'next-themes';
 
 export function ShellShell({ children }: { children: React.ReactNode }) {
 	return (
-		<ThemeProvider attribute="data-theme" defaultTheme="dark" enableSystem disableTransitionOnChange>
+		<ThemeProvider
+			attribute="data-theme"
+			defaultTheme="dark"
+			enableSystem
+			disableTransitionOnChange
+		>
 			<ServiceWorkerCleanup />
 			<Providers>
 				<div className="flex h-screen w-screen flex-col bg-canvas">

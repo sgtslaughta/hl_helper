@@ -26,6 +26,7 @@ _mint_limiter = RateLimiter(rate_per_sec=1.0, burst=10)
 class MintRequest(BaseModel):
     label: str = Field(min_length=1, max_length=64)
     ttl_seconds: int | None = Field(default=None)
+    origin: str | None = Field(default=None)
 
 
 class MintResponse(BaseModel):
@@ -55,7 +56,9 @@ def _get_service(request: Request) -> EnrollmentService:
     return get_app_state(request).enrollment_service
 
 
-def _public_origin(request: Request) -> str:
+def _public_origin(request: Request, body_origin: str | None = None) -> str:
+    if body_origin:
+        return body_origin.rstrip("/")
     state = get_app_state(request)
     cfg = getattr(state, "public_origin", None)
     if cfg:
@@ -81,6 +84,14 @@ async def mint(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    if body.origin:
+        state = get_app_state(request)
+        advertised = getattr(state, "advertised_origins", None) or []
+        if body.origin not in advertised:
+            raise HTTPException(
+                status_code=400, detail="origin not in advertised origins"
+            )
+
     plaintext, row = await service.issue_token(
         session,
         issued_by=actor,
@@ -89,7 +100,7 @@ async def mint(
     )
     await session.commit()
 
-    origin = _public_origin(request)
+    origin = _public_origin(request, body.origin)
     install_command = (
         f"curl -fsSL '{origin}/v1/install.sh?token={plaintext}&server={origin}' | sh"
     )

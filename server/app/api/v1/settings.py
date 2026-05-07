@@ -20,7 +20,7 @@ from server.app.api.state import get_app_state
 from server.app.api.middleware.admin_auth import admin_required
 from server.app.models import Setting
 from server.app.models.setting import SettingSource
-from server.app.settings.config import load_settings, SECRET_FIELDS
+from server.app.settings.config import load_settings, SECRET_FIELDS, scope_for
 
 router = APIRouter(prefix="/v1/settings", tags=["settings"])
 log = structlog.get_logger(__name__)
@@ -76,14 +76,16 @@ async def list_settings(req: Request) -> list[EffectiveSetting]:
             key=s.key, value=value, source=s.source, scope=s.scope, redacted=redacted,
         ))
         seen.add(s.key)
-    # Add any model field not yet in the DB (default source)
+    # Add any model field not yet in the DB (default source). Use scope_for
+    # so runtime-mutable keys (public_url, log_level, etc.) advertise the
+    # right scope and the UI can render edit controls.
     for field_name in live.model_dump().keys():
         if field_name in seen:
             continue
         value, redacted = _redacted(field_name, getattr(live, field_name, None))
         out.append(EffectiveSetting(
             key=field_name, value=value, source="default",
-            scope="boot-only", redacted=redacted,
+            scope=scope_for(field_name).value, redacted=redacted,
         ))
     return out
 
@@ -102,22 +104,44 @@ async def patch_setting(req: Request, body: PatchRequest) -> EffectiveSetting:
         existing = await session.scalar(
             select(Setting).where(Setting.key == body.key).with_for_update()
         )
-        if existing is None:
-            raise HTTPException(404, detail=f"unknown_setting: {body.key}")
-        if existing.scope == "boot-only":
-            raise HTTPException(403,
-                detail=f"boot_only_immutable: {body.key} (restart required)")
-        if existing.scope == "env-locked":
-            raise HTTPException(403,
-                detail=f"env_locked: {body.key} (managed by FLEET_* env var; "
-                       "unset env or change scope to runtime-mutable)")
 
-        # Capture old value before applying change
-        old_value = existing.value
+        # If no DB row exists, this is a first-time write of a known model
+        # field. Validate against the live Pydantic settings model and
+        # upsert with scope from scope_for() so runtime-mutable keys (e.g.
+        # public_url) can be edited from the UI without a prior seed.
+        if existing is None:
+            live = load_settings()
+            if body.key not in live.model_dump():
+                raise HTTPException(404, detail=f"unknown_setting: {body.key}")
+            inferred_scope = scope_for(body.key).value
+            if inferred_scope == "boot-only":
+                raise HTTPException(
+                    403,
+                    detail=f"boot_only_immutable: {body.key} (restart required)",
+                )
+            existing = Setting(
+                key=body.key,
+                value=body.value,
+                source=SettingSource.RUNTIME,
+                scope=inferred_scope,
+                updated_at=datetime.now(timezone.utc),
+            )
+            session.add(existing)
+            old_value = None
+        else:
+            if existing.scope == "boot-only":
+                raise HTTPException(403,
+                    detail=f"boot_only_immutable: {body.key} (restart required)")
+            if existing.scope == "env-locked":
+                raise HTTPException(403,
+                    detail=f"env_locked: {body.key} (managed by FLEET_* env var; "
+                           "unset env or change scope to runtime-mutable)")
+            old_value = existing.value
+
         new_value = body.value
         audit_old: object
         audit_new: object
-        if existing.key in SECRET_FIELDS:
+        if body.key in SECRET_FIELDS:
             audit_old = "***REDACTED***"
             audit_new = "***REDACTED***"
         else:
@@ -141,6 +165,17 @@ async def patch_setting(req: Request, body: PatchRequest) -> EffectiveSetting:
                     payload={"old": audit_old, "new": audit_new, "source": "runtime"},
                 )
                 await audit_session.commit()
+
+        # Apply live effect for keys whose runtime behavior depends on
+        # AppState rather than a re-read of FleetSettings. Without this, a
+        # PATCH lands in the DB but the server keeps minting install commands
+        # against the old origin until restart.
+        if body.key == "public_url" and isinstance(body.value, str):
+            from server.app.lifespan import _enumerate_advertised_origins
+
+            state.public_url = body.value
+            state.public_origin = body.value
+            state.advertised_origins = _enumerate_advertised_origins(body.value)
 
         # Emit reload signal placeholder
         log.info("settings.runtime_changed", key=body.key, scope=existing.scope)

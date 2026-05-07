@@ -108,6 +108,16 @@ func enrollCmd() *cobra.Command {
 				return err
 			}
 
+			// Reset result chain state so a fresh enrollment starts at the
+			// genesis anchor and is not rejected by the server's chain check
+			// against stale prev_hash from a prior enrollment.
+			for _, name := range []string{"result.seq", "result.prev_hash"} {
+				p := filepath.Join(dir, name)
+				if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+					fmt.Fprintf(cmd.ErrOrStderr(), "warn: clear %s: %v\n", name, err)
+				}
+			}
+
 			fmt.Fprintf(cmd.OutOrStdout(), "enrolled: host_id=%s\n", resp.HostID)
 			return nil
 		},
@@ -167,13 +177,14 @@ func runCmd() *cobra.Command {
 			defer ob.Close()
 
 			client := transport.New(transport.Options{
-				Endpoint:    endpoint,
-				HostID:      hostID,
-				Keystore:    ks,
-				Outbox:      ob,
-				Executor:    &ShellExecutor{},
-				Signer:      ks,
-				KeystoreDir: dir,
+				Endpoint:     endpoint,
+				HostID:       hostID,
+				Keystore:     ks,
+				Outbox:       ob,
+				Executor:     &ShellExecutor{},
+				Signer:       ks,
+				KeystoreDir:  dir,
+				AgentVersion: version,
 				OnCommand: func(env *pb.CommandEnvelope) {
 					fmt.Fprintf(cmd.OutOrStdout(), "command received: id=%s\n", env.GetCommandId())
 				},

@@ -26,12 +26,16 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { useHotkeys } from 'react-hotkeys-hook';
+import { ignoreEventInInputs } from '@/lib/hotkeys';
 
 export function Sidebar() {
 	const collapsed = useSidebarStore(state => state.collapsed);
 	const toggle = useSidebarStore(state => state.toggle);
 
-	useHotkeys('cmd+\\,ctrl+\\', toggle, { preventDefault: true });
+	useHotkeys('cmd+\\,ctrl+\\', toggle, {
+		preventDefault: true,
+		ignoreEventWhen: ignoreEventInInputs,
+	});
 
 	const sections = [
 		{

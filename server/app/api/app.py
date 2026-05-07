@@ -44,6 +44,7 @@ from server.app.api.v1.user_prefs import router as user_prefs_router
 from server.app.api.v1.users import router as users_router
 from server.app.api.v1.webhooks import router as webhooks_router
 from server.app.api.v1.service_accounts import router as service_accounts_router
+from server.app.api.v1.system import router as system_router
 from server.app.errors import http_exception_handler, validation_exception_handler
 from server.app.idempotency import IdempotencyMiddleware
 from server.app.lifespan import app_lifespan
@@ -109,6 +110,7 @@ def create_app() -> FastAPI:
     app.include_router(user_groups_router)
     app.include_router(webhooks_router)
     app.include_router(service_accounts_router)
+    app.include_router(system_router)
     return app
 
 

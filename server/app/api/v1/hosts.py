@@ -44,6 +44,18 @@ class HostOut(BaseModel):
     enrolled_at: datetime
     last_seen_at: datetime | None = None
     labels: dict[str, Any] = {}
+    survey: dict[str, Any] | None = None
+    survey_at: datetime | None = None
+    metrics: dict[str, Any] | None = None
+    metrics_at: datetime | None = None
+    heartbeat_interval_s: int = 30
+
+
+class HostPatchRequest(BaseModel):
+    """Patch body for /v1/hosts/{id}."""
+
+    heartbeat_interval_s: int | None = None
+    display_name: str | None = None
 
 
 class RebootActionRequest(BaseModel):
@@ -146,6 +158,108 @@ async def get_host(
     return HostOut.model_validate(row)
 
 
+@router.patch("/{host_id}", response_model=HostOut)
+async def patch_host(
+    host_id: str,
+    body: HostPatchRequest,
+    actor: str = Depends(admin_required),
+    session: AsyncSession = Depends(get_session),
+) -> HostOut:
+    """Update mutable host fields (``heartbeat_interval_s``, ``display_name``).
+
+    A live ``HeartbeatConfig`` is pushed to the agent on interval change so
+    the ticker resets without waiting for the next reconnect.
+    """
+    host = await session.get(Host, host_id)
+    if host is None:
+        raise HTTPException(status_code=404, detail="host_not_found")
+
+    pushed_interval: int | None = None
+    if body.heartbeat_interval_s is not None:
+        ivl = body.heartbeat_interval_s
+        if ivl < 5 or ivl > 3600:
+            raise HTTPException(
+                status_code=400, detail="heartbeat_interval_s must be in [5, 3600]"
+            )
+        host.heartbeat_interval_s = ivl
+        pushed_interval = ivl
+    if body.display_name is not None:
+        host.display_name = body.display_name
+    await session.commit()
+    await session.refresh(host)
+
+    if pushed_interval is not None:
+        try:
+            from server.app.grpc import agent_bridge as _ab
+            from server.app.grpc._pb.fleet.v1 import agent_bridge_pb2
+
+            _ab.push_control(
+                host_id,
+                agent_bridge_pb2.ServerToAgent(
+                    hb_config=agent_bridge_pb2.HeartbeatConfig(
+                        interval_s=pushed_interval
+                    )
+                ),
+            )
+        except Exception:
+            pass
+
+    return HostOut.model_validate(host)
+
+
+@router.post("/{host_id}/resurvey", status_code=202)
+async def resurvey_host(
+    host_id: str,
+    actor: str = Depends(admin_required),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, str]:
+    """Request a fresh hardware survey from the connected agent.
+
+    Creates a Task + TaskRun row so the operation appears in the host's task
+    list with running/succeeded/failed status. 202 if the agent has a live
+    stream and the request was queued; 409 otherwise (no buffering for
+    later — agent must be online to receive RunSurvey).
+    """
+    from uuid import uuid4
+
+    from server.app.grpc import agent_bridge as _ab
+    from server.app.grpc._pb.fleet.v1 import agent_bridge_pb2
+    from server.app.models.task import Task, TaskKind, TaskRisk, TaskStatus
+    from server.app.models.task_run import TaskRun, TaskRunStatus
+
+    host = await session.get(Host, host_id)
+    if host is None:
+        raise HTTPException(status_code=404, detail="host_not_found")
+
+    msg = agent_bridge_pb2.ServerToAgent(
+        run_survey=agent_bridge_pb2.RunSurvey(reason="manual")
+    )
+    if not _ab.push_control(host_id, msg):
+        raise HTTPException(status_code=409, detail="host_not_connected")
+
+    task = Task(
+        id=str(uuid4()),
+        kind=TaskKind.CUSTOM,
+        created_by=actor,
+        status=TaskStatus.RUNNING,
+        payload={"action": "resurvey", "host_id": host_id},
+        target_selector={"host_ids": [host_id]},
+        risk=TaskRisk.LOW,
+        requires_approval=False,
+    )
+    run = TaskRun(
+        id=str(uuid4()),
+        task_id=task.id,
+        host_id=host_id,
+        status=TaskRunStatus.RUNNING,
+        started_at=datetime.now(timezone.utc),
+    )
+    session.add(task)
+    session.add(run)
+    await session.commit()
+    return {"status": "queued", "task_id": task.id}
+
+
 @router.post("/prune-stale", status_code=200)
 async def prune_stale_hosts(
     actor: str = Depends(admin_required),
@@ -169,27 +283,50 @@ async def prune_stale_hosts(
 
 
 @router.delete("/{host_id}", status_code=204)
-async def revoke_host(
+async def delete_host(
     host_id: str,
     reason: str | None = None,
     actor: str = Depends(admin_required),
     service: RevocationService = Depends(get_revocation_service),
     session: AsyncSession = Depends(get_session),
 ) -> None:
-    """Revoke a host (admin-only)."""
-    try:
-        await service.revoke(session, host_id=host_id, actor=actor, reason=reason)
-        await session.commit()
-    except HostNotFoundError:
+    """Permanently delete a host record.
+
+    Revokes the host's certificate (best-effort, idempotent if already
+    revoked) and then removes the row and any group memberships. Use
+    POST /v1/hosts/{id}/revoke for soft revocation that preserves history.
+    """
+    host = await session.get(Host, host_id)
+    if host is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="host not found",
         )
-    except HostAlreadyRevokedError:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="host already revoked",
-        )
+
+    if host.status != "revoked":
+        try:
+            await service.revoke(
+                session, host_id=host_id, actor=actor, reason=reason
+            )
+        except HostAlreadyRevokedError:
+            pass
+        except HostNotFoundError:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="host not found",
+            )
+
+    from server.app.models.group_membership import GroupMembership
+
+    memberships = await session.execute(
+        select(GroupMembership).where(GroupMembership.host_id == host_id)
+    )
+    for m in memberships.scalars().all():
+        await session.delete(m)
+    await session.flush()
+
+    await session.delete(host)
+    await session.commit()
 
 
 # ===== Action Endpoints =====

@@ -116,7 +116,8 @@ class BuiltinEngine:
 
         for binding, role in rows:
             perms = set(role.permissions or [])
-            if action not in perms:
+            # "*" sentinel = role has every permission (used by bootstrap owner).
+            if action not in perms and "*" not in perms:
                 continue
             scope = Scope(kind=binding.scope_kind, value=binding.scope_value or {})
             # Use pre-loaded hierarchy for efficient descendant lookup

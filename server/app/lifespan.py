@@ -164,6 +164,8 @@ class AppState:
     webauthn_rp_id: str | None = None
     webauthn_origin: str | None = None
     public_url: str | None = None
+    public_origin: str | None = None
+    advertised_origins: list[str] | None = None
     grpc_server: Server | None = None
 
 
@@ -296,6 +298,8 @@ async def build_app_state(settings: FleetSettings) -> AppState:
     from server.app.auth.lockout import LockoutTrackerPersistent
     lockout_tracker = LockoutTrackerPersistent(sessionmaker=sm)
 
+    advertised_origins = _enumerate_advertised_origins(settings.public_url)
+
     return AppState(
         bus=bus,
         ca=ca,
@@ -311,7 +315,58 @@ async def build_app_state(settings: FleetSettings) -> AppState:
         lockout_tracker=lockout_tracker,
         session_service=session_service,
         secrets_broker=secrets_broker,
+        public_url=settings.public_url,
+        public_origin=settings.public_url,
+        advertised_origins=advertised_origins,
     )
+
+
+def _enumerate_advertised_origins(public_url: str) -> list[str]:
+    """Return ``public_url`` followed by ``https://{ip}:{port}`` for each
+    routable IPv4 address found on the host.
+
+    Filters out loopback (127.x), link-local (169.254.x), and interfaces that
+    are not up. The list is deduplicated, preserving order; ``public_url`` is
+    always first when present. Used by the enrollment-mint endpoint so an
+    operator on a multi-homed server can pick which IP install commands target.
+    """
+    from urllib.parse import urlparse
+
+    origins: list[str] = []
+    if public_url:
+        origins.append(public_url.rstrip("/"))
+
+    try:
+        import psutil  # type: ignore
+    except Exception:
+        return origins
+
+    parsed = urlparse(public_url) if public_url else None
+    scheme = (parsed.scheme if parsed else "https") or "https"
+    port = parsed.port if parsed else None
+    if port is None:
+        port = 8443
+
+    try:
+        if_addrs = psutil.net_if_addrs()
+        if_stats = psutil.net_if_stats()
+    except Exception:
+        return origins
+
+    for iface, addrs in if_addrs.items():
+        stats = if_stats.get(iface)
+        if stats is not None and not stats.isup:
+            continue
+        for a in addrs:
+            if int(getattr(a.family, "value", a.family)) != 2:  # AF_INET
+                continue
+            ip = a.address
+            if not ip or ip.startswith("127.") or ip.startswith("169.254."):
+                continue
+            candidate = f"{scheme}://{ip}:{port}"
+            if candidate not in origins:
+                origins.append(candidate)
+    return origins
 
 
 def _make_csr_and_key() -> tuple[bytes, bytes]:
@@ -350,12 +405,37 @@ async def _start_grpc_server(state: AppState, grpc_host: str) -> None:
         # Generate server CSR + key
         csr_pem, key_pem = _make_csr_and_key()
 
+        # Split SAN by type — IP literals must go in IPAddress SAN, not DNSName,
+        # or TLS verification fails with SSLV3_ALERT_BAD_CERTIFICATE when the
+        # agent dials the server by IP. Always include localhost + 127.0.0.1
+        # for same-box clients, plus every advertised origin's host.
+        import ipaddress
+
+        ip_sans: list[str] = ["127.0.0.1"]
+        dns_sans: list[str] = ["localhost"]
+        san_hosts = {grpc_host}
+        for origin in state.advertised_origins or []:
+            from urllib.parse import urlparse as _u
+
+            h = _u(origin).hostname
+            if h:
+                san_hosts.add(h)
+        for h in san_hosts:
+            try:
+                ipaddress.ip_address(h)
+                if h not in ip_sans:
+                    ip_sans.append(h)
+            except ValueError:
+                if h not in dns_sans:
+                    dns_sans.append(h)
+
         # Mint server cert using CA (1-hour TTL for dev)
         server_cert_pem = state.ca.issue_server_cert(
             csr_pem,
             server_id=grpc_host,
             ttl=timedelta(hours=1),
-            dns_names=[grpc_host, "localhost"],
+            dns_names=dns_sans,
+            ip_addresses=ip_sans,
         )
 
         # Build CA chain (root + intermediate)

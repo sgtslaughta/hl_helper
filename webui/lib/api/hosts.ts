@@ -1,5 +1,35 @@
 import { apiFetch } from '@/lib/api-client';
 
+export interface HostSurvey {
+	os: string;
+	os_version: string;
+	kernel: string;
+	arch: string;
+	virt: string;
+	cpu_model: string;
+	cpu_cores: number;
+	cpu_threads: number;
+	mem_total_bytes: number;
+	disks: { device: string; mount: string; fstype: string; size_bytes: number }[];
+	nics: { name: string; mac: string; ipv4: string[]; ipv6: string[]; speed_mbps: number }[];
+	bios_vendor: string;
+	bios_version: string;
+	board_vendor: string;
+	board_product: string;
+	collected_at: string;
+}
+
+export interface HostMetrics {
+	load_1: number;
+	load_5: number;
+	load_15: number;
+	mem_used_pct: number;
+	disk_used_pct: number;
+	uptime_seconds: number;
+	net_rx_bps?: number;
+	net_tx_bps?: number;
+}
+
 export interface Host {
 	id: string;
 	hostname: string;
@@ -16,6 +46,11 @@ export interface Host {
 	mem_pct?: number;
 	disk_pct?: number;
 	uptime_s?: number;
+	survey?: HostSurvey;
+	survey_at?: string;
+	metrics?: HostMetrics;
+	metrics_at?: string;
+	heartbeat_interval_s?: number;
 }
 
 export interface ActionResponse {
@@ -105,5 +140,30 @@ export function deleteHost(id: string, principal: string): Promise<void> {
 	return apiFetch<void>(`/v1/hosts/${encodeURIComponent(id)}`, {
 		method: 'DELETE',
 		headers: { 'X-Acting-Principal': principal },
+	});
+}
+
+export function pruneStaleHosts(
+	olderThanMinutes = 30,
+	principal?: string,
+): Promise<{ deleted: number }> {
+	const headers: Record<string, string> = {};
+	if (principal) headers['X-Acting-Principal'] = principal;
+	return apiFetch<{ deleted: number }>(
+		`/v1/hosts/prune-stale?older_than_minutes=${olderThanMinutes}`,
+		{ method: 'POST', headers },
+	);
+}
+
+export function resurveyHost(id: string): Promise<void> {
+	return apiFetch<void>(`/v1/hosts/${encodeURIComponent(id)}/resurvey`, {
+		method: 'POST',
+	});
+}
+
+export function updateHeartbeatInterval(id: string, intervalS: number): Promise<Host> {
+	return apiFetch<Host>(`/v1/hosts/${encodeURIComponent(id)}`, {
+		method: 'PATCH',
+		body: JSON.stringify({ heartbeat_interval_s: intervalS }),
 	});
 }

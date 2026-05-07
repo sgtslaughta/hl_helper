@@ -26,6 +26,35 @@ if TYPE_CHECKING:
 log = structlog.get_logger(__name__)
 
 
+# Per-host control-message queues. The Stream coroutine drains this queue in
+# parallel with the dispatcher's command queue; REST endpoints push entries to
+# request a heartbeat-interval change or a manual resurvey on a connected
+# host. Empty if the host is offline.
+_control_queues: dict[str, "asyncio.Queue[agent_bridge_pb2.ServerToAgent]"] = {}
+
+
+def is_host_connected(host_id: str) -> bool:
+    """Return True if the host currently has an active bidi stream."""
+    return host_id in _control_queues
+
+
+def push_control(host_id: str, msg: agent_bridge_pb2.ServerToAgent) -> bool:
+    """Enqueue a ServerToAgent control message for delivery to ``host_id``.
+
+    Returns True if the host has a live stream and the message was queued.
+    Returns False if the host is offline (caller should respond accordingly,
+    e.g. with a 409 Conflict for a manual resurvey request).
+    """
+    q = _control_queues.get(host_id)
+    if q is None:
+        return False
+    try:
+        q.put_nowait(msg)
+    except asyncio.QueueFull:
+        return False
+    return True
+
+
 class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
     """Bidirectional stream handler for agent-server communication."""
 
@@ -86,46 +115,92 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
                 pass
             log.info("agent.connected", host_id=host_id, spiffe=spiffe_uri)
 
+            control_q: asyncio.Queue[agent_bridge_pb2.ServerToAgent] = asyncio.Queue(
+                maxsize=64
+            )
+            _control_queues[host_id] = control_q
+
+            # Push initial HeartbeatConfig from DB so the agent adopts the
+            # configured interval immediately on every reconnect.
+            initial_interval = await self._load_heartbeat_interval(host_id)
+            if initial_interval is not None:
+                control_q.put_nowait(
+                    agent_bridge_pb2.ServerToAgent(
+                        hb_config=agent_bridge_pb2.HeartbeatConfig(
+                            interval_s=initial_interval
+                        )
+                    )
+                )
+
             recv_task = asyncio.create_task(
                 self._recv_loop(host_id, request_iterator)
             )
             try:
                 while True:
-                    # Pull next command from queue + watch for termination.
+                    # Pull next command, control msg, or watch for termination.
                     pull_task = asyncio.create_task(state.queue.get())
+                    ctrl_task = asyncio.create_task(control_q.get())
                     term_task = asyncio.create_task(state.terminate_event.wait())
                     done, _pending = await asyncio.wait(
-                        {pull_task, recv_task, term_task},
+                        {pull_task, ctrl_task, recv_task, term_task},
                         return_when=asyncio.FIRST_COMPLETED,
                     )
 
                     if term_task in done:
-                        # Host was revoked; terminate stream.
-                        # If pull_task already got an envelope, requeue it to avoid loss.
                         if pull_task in done and pull_task.exception() is None:
                             state.queue.put_nowait(pull_task.result())
                         pull_task.cancel()
+                        ctrl_task.cancel()
                         recv_task.cancel()
                         await context.abort(grpc.StatusCode.PERMISSION_DENIED, "host revoked")
                         return
 
                     if recv_task in done:
-                        # Agent closed sending side. Cancel pending pull.
-                        # If pull_task already got an envelope, requeue it to avoid loss.
+                        if pull_task in done and pull_task.exception() is None:
+                            state.queue.put_nowait(pull_task.result())
+                        pull_task.cancel()
+                        ctrl_task.cancel()
+                        term_task.cancel()
+                        break
+
+                    if ctrl_task in done:
+                        # Control messages take priority over commands so a
+                        # heartbeat-interval reset or resurvey reaches the
+                        # agent without waiting for the next command.
                         if pull_task in done and pull_task.exception() is None:
                             state.queue.put_nowait(pull_task.result())
                         pull_task.cancel()
                         term_task.cancel()
-                        break
+                        yield ctrl_task.result()
+                        continue
 
+                    ctrl_task.cancel()
                     cmd: envelope_pb2.CommandEnvelope = pull_task.result()
                     term_task.cancel()
                     await self._dispatcher.mark_in_flight(host_id, cmd)
                     yield agent_bridge_pb2.ServerToAgent(command=cmd)
             finally:
+                _control_queues.pop(host_id, None)
                 recv_task.cancel()
                 await self._dispatcher.unregister(host_id)
                 log.info("agent.disconnected", host_id=host_id)
+
+    async def _load_heartbeat_interval(self, host_id: str) -> int | None:
+        """Load this host's configured heartbeat interval in seconds, or
+        ``None`` if no row exists / sessionmaker is not wired."""
+        if self._sessionmaker is None:
+            return None
+        try:
+            from server.app.models.host import Host
+
+            async with self._sessionmaker() as session:
+                host = await session.get(Host, host_id)
+                if host is None:
+                    return None
+                return int(getattr(host, "heartbeat_interval_s", 30) or 30)
+        except Exception as e:
+            log.warning("heartbeat.load_interval_failed", host_id=host_id, error=str(e))
+            return None
 
     async def _recv_loop(
         self,
@@ -169,20 +244,89 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
                 # The agent should fix signature issues on its side.
                 await self._dispatcher.ack(host_id, msg.result.command_id)
             elif kind == "heartbeat":
-                # Update Host.last_seen_at and mark healthy
+                # Update Host.last_seen_at + status + persist HostMetrics so
+                # the UI can render live load/mem/disk/uptime without relying
+                # on a separate scrape path.
                 if self._sessionmaker is not None:
                     from server.app.models.host import Host
 
                     try:
+                        m = msg.heartbeat.metrics
+                        metrics_dict = {
+                            "load_1": float(m.load_1),
+                            "load_5": float(m.load_5),
+                            "load_15": float(m.load_15),
+                            "mem_used_pct": float(m.mem_used_pct),
+                            "disk_used_pct": float(m.disk_used_pct),
+                            "uptime_seconds": int(m.uptime_seconds),
+                            "net_rx_bps": int(m.net_rx_bps),
+                            "net_tx_bps": int(m.net_tx_bps),
+                        }
                         async with self._sessionmaker() as session:
                             host = await session.get(Host, host_id)
                             if host:
-                                host.last_seen_at = datetime.now(timezone.utc)
+                                now = datetime.now(timezone.utc)
+                                host.last_seen_at = now
                                 host.status = "healthy"
+                                host.metrics = metrics_dict
+                                host.metrics_at = now
                                 await session.commit()
                     except Exception as e:
                         log.warning(
                             "heartbeat.update_failed",
+                            host_id=host_id,
+                            error=str(e),
+                        )
+            elif kind == "host_survey":
+                if self._sessionmaker is not None:
+                    from google.protobuf.json_format import MessageToDict
+                    from sqlalchemy import select
+
+                    from server.app.models.host import Host
+                    from server.app.models.task import Task, TaskStatus
+                    from server.app.models.task_run import TaskRun, TaskRunStatus
+
+                    try:
+                        survey_dict = MessageToDict(
+                            msg.host_survey,
+                            preserving_proto_field_name=True,
+                        )
+                        async with self._sessionmaker() as session:
+                            now = datetime.now(timezone.utc)
+                            host = await session.get(Host, host_id)
+                            if host:
+                                host.survey = survey_dict
+                                host.survey_at = now
+
+                            # Close out the most recent running resurvey
+                            # TaskRun for this host. Match by Task.kind=custom
+                            # + payload.action=resurvey rather than reserving
+                            # a new TaskKind enum value.
+                            stmt = (
+                                select(TaskRun, Task)
+                                .join(Task, Task.id == TaskRun.task_id)
+                                .where(
+                                    TaskRun.host_id == host_id,
+                                    TaskRun.status == TaskRunStatus.RUNNING,
+                                )
+                                .order_by(TaskRun.started_at.desc())
+                                .limit(5)
+                            )
+                            for run, task in (await session.execute(stmt)).all():
+                                if (
+                                    task.kind.value == "custom"
+                                    and isinstance(task.payload, dict)
+                                    and task.payload.get("action") == "resurvey"
+                                ):
+                                    run.status = TaskRunStatus.SUCCEEDED
+                                    run.finished_at = now
+                                    run.summary = "survey collected"
+                                    task.status = TaskStatus.SUCCEEDED
+                                    break
+                            await session.commit()
+                    except Exception as e:
+                        log.warning(
+                            "survey.update_failed",
                             host_id=host_id,
                             error=str(e),
                         )

@@ -55,6 +55,12 @@ def _task_summary(kind: str, payload: dict[str, object]) -> str:
         if isinstance(classes, list) and classes:
             return f"pkg update: {', '.join(str(c) for c in classes)}"[:160]
         return "pkg update"
+    elif kind == "custom":
+        action = str(payload.get("action", "")).strip()
+        if action == "resurvey":
+            return "resurvey host"
+        if action:
+            return action[:160]
     return ""
 
 

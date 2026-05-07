@@ -185,24 +185,19 @@ class ResultHandler:
             last_row = last_result.scalar_one_or_none()
 
             if last_row is None:
-                # First result: must have prev_hash == 32 zero bytes and sequence == 1
+                # First result for this host on the server side. We accept any
+                # prev_result_hash here — it acts as the chain anchor for
+                # subsequent results. Strict genesis-zero enforcement breaks
+                # re-enrollment / DB reset scenarios where the agent's local
+                # chain state is non-zero but the server has no Result rows.
+                # Tamper-evidence remains: signature is verified above, and
+                # all subsequent results must chain off the value persisted
+                # here.
                 if env.prev_result_hash != b"\x00" * 32:
-                    host.status = "quarantined"
-                    await self._audit.append(
-                        session,
-                        actor=expected_host_id,
-                        action="result.reject",
-                        subject=env.command_id,
-                        payload={
-                            "reason": "chain_broken_or_gap",
-                            "detail": "first_result_invalid_prev_hash",
-                            "sequence": env.sequence,
-                        },
-                        timestamp=now,
-                    )
-                    await session.commit()
-                    raise ChainBrokenError(
-                        f"First result for {expected_host_id} must have prev_hash = zeros"
+                    log.info(
+                        "result.first_nonzero_prev_hash_accepted",
+                        host_id=expected_host_id,
+                        sequence=env.sequence,
                     )
             else:
                 # Subsequent result. Replay (seq <= last) is rejected; forward

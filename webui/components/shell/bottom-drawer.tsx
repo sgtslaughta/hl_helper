@@ -2,6 +2,7 @@
 
 import { LogStream } from '@/components/logs/log-stream';
 import { TerminalTabs } from '@/components/terminal/terminal-tabs';
+import { ignoreEventInInputs } from '@/lib/hotkeys';
 import { useDrawerStore } from '@/stores/drawer';
 import { ChevronUp, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -22,7 +23,7 @@ export function BottomDrawer() {
 				useDrawerStore.setState({ isOpen: true });
 			}
 		},
-		{ preventDefault: true },
+		{ preventDefault: true, ignoreEventWhen: ignoreEventInInputs },
 	);
 
 	useEffect(() => {

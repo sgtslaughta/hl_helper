@@ -2,10 +2,11 @@
 
 import { apiFetch } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth';
+import { usePaletteStore } from '@/stores/palette';
 import { useSidebarStore } from '@/stores/sidebar';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useQuery } from '@tanstack/react-query';
-import { Bell, LogOut, Moon, Settings, Sun, User } from 'lucide-react';
+import { Bell, Command, LogOut, Moon, Search, Settings, Sun, User } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useState } from 'react';
 
@@ -21,6 +22,7 @@ export function Topbar() {
 	const { user, logout } = useAuth();
 	const [density, setDensity] = useState<Density>('comfortable');
 	const toggle = useSidebarStore(state => state.toggle);
+	const openPalette = usePaletteStore(s => s.setOpen);
 
 	const { data: unreadCount = { count: 0 } } = useQuery<UnreadCount>({
 		queryKey: ['notifications', 'unread-count'],
@@ -65,18 +67,40 @@ export function Topbar() {
 	};
 
 	return (
-		<header className="flex h-12 items-center justify-between border-b border-hairline bg-surface px-4">
-			<div className="flex items-center gap-4">
+		<header className="grid h-12 grid-cols-[1fr_auto_1fr] items-center gap-3 border-b border-hairline bg-surface px-4">
+			{/* Left cluster */}
+			<div className="flex items-center">
 				<button
 					type="button"
 					onClick={toggle}
-					className="rounded px-2 py-1 hover:bg-surface-2 text-text-dim hover:text-text"
+					className="rounded px-2 py-1 font-mono text-text-dim hover:bg-surface-2 hover:text-text"
 					title="Toggle sidebar"
 				>
 					⌘\
 				</button>
 			</div>
-			<div className="flex items-center gap-4">
+
+			{/* Center: global super search */}
+			<button
+				type="button"
+				onClick={() => openPalette(true)}
+				aria-label="Open super search"
+				title="Super search (⌘K)"
+				className="flex h-8 w-[480px] max-w-full items-center gap-2 rounded-sm border border-hairline bg-surface-2 px-3 font-mono text-xs text-text-dim transition-colors hover:border-accent hover:text-text"
+			>
+				<Search size={13} className="text-accent" />
+				<span className="flex-1 text-left">
+					<span className="text-text-dim">Super search</span>
+					<span className="mx-2 text-hairline">·</span>
+					<span className="text-text-dim/70">hosts · tasks · audit · posture</span>
+				</span>
+				<kbd className="flex items-center gap-0.5 rounded-sm border border-hairline bg-bezel/60 px-1.5 py-0.5 font-mono text-[10px]">
+					<Command size={9} />K
+				</kbd>
+			</button>
+
+			{/* Right cluster */}
+			<div className="flex items-center justify-end gap-4">
 				<a
 					href="/notifications"
 					className="relative rounded px-2 py-1 hover:bg-surface-2 text-text-dim hover:text-text"

@@ -177,6 +177,7 @@ class InternalCA:
         server_id: str,
         ttl: timedelta,
         dns_names: list[str] | None = None,
+        ip_addresses: list[str] | None = None,
     ) -> bytes:
         """Sign a server CSR with spiffe://fleet/server URI, returning the leaf cert as PEM bytes.
 
@@ -185,10 +186,16 @@ class InternalCA:
             server_id: Identifier for the server (used in CN).
             ttl: Certificate time-to-live.
             dns_names: Optional list of DNS names to add to SAN (in addition to SPIFFE URI).
+            ip_addresses: Optional list of IP literal strings for IPAddress SAN
+                entries. Required so TLS verification succeeds when an agent
+                dials the server by IP rather than DNS name (multi-homed
+                setups, dev environments without a hostname mapping).
 
         Returns:
             PEM-encoded leaf certificate.
         """
+        import ipaddress
+
         if ttl <= timedelta(0):
             raise ValueError("ttl must be positive")
         csr = x509.load_pem_x509_csr(csr_pem)
@@ -198,10 +205,16 @@ class InternalCA:
         now = datetime.now(timezone.utc)
         spiffe_id = f"spiffe://{SPIFFE_AUTHORITY}/server"
 
-        # Build SAN with SPIFFE URI + optional DNS names
+        # Build SAN with SPIFFE URI + optional DNS names + optional IP literals
         san_list: list[x509.GeneralName] = [x509.UniformResourceIdentifier(spiffe_id)]
         if dns_names:
             san_list.extend(x509.DNSName(name) for name in dns_names)
+        if ip_addresses:
+            for ip in ip_addresses:
+                try:
+                    san_list.append(x509.IPAddress(ipaddress.ip_address(ip)))
+                except ValueError:
+                    continue
 
         builder = (
             x509.CertificateBuilder()

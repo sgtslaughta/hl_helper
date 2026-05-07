@@ -93,7 +93,7 @@ async def client(async_session_maker, revocation_service: RevocationService, mon
 
 @pytest.mark.asyncio
 async def test_delete_host_204(client: httpx.AsyncClient, async_session_maker):
-    """Test DELETE /v1/hosts/{host_id} returns 204 and marks host revoked."""
+    """Test DELETE /v1/hosts/{host_id} returns 204 and removes host row."""
     # Pre-create host
     async with async_session_maker() as session:
         host = Host(
@@ -112,10 +112,10 @@ async def test_delete_host_204(client: httpx.AsyncClient, async_session_maker):
     )
     assert response.status_code == 204
 
-    # Verify host is marked revoked
+    # Verify host row is gone
     async with async_session_maker() as session:
         refreshed = await session.get(Host, "test-host-1")
-        assert refreshed.status == "revoked"
+        assert refreshed is None
 
 
 @pytest.mark.asyncio
@@ -130,8 +130,8 @@ async def test_delete_unknown_host_404(client: httpx.AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_delete_already_revoked_409(client: httpx.AsyncClient, async_session_maker):
-    """Test DELETE already-revoked host returns 409."""
+async def test_delete_already_revoked_204(client: httpx.AsyncClient, async_session_maker):
+    """DELETE on already-revoked host still removes the row (idempotent hard delete)."""
     # Pre-create revoked host
     async with async_session_maker() as session:
         host = Host(
@@ -144,13 +144,14 @@ async def test_delete_already_revoked_409(client: httpx.AsyncClient, async_sessi
         session.add(host)
         await session.commit()
 
-    # Delete (with admin token header)
     response = await client.delete(
         "/v1/hosts/test-host-1",
         headers={"Authorization": "Bearer test-admin-token"},
     )
-    assert response.status_code == 409
-    assert "revoked" in response.text.lower()
+    assert response.status_code == 204
+
+    async with async_session_maker() as session:
+        assert await session.get(Host, "test-host-1") is None
 
 
 @pytest.mark.asyncio

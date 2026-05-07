@@ -20,6 +20,12 @@ export interface MintResponse {
 export interface MintRequest {
 	label: string;
 	ttl_seconds: number;
+	origin?: string;
+}
+
+export interface AdvertisedOrigins {
+	origins: string[];
+	default: string;
 }
 
 export function mintEnrollmentToken(body: MintRequest): Promise<MintResponse> {
@@ -27,6 +33,10 @@ export function mintEnrollmentToken(body: MintRequest): Promise<MintResponse> {
 		method: 'POST',
 		body: JSON.stringify(body),
 	});
+}
+
+export function getAdvertisedOrigins(): Promise<AdvertisedOrigins> {
+	return apiFetch<AdvertisedOrigins>('/v1/system/advertised-origins');
 }
 
 export function listPendingTokens(): Promise<PendingToken[]> {

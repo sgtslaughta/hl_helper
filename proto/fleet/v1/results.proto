@@ -1,6 +1,8 @@
 syntax = "proto3";
 package fleet.v1;
 
+option go_package = "github.com/hlhelper/hl-agent/proto/fleet/v1";
+
 import "google/protobuf/timestamp.proto";
 
 enum ResultStatus {

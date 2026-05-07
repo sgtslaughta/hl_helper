@@ -320,36 +320,68 @@ class CommandDispatcher:
             )
             approved_row = existing_q.scalars().first()
             if approved_row is None:
-                pending = await self._approval_engine.request(
-                    subject_type="command",
-                    subject_id=payload_kind,
-                    policy="single_second_factor",
-                    requester_id=_principal_identity(principal),
-                )
-                pending_approval_ids.append(pending.id)
-
-                # Publish pending approval event if bus is set
-                if self._event_bus is not None:
-                    publish_after_commit(
-                        session,
-                        self._event_bus,
-                        "commands",
-                        {
-                            "event": "command.pending_approval",
-                            "approval_id": pending.id,
-                            "actor": principal_id,
-                            "payload_kind": payload_kind,
-                        },
+                # Auto-self-approve when principal holds task:approve perm.
+                # Lets admin/owner shell-exec dispatch immediately so a TaskRun
+                # is created and the task becomes visible in per-host UI.
+                self_approved = False
+                try:
+                    decision = await self._rbac_provider.is_authorized(
+                        principal,
+                        "task:approve",
+                        Resource(),
+                        AuthContext(),
                     )
+                    self_approved = bool(decision.allow)
+                except Exception:
+                    self_approved = False
 
-                # Block dispatch when no approval is in hand
-                await session.commit()
-                return DispatchResult(
-                    task_id=early_task_id,
-                    dispatched=[],
-                    denied=denied,
-                    pending_approval_ids=pending_approval_ids,
-                )
+                if self_approved:
+                    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+                    auto_row = Approval(
+                        id=str(uuid4()),
+                        subject_type="command",
+                        subject_id=payload_kind,
+                        policy="single",
+                        requester_id=_principal_identity(principal),
+                        state=ApprovalState.APPROVED,
+                        decided_by_id=_principal_identity(principal),
+                        decided_at=_dt.now(_tz.utc),
+                        expires_at=_dt.now(_tz.utc) + _td(hours=1),
+                    )
+                    session.add(auto_row)
+                    await session.flush()
+                    # Fall through into TaskRun creation below.
+                else:
+                    pending = await self._approval_engine.request(
+                        subject_type="command",
+                        subject_id=payload_kind,
+                        policy="single_second_factor",
+                        requester_id=_principal_identity(principal),
+                    )
+                    pending_approval_ids.append(pending.id)
+
+                    # Publish pending approval event if bus is set
+                    if self._event_bus is not None:
+                        publish_after_commit(
+                            session,
+                            self._event_bus,
+                            "commands",
+                            {
+                                "event": "command.pending_approval",
+                                "approval_id": pending.id,
+                                "actor": principal_id,
+                                "payload_kind": payload_kind,
+                            },
+                        )
+
+                    # Block dispatch when no approval is in hand
+                    await session.commit()
+                    return DispatchResult(
+                        task_id=early_task_id,
+                        dispatched=[],
+                        denied=denied,
+                        pending_approval_ids=pending_approval_ids,
+                    )
 
         # Early exit when no candidates survived RBAC: no TaskRun, no FK violation.
         if not dispatched_candidates:

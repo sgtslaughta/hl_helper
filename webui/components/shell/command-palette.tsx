@@ -1,247 +1,376 @@
 'use client';
 
-import { useSearch } from '@/lib/search-client';
-import { useRecentsStore } from '@/stores/recents';
-import { Command } from 'cmdk';
-import {
-	AlertTriangle,
-	Bell,
-	BookOpen,
-	Boxes,
-	Calendar,
-	Download,
-	Inbox,
-	KeyRound,
-	ListChecks,
-	Lock,
-	LogOut,
-	Network,
-	Plug,
-	Puzzle,
-	ScrollText,
-	Server,
-	Settings,
-	ShieldCheck,
-	UserCog,
-	Users,
-	Webhook,
-} from 'lucide-react';
+import { apiFetch } from '@/lib/api-client';
+import { type Host, listHosts } from '@/lib/api/hosts';
+import { ignoreEventInInputs } from '@/lib/hotkeys';
+import { usePaletteStore } from '@/stores/palette';
+import { useQuery } from '@tanstack/react-query';
+import { AlertTriangle, Boxes, ListChecks, ScrollText, Search, Server, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import type { ComponentType } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useHotkeys } from 'react-hotkeys-hook';
 
-const routes = [
-	{ label: 'Hosts', href: '/hosts', icon: Server, shortcut: 'g h' },
-	{ label: 'Containers', href: '/containers', icon: Boxes, shortcut: 'g c' },
-	{ label: 'Topology', href: '/topology', icon: Network, shortcut: 'g x' },
-	{ label: 'Tasks', href: '/tasks', icon: ListChecks, shortcut: 'g t' },
-	{ label: 'Updates', href: '/updates', icon: Download, shortcut: 'g u' },
-	{ label: 'Approvals', href: '/approvals', icon: Inbox, shortcut: '' },
-	{ label: 'Schedules', href: '/schedules', icon: Calendar, shortcut: '' },
-	{ label: 'Security', href: '/security', icon: ShieldCheck, shortcut: 'g s' },
-	{ label: 'Audit', href: '/audit', icon: ScrollText, shortcut: 'g a' },
-	{ label: 'Sessions', href: '/sessions', icon: LogOut, shortcut: '' },
-	{ label: 'Users', href: '/users', icon: Users, shortcut: '' },
-	{ label: 'Roles', href: '/roles', icon: UserCog, shortcut: '' },
-	{ label: 'Bindings', href: '/bindings', icon: KeyRound, shortcut: '' },
-	{ label: 'Advisories', href: '/advisories', icon: AlertTriangle, shortcut: '' },
-	{ label: 'Plugins', href: '/plugins', icon: Puzzle, shortcut: 'g p' },
-	{ label: 'Integrations', href: '/integrations', icon: Plug, shortcut: '' },
-	{ label: 'Notifications', href: '/notifications', icon: Bell, shortcut: '' },
-	{ label: 'Webhooks', href: '/webhooks', icon: Webhook, shortcut: '' },
-	{ label: 'Secrets', href: '/secrets', icon: Lock, shortcut: '' },
-	{ label: 'Settings', href: '/settings', icon: Settings, shortcut: '' },
-	{ label: 'Docs', href: '/docs', icon: BookOpen, shortcut: 'g d' },
+interface TaskItem {
+	id: string;
+	kind: string;
+	status: string;
+	created_at: string;
+	risk: string;
+	summary?: string;
+	host_id?: string;
+}
+interface AuditEntry {
+	sequence: number;
+	timestamp: string;
+	actor: string;
+	action: string;
+	subject: string | null;
+}
+interface Finding {
+	id: string;
+	severity: string;
+	title: string;
+	subject_id: string | null;
+	subject_kind: string;
+}
+
+interface ResultItem {
+	kind: 'host' | 'task' | 'audit' | 'finding' | 'route';
+	id: string;
+	primary: string;
+	secondary?: string;
+	href: string;
+}
+
+const KIND_META: Record<
+	ResultItem['kind'],
+	{ icon: ComponentType<{ size?: number; className?: string }>; label: string; tone: string }
+> = {
+	host: { icon: Server, label: 'HOST', tone: 'text-accent' },
+	task: { icon: ListChecks, label: 'TASK', tone: 'text-ok' },
+	audit: { icon: ScrollText, label: 'AUDIT', tone: 'text-text-dim' },
+	finding: { icon: AlertTriangle, label: 'POSTURE', tone: 'text-warn' },
+	route: { icon: Boxes, label: 'PAGE', tone: 'text-text-dim' },
+};
+
+const ROUTES: { label: string; href: string }[] = [
+	{ label: 'Hosts', href: '/hosts' },
+	{ label: 'Containers', href: '/containers' },
+	{ label: 'Topology', href: '/topology' },
+	{ label: 'Tasks', href: '/tasks' },
+	{ label: 'Updates', href: '/updates' },
+	{ label: 'Approvals', href: '/approvals' },
+	{ label: 'Schedules', href: '/schedules' },
+	{ label: 'Audit', href: '/audit' },
+	{ label: 'Posture', href: '/posture' },
+	{ label: 'Secrets', href: '/secrets' },
+	{ label: 'Webhooks', href: '/webhooks' },
+	{ label: 'Plugins', href: '/plugins' },
+	{ label: 'Integrations', href: '/integrations' },
+	{ label: 'Security', href: '/security' },
+	{ label: 'Settings', href: '/settings' },
 ];
 
-export function CommandPalette() {
-	const [open, setOpen] = useState(false);
-	const [searchValue, setSearchValue] = useState('');
-	const router = useRouter();
-	const recents = useRecentsStore();
-	const { data: searchResults = [], isLoading: _searchLoading } = useSearch(searchValue, [
-		'hosts',
-		'tasks',
-		'audit',
-	]);
+function useDebounced<T>(value: T, ms: number): T {
+	const [v, setV] = useState(value);
+	useEffect(() => {
+		const t = setTimeout(() => setV(value), ms);
+		return () => clearTimeout(t);
+	}, [value, ms]);
+	return v;
+}
 
-	useHotkeys('cmd+k,ctrl+k', (e: KeyboardEvent) => {
-		e.preventDefault();
-		setOpen(prev => !prev);
-	});
+function matches(query: string, ...fields: (string | null | undefined)[]): boolean {
+	const q = query.toLowerCase().trim();
+	if (!q) return false;
+	return fields.some(f => (f ?? '').toLowerCase().includes(q));
+}
+
+export function CommandPalette() {
+	const open = usePaletteStore(s => s.open);
+	const setOpen = usePaletteStore(s => s.setOpen);
+	const toggle = usePaletteStore(s => s.toggle);
+	const router = useRouter();
+	const [raw, setRaw] = useState('');
+	const query = useDebounced(raw, 150);
+	const inputRef = useRef<HTMLInputElement>(null);
+	const [activeIdx, setActiveIdx] = useState(0);
+
+	useHotkeys(
+		'mod+k',
+		e => {
+			e.preventDefault();
+			toggle();
+		},
+		{ ignoreEventWhen: ignoreEventInInputs },
+	);
 
 	useEffect(() => {
-		const handleEscape = (e: KeyboardEvent) => {
-			if (e.key === 'Escape') {
-				setOpen(false);
-			}
-		};
-
-		if (open) {
-			document.addEventListener('keydown', handleEscape);
-			return () => document.removeEventListener('keydown', handleEscape);
-		}
-		return;
+		if (open) inputRef.current?.focus();
+		else setRaw('');
 	}, [open]);
+
+	const enabled = open && query.trim().length > 0;
+
+	const hostsQ = useQuery<Host[]>({
+		queryKey: ['palette', 'hosts'],
+		queryFn: () => listHosts({}),
+		enabled,
+		staleTime: 10_000,
+	});
+	const tasksQ = useQuery<{ items: TaskItem[] }>({
+		queryKey: ['palette', 'tasks'],
+		queryFn: () => apiFetch('/v1/tasks?limit=200'),
+		enabled,
+		staleTime: 10_000,
+	});
+	const auditQ = useQuery<{ items: AuditEntry[] }>({
+		queryKey: ['palette', 'audit'],
+		queryFn: () => apiFetch('/v1/audit?limit=200'),
+		enabled,
+		staleTime: 10_000,
+	});
+	const postureQ = useQuery<{ findings: Finding[] }>({
+		queryKey: ['palette', 'posture'],
+		queryFn: () => apiFetch('/v1/posture'),
+		enabled,
+		staleTime: 10_000,
+	});
+
+	const results: ResultItem[] = useMemo(() => {
+		if (!enabled) return [];
+		const out: ResultItem[] = [];
+		for (const r of ROUTES) {
+			if (matches(query, r.label, r.href)) {
+				out.push({ kind: 'route', id: r.href, primary: r.label, secondary: r.href, href: r.href });
+			}
+		}
+		for (const h of hostsQ.data ?? []) {
+			if (
+				matches(
+					query,
+					h.hostname,
+					h.display_name,
+					h.id,
+					h.os,
+					h.arch,
+					...Object.values(h.labels ?? {}).map(String),
+				)
+			) {
+				out.push({
+					kind: 'host',
+					id: h.id,
+					primary: h.display_name ?? h.hostname,
+					secondary: `${h.id.slice(0, 12)} · ${h.status}`,
+					href: `/hosts/${h.id}`,
+				});
+			}
+		}
+		for (const t of tasksQ.data?.items ?? []) {
+			if (matches(query, t.summary, t.kind, t.status, t.id)) {
+				out.push({
+					kind: 'task',
+					id: t.id,
+					primary: t.summary ?? t.kind,
+					secondary: `${t.id.slice(0, 8)} · ${t.status} · ${t.risk}`,
+					href: `/tasks/${t.id}`,
+				});
+			}
+		}
+		for (const f of postureQ.data?.findings ?? []) {
+			if (matches(query, f.title, f.severity, f.subject_id ?? '')) {
+				out.push({
+					kind: 'finding',
+					id: f.id,
+					primary: f.title,
+					secondary: `${f.severity.toUpperCase()} · ${f.subject_kind}/${f.subject_id ?? '—'}`,
+					href:
+						f.subject_kind === 'host' && f.subject_id
+							? `/hosts/${f.subject_id}`
+							: `/posture/${f.id}`,
+				});
+			}
+		}
+		for (const e of auditQ.data?.items ?? []) {
+			if (matches(query, e.actor, e.action, e.subject ?? '')) {
+				out.push({
+					kind: 'audit',
+					id: String(e.sequence),
+					primary: `${e.actor} ${e.action} ${e.subject ?? ''}`,
+					secondary: `seq #${e.sequence} · ${new Date(e.timestamp).toLocaleString()}`,
+					href: `/audit?seq=${e.sequence}`,
+				});
+			}
+		}
+		return out.slice(0, 50);
+	}, [enabled, query, hostsQ.data, tasksQ.data, auditQ.data, postureQ.data]);
+
+	useEffect(() => {
+		setActiveIdx(0);
+	}, []);
+
+	function go(r: ResultItem) {
+		router.push(r.href);
+		setOpen(false);
+	}
+
+	function onKey(e: React.KeyboardEvent) {
+		if (e.key === 'Escape') {
+			e.preventDefault();
+			setOpen(false);
+			return;
+		}
+		if (e.key === 'ArrowDown') {
+			e.preventDefault();
+			setActiveIdx(i => Math.min(results.length - 1, i + 1));
+			return;
+		}
+		if (e.key === 'ArrowUp') {
+			e.preventDefault();
+			setActiveIdx(i => Math.max(0, i - 1));
+			return;
+		}
+		if (e.key === 'Enter' && results[activeIdx]) {
+			e.preventDefault();
+			go(results[activeIdx]);
+		}
+	}
 
 	if (!open) return null;
 
-	const handleNavigate = (href: string) => {
-		recents.add({ id: href, label: href, index: 'navigate' });
-		router.push(href);
-		setOpen(false);
-		setSearchValue('');
-	};
+	const isLoading =
+		enabled && (hostsQ.isLoading || tasksQ.isLoading || auditQ.isLoading || postureQ.isLoading);
 
-	const handleSearchResult = (result: { index: string; hit: Record<string, unknown> }) => {
-		const id = (result.hit.id as string | undefined) ?? '';
-		const label = (result.hit.title as string | undefined) ?? (result.hit.label as string | undefined) ?? '';
-		recents.add({ id, label, index: result.index });
-
-		// Navigate to detail page based on index type
-		const detailHref = `/${result.index}/${id}`;
-		router.push(detailHref);
-		setOpen(false);
-		setSearchValue('');
-	};
-
-	// Filter routes based on search
-	const filteredRoutes = searchValue.trim()
-		? routes.filter(r => r.label.toLowerCase().includes(searchValue.toLowerCase()))
-		: routes;
-
-	// Group search results by index
-	const groupedResults = searchResults.reduce(
-		(acc, result) => {
-			if (!acc[result.index]) {
-				acc[result.index] = [];
-			}
-			acc[result.index].push(result);
-			return acc;
-		},
-		{} as Record<string, typeof searchResults>,
-	);
+	const placeholder = enabled
+		? 'Super search · hosts · tasks · audit · posture …'
+		: 'Super search · type to scan the fleet · ⎋ close';
 
 	return (
-		<Command.Dialog open={open} onOpenChange={setOpen}>
-			<div className="overflow-hidden rounded-lg border border-hairline bg-surface shadow-xl">
-				<Command.Input
-					placeholder="Search routes or docs..."
-					className="w-full border-b border-hairline bg-surface px-4 py-3 text-text outline-none placeholder:text-text-dim"
-					value={searchValue}
-					onValueChange={setSearchValue}
-				/>
-				<div className="max-h-96 overflow-auto">
-					<Command.List>
-						{/* Navigate Section */}
-						{!searchValue && (
-							<Command.Group heading="Navigate" className="overflow-hidden px-2 py-1.5">
-								{routes.map(route => {
-									const Icon = route.icon;
-									return (
-										<Command.Item
-											key={route.href}
-											value={route.href}
-											onSelect={() => handleNavigate(route.href)}
-											className="flex cursor-pointer items-center justify-between rounded px-2 py-2 text-sm text-text-dim hover:text-text hover:bg-surface-2 aria-selected:bg-surface-2 aria-selected:text-text"
-										>
-											<div className="flex items-center gap-2">
-												<Icon size={16} />
-												<span>{route.label}</span>
-											</div>
-											{route.shortcut && (
-												<span className="text-tiny font-mono text-text-dim opacity-60">
-													{route.shortcut}
-												</span>
-											)}
-										</Command.Item>
-									);
-								})}
-							</Command.Group>
-						)}
+		// biome-ignore lint/a11y/useSemanticElements: native dialog incompatible with backdrop layout
+		<div
+			role="dialog"
+			aria-modal="true"
+			aria-label="Super search"
+			className="fixed inset-0 z-[100] flex items-start justify-center bg-black/70 p-4 pt-[12vh]"
+			onMouseDown={e => {
+				if (e.target === e.currentTarget) setOpen(false);
+			}}
+		>
+			<div className="mc-bezel w-full max-w-2xl rounded-sm border border-hairline bg-surface shadow-2xl">
+				<div className="flex items-center gap-2 border-b border-hairline px-3 py-2.5">
+					<Search className="text-accent" size={16} />
+					<input
+						ref={inputRef}
+						value={raw}
+						onChange={e => setRaw(e.target.value)}
+						onKeyDown={onKey}
+						placeholder={placeholder}
+						className="flex-1 bg-transparent font-mono text-sm text-text outline-none placeholder:text-text-dim"
+					/>
+					{isLoading ? (
+						<span className="font-mono text-[10px] uppercase tracking-wider text-accent">
+							scanning…
+						</span>
+					) : null}
+					<button
+						type="button"
+						onClick={() => setOpen(false)}
+						aria-label="Close palette"
+						className="rounded-sm p-1 text-text-dim hover:bg-surface-2 hover:text-text"
+					>
+						<X size={14} />
+					</button>
+				</div>
 
-						{/* Filtered Routes */}
-						{searchValue && filteredRoutes.length > 0 && (
-							<Command.Group heading="Routes" className="overflow-hidden px-2 py-1.5">
-								{filteredRoutes.map(route => {
-									const Icon = route.icon;
-									return (
-										<Command.Item
-											key={route.href}
-											value={route.href}
-											onSelect={() => handleNavigate(route.href)}
-											className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-sm text-text-dim hover:text-text hover:bg-surface-2 aria-selected:bg-surface-2 aria-selected:text-text"
-										>
-											<Icon size={16} />
-											<span>{route.label}</span>
-										</Command.Item>
-									);
-								})}
-							</Command.Group>
-						)}
-
-						{/* Search Results */}
-						{searchValue &&
-							Object.keys(groupedResults).length > 0 &&
-							Object.entries(groupedResults).map(([index, results]) => (
-								<Command.Group
-									key={index}
-									heading={index.charAt(0).toUpperCase() + index.slice(1)}
-									className="overflow-hidden px-2 py-1.5"
+				<div className="max-h-[60vh] overflow-auto">
+					{!enabled ? (
+						<div className="p-3">
+							<div className="mb-1.5 px-1 font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-accent">
+								Quick Nav
+							</div>
+							{ROUTES.slice(0, 8).map(r => (
+								<button
+									type="button"
+									key={r.href}
+									onClick={() =>
+										go({
+											kind: 'route',
+											id: r.href,
+											primary: r.label,
+											secondary: r.href,
+											href: r.href,
+										})
+									}
+									className="flex w-full items-center gap-3 rounded-sm px-2 py-1.5 text-left hover:bg-surface-2"
 								>
-									{results.map((result) => (
-										<Command.Item
-											key={`${index}-${(result.hit.id as string | undefined) ?? (result.hit.title as string | undefined) ?? ''}`}
-											value={(result.hit.id as string | undefined) ?? (result.hit.title as string | undefined) ?? ''}
-											onSelect={() => handleSearchResult(result)}
-											className="flex cursor-pointer flex-col rounded px-2 py-2 hover:bg-surface-2 aria-selected:bg-surface-2"
-										>
-											<span className="text-sm text-text">
-												{((result.hit.title as React.ReactNode) ?? (result.hit.label as React.ReactNode) ?? (result.hit.id as React.ReactNode))}
-											</span>
-											{result.highlights && (
-												<span className="text-tiny text-text-dim opacity-70">
-													{(Object.values(result.highlights)[0] as React.ReactNode) ?? ''}
-												</span>
-											)}
-										</Command.Item>
-									))}
-								</Command.Group>
+									<Boxes className="text-text-dim" size={13} />
+									<span className="font-mono text-[12px] text-text">{r.label}</span>
+									<span className="ml-auto font-mono text-[10px] text-text-dim">{r.href}</span>
+								</button>
 							))}
+						</div>
+					) : results.length === 0 && !isLoading ? (
+						<div className="px-3 py-8 text-center font-mono text-[11px] uppercase tracking-wider text-text-dim">
+							No matches.
+						</div>
+					) : (
+						<ul aria-label="Search results">
+							{results.map((r, i) => {
+								const meta = KIND_META[r.kind];
+								const Icon = meta.icon;
+								const active = i === activeIdx;
+								return (
+									<li key={`${r.kind}:${r.id}`}>
+										<button
+											type="button"
+											aria-current={active ? 'true' : undefined}
+											onMouseEnter={() => setActiveIdx(i)}
+											onClick={() => go(r)}
+											className={`flex w-full items-center gap-3 px-3 py-2 text-left transition-colors ${
+												active
+													? 'border-l-2 border-accent bg-accent/10'
+													: 'border-l-2 border-transparent hover:bg-surface-2'
+											}`}
+										>
+											<Icon size={14} className={meta.tone} />
+											<span
+												className={`mc-pip border-current ${meta.tone}`}
+												style={{ padding: '2px 5px' }}
+											>
+												{meta.label}
+											</span>
+											<div className="min-w-0 flex-1">
+												<div className="truncate font-mono text-[13px] text-text">{r.primary}</div>
+												{r.secondary ? (
+													<div className="truncate font-mono text-[10px] uppercase tracking-wider text-text-dim">
+														{r.secondary}
+													</div>
+												) : null}
+											</div>
+										</button>
+									</li>
+								);
+							})}
+						</ul>
+					)}
+				</div>
 
-						{/* Recent Items */}
-						{!searchValue && recents.items.length > 0 && (
-							<Command.Group heading="Recent" className="overflow-hidden px-2 py-1.5">
-								{recents.items.map(item => (
-									<Command.Item
-										key={`${item.index}-${item.id}`}
-										value={item.id}
-										onSelect={() => {
-											const href =
-												item.index === 'navigate' ? item.id : `/${item.index}/${item.id}`;
-											router.push(href);
-											setOpen(false);
-										}}
-										className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-sm text-text-dim hover:text-text hover:bg-surface-2 aria-selected:bg-surface-2 aria-selected:text-text"
-									>
-										<span>{item.label}</span>
-										<span className="text-tiny opacity-50">({item.index})</span>
-									</Command.Item>
-								))}
-							</Command.Group>
-						)}
-
-						{/* Empty state */}
-						{searchValue &&
-							filteredRoutes.length === 0 &&
-							Object.keys(groupedResults).length === 0 && (
-								<Command.Empty className="py-6 text-center text-sm text-text-dim">
-									No results found
-								</Command.Empty>
-							)}
-					</Command.List>
+				<div className="flex items-center justify-between border-t border-hairline px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-text-dim">
+					<div className="flex items-center gap-3">
+						<span>
+							<kbd className="rounded-sm border border-hairline px-1">↑↓</kbd> nav
+						</span>
+						<span>
+							<kbd className="rounded-sm border border-hairline px-1">↵</kbd> open
+						</span>
+						<span>
+							<kbd className="rounded-sm border border-hairline px-1">esc</kbd> close
+						</span>
+					</div>
+					<span>{enabled ? `${results.length} results` : `${ROUTES.length} routes`}</span>
 				</div>
 			</div>
-		</Command.Dialog>
+		</div>
 	);
 }

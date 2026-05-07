@@ -5,12 +5,23 @@ import { Disclosure } from '@/components/primitives/disclosure';
 import { RiskBadge } from '@/components/primitives/risk-badge';
 import {
 	type MintResponse,
+	getAdvertisedOrigins,
 	listPendingTokens,
 	mintEnrollmentToken,
 	revokePendingToken,
 } from '@/lib/api/enrollment';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import React, { useState } from 'react';
+import {
+	AlertTriangle,
+	Check,
+	ChevronRight,
+	KeyRound,
+	Server,
+	ShieldAlert,
+	Terminal as TerminalIcon,
+	X as XIcon,
+} from 'lucide-react';
+import React, { useEffect, useState } from 'react';
 
 interface Props {
 	onClose: () => void;
@@ -30,10 +41,28 @@ export function EnrollmentModal({ onClose }: Props) {
 	const [step, setStep] = useState<Step>('mint');
 	const [label, setLabel] = useState('');
 	const [ttl, setTtl] = useState<number>(900);
+	const [origin, setOrigin] = useState<string>('');
 	const [minted, setMinted] = useState<MintResponse | null>(null);
 
+	const originsQ = useQuery({
+		queryKey: ['advertised-origins'],
+		queryFn: getAdvertisedOrigins,
+	});
+
+	// Set default origin when data loads
+	React.useEffect(() => {
+		if (originsQ.data && !origin) {
+			setOrigin(originsQ.data.default);
+		}
+	}, [originsQ.data, origin]);
+
 	const mintMut = useMutation({
-		mutationFn: () => mintEnrollmentToken({ label, ttl_seconds: ttl }),
+		mutationFn: () =>
+			mintEnrollmentToken({
+				label,
+				ttl_seconds: ttl,
+				origin: origin || undefined,
+			}),
 		onSuccess: data => {
 			setMinted(data);
 			setStep('install');
@@ -41,50 +70,83 @@ export function EnrollmentModal({ onClose }: Props) {
 		},
 	});
 
+	const [revokeMsg, setRevokeMsg] = useState<{ tone: 'ok' | 'err'; text: string } | null>(
+		null,
+	);
 	const revokeMut = useMutation({
 		mutationFn: (tokenId: string) => revokePendingToken(tokenId),
 		onSuccess: () => {
 			qc.invalidateQueries({ queryKey: ['enrollment-tokens'] });
-			onClose();
+			setRevokeMsg({ tone: 'ok', text: 'Token revoked' });
+			setTimeout(onClose, 900);
+		},
+		onError: e => {
+			const detail = e instanceof Error ? e.message : 'Revoke failed';
+			const text = /404|not_found/i.test(detail)
+				? 'Token already revoked or not found'
+				: detail;
+			setRevokeMsg({ tone: 'err', text });
 		},
 	});
+
+	useEffect(() => {
+		function onKey(e: KeyboardEvent) {
+			if (e.key === 'Escape') onClose();
+		}
+		window.addEventListener('keydown', onKey);
+		return () => window.removeEventListener('keydown', onKey);
+	}, [onClose]);
 
 	return (
 		// biome-ignore lint/a11y/useSemanticElements: native <dialog> requires showModal() and breaks Tailwind backdrop layout
 		<div
 			role="dialog"
 			aria-modal="true"
-			className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+			className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+			onClick={onClose}
+			onKeyDown={e => {
+				if (e.key === 'Escape') onClose();
+			}}
 		>
-			<div className="w-full max-w-lg rounded border border-hairline bg-surface p-5">
-				<header className="mb-3 flex items-center justify-between">
-					<h2 className="text-h3 font-bold text-text">Enroll a host</h2>
+			<div
+				className="mc-bezel w-full max-w-2xl rounded-sm border border-hairline bg-surface p-5 shadow-2xl"
+				onClick={e => e.stopPropagation()}
+				onKeyDown={e => e.stopPropagation()}
+			>
+				<header className="mb-3 flex items-start justify-between gap-3 border-b border-hairline pb-3">
+					<div className="min-w-0 flex-1">
+						<h2 className="font-mono text-base font-semibold uppercase tracking-wider text-text">
+							Enroll Host
+						</h2>
+						<p className="mt-1 font-mono text-[12px] text-text-dim">
+							Mint a single-use token to register a new agent.
+						</p>
+					</div>
 					<RiskBadge variant="caution" />
 				</header>
 
 				{step === 'mint' ? (
 					<div className="space-y-3">
-						<p className="text-sm text-text-dim">
-							An enrollment token authorizes one host to register itself. Treat the token as a
-							secret.
-						</p>
-						<label className="block text-sm">
+						<div className="rounded-sm border border-hairline bg-bezel/40 px-3 py-2 font-mono text-[12px] text-text-dim">
+							Enrollment token authorizes one host to register itself. Treat as secret.
+						</div>
+						<label className="block font-mono text-[11px] uppercase tracking-wider text-text-dim">
 							Label
 							<input
 								type="text"
 								value={label}
 								onChange={e => setLabel(e.target.value)}
 								placeholder="lab-router-01"
-								className="mt-1 w-full rounded border border-hairline bg-surface-2 px-2 py-1 text-text"
+								className="mt-1 w-full rounded-sm border border-hairline bg-canvas px-2 py-1.5 font-mono text-[13px] text-text outline-none focus:border-accent"
 								aria-label="label"
 							/>
 						</label>
-						<label className="block text-sm">
+						<label className="block font-mono text-[11px] uppercase tracking-wider text-text-dim">
 							Expires in
 							<select
 								value={ttl}
 								onChange={e => setTtl(Number(e.target.value))}
-								className="mt-1 w-full rounded border border-hairline bg-surface-2 px-2 py-1 text-text"
+								className="mt-1 w-full rounded-sm border border-hairline bg-canvas px-2 py-1.5 font-mono text-[13px] text-text outline-none focus:border-accent"
 							>
 								{TTL_OPTIONS.map(o => (
 									<option key={o.value} value={o.value}>
@@ -93,23 +155,51 @@ export function EnrollmentModal({ onClose }: Props) {
 								))}
 							</select>
 						</label>
+						{(originsQ.data?.origins.length ?? 0) > 1 ? (
+							<label className="block font-mono text-[11px] uppercase tracking-wider text-text-dim">
+								Origin
+								<select
+									value={origin}
+									onChange={e => setOrigin(e.target.value)}
+									className="mt-1 w-full rounded-sm border border-hairline bg-canvas px-2 py-1.5 font-mono text-[13px] text-text outline-none focus:border-accent"
+								>
+									{originsQ.data?.origins.map(o => (
+										<option key={o} value={o}>
+											{o}
+										</option>
+									))}
+								</select>
+							</label>
+						) : null}
 						<Disclosure label="What is an enrollment token?" storageKey="enroll-explain">
-							<ul className="list-disc space-y-1 pl-5 text-sm">
-								<li>Single-use: redemption invalidates it.</li>
-								<li>Server stores only a hash; the plaintext is shown once.</li>
-								<li>Revoke at any time before redemption.</li>
+							<ul className="space-y-1 font-mono text-[12px] text-text">
+								<li className="flex items-start gap-2">
+									<ChevronRight className="mt-0.5 shrink-0 text-accent" size={11} />
+									<span>Single-use: redemption invalidates it.</span>
+								</li>
+								<li className="flex items-start gap-2">
+									<ChevronRight className="mt-0.5 shrink-0 text-accent" size={11} />
+									<span>Server stores only a hash; plaintext shown once.</span>
+								</li>
+								<li className="flex items-start gap-2">
+									<ChevronRight className="mt-0.5 shrink-0 text-accent" size={11} />
+									<span>Revoke at any time before redemption.</span>
+								</li>
 							</ul>
 						</Disclosure>
 						{mintMut.isError ? (
-							<div className="rounded border border-red-500/40 bg-red-500/10 p-2 text-sm text-red-300">
-								{mintMut.error instanceof Error ? mintMut.error.message : 'Mint failed'}
+							<div className="flex items-start gap-2 rounded-sm border border-danger/40 bg-danger/10 px-3 py-2 font-mono text-[12px] text-danger">
+								<ShieldAlert size={12} className="mt-0.5 shrink-0" />
+								<span>
+									{mintMut.error instanceof Error ? mintMut.error.message : 'Mint failed'}
+								</span>
 							</div>
 						) : null}
-						<footer className="flex justify-end gap-2 pt-2">
+						<footer className="mt-4 flex justify-end gap-2 border-t border-hairline pt-3">
 							<button
 								type="button"
 								onClick={onClose}
-								className="rounded border border-hairline px-3 py-1.5 text-sm text-text hover:bg-surface-2"
+								className="rounded-sm border border-hairline bg-surface-2 px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider text-text hover:border-accent"
 							>
 								Cancel
 							</button>
@@ -117,9 +207,9 @@ export function EnrollmentModal({ onClose }: Props) {
 								type="button"
 								disabled={label.trim().length === 0 || mintMut.isPending}
 								onClick={() => mintMut.mutate()}
-								className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-black disabled:opacity-50"
+								className="rounded-sm border border-accent bg-accent/15 px-3 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-accent hover:bg-accent/25 disabled:cursor-not-allowed disabled:opacity-40"
 							>
-								{mintMut.isPending ? 'Minting…' : 'Mint token'}
+								{mintMut.isPending ? 'Minting…' : 'Mint Token'}
 							</button>
 						</footer>
 					</div>
@@ -129,8 +219,13 @@ export function EnrollmentModal({ onClose }: Props) {
 					<InstallStep
 						minted={minted}
 						onDone={onClose}
-						onRevoke={() => revokeMut.mutate(minted.token_id)}
+						onRevoke={() => {
+							setRevokeMsg(null);
+							revokeMut.mutate(minted.token_id);
+						}}
 						onWatch={() => setStep('watching')}
+						revokePending={revokeMut.isPending}
+						revokeMsg={revokeMsg}
 					/>
 				) : null}
 
@@ -147,11 +242,15 @@ function InstallStep({
 	onDone,
 	onRevoke,
 	onWatch,
+	revokePending,
+	revokeMsg,
 }: {
 	minted: MintResponse;
 	onDone: () => void;
 	onRevoke: () => void;
 	onWatch: () => void;
+	revokePending: boolean;
+	revokeMsg: { tone: 'ok' | 'err'; text: string } | null;
 }) {
 	async function copy() {
 		const text = minted.install_command;
@@ -184,65 +283,120 @@ function InstallStep({
 	}
 	return (
 		<div className="space-y-3">
-			<p className="text-sm text-text-dim">Run this command on the host you want to enroll.</p>
-			<div className="relative rounded border border-hairline bg-surface-2 p-2 pr-20 font-mono text-xs">
+			<div className="flex items-center gap-2 rounded-sm border border-hairline bg-bezel/40 px-3 py-2">
+				<TerminalIcon className="text-accent" size={12} />
+				<span className="font-mono text-[11px] uppercase tracking-wider text-text-dim">
+					Run on target host
+				</span>
+			</div>
+			<div className="relative rounded-sm border border-hairline bg-canvas p-2 pr-20 font-mono text-xs">
 				<button
 					type="button"
 					onClick={doCopy}
-					className="absolute right-1 top-1 rounded border border-hairline bg-surface px-2 py-1 text-xs text-text hover:bg-surface-2"
+					className="absolute right-1 top-1 rounded-sm border border-hairline bg-surface-2 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-text hover:border-accent"
 				>
-					{copied ? 'Copied ✓' : 'Copy'}
+					{copied ? (
+						<span className="flex items-center gap-1">
+							<Check size={10} /> Copied
+						</span>
+					) : (
+						'Copy'
+					)}
 				</button>
-				<pre className="overflow-auto whitespace-pre-wrap break-all">{minted.install_command}</pre>
+				<pre className="overflow-auto whitespace-pre-wrap break-all leading-relaxed text-text">
+					{minted.install_command}
+				</pre>
 			</div>
-			<div className="rounded border border-yellow-500/40 bg-yellow-500/10 p-2 text-xs text-yellow-200">
-				<strong className="font-semibold">Requires sudo.</strong> The script installs the agent
-				to <code>/usr/local/bin</code>, writes a sudoers entry at{' '}
-				<code>/etc/sudoers.d/hl-agent</code>, and registers a systemd unit. Run as root or have
-				<code className="mx-1">sudo</code>available — you will be prompted for your password.
+			<div className="flex items-start gap-2 rounded-sm border border-warn/40 bg-warn/5 px-3 py-2 font-mono text-[12px] text-text">
+				<AlertTriangle className="mc-caution-blink mt-0.5 shrink-0 text-warn" size={12} />
+				<div>
+					<span className="font-semibold uppercase tracking-wider text-warn">Requires sudo. </span>
+					Installs agent to <code className="text-accent">/usr/local/bin</code>, writes sudoers
+					entry at <code className="text-accent">/etc/sudoers.d/hl-agent</code>, registers systemd
+					unit.
+				</div>
 			</div>
-			<div className="flex items-center gap-3 text-sm">
-				<span className="text-text-dim">
-					Expires in <Countdown to={minted.expires_at} />
+			<div className="flex items-center gap-1.5 rounded-sm border border-hairline bg-bezel/40 px-2.5 py-1.5">
+				<Server className="text-text-dim" size={11} />
+				<span className="font-mono text-[10px] uppercase tracking-wider text-text-dim">
+					Expires in
+				</span>
+				<span className="mc-pip border-accent/40 text-accent">
+					<Countdown to={minted.expires_at} />
 				</span>
 			</div>
 			<Disclosure label="What this does" storageKey="enroll-what">
-				<ul className="list-disc space-y-1 pl-5 text-sm">
-					<li>Downloads the agent binary signed by this server.</li>
-					<li>Generates an Ed25519 keypair on the host.</li>
-					<li>
-						Submits a CSR to <code>POST /v1/enroll</code>.
+				<ul className="space-y-1 font-mono text-[12px] text-text">
+					<li className="flex items-start gap-2">
+						<ChevronRight className="mt-0.5 shrink-0 text-accent" size={11} />
+						<span>Downloads agent binary signed by this server.</span>
 					</li>
-					<li>Server issues a leaf cert; the host appears in the list.</li>
+					<li className="flex items-start gap-2">
+						<ChevronRight className="mt-0.5 shrink-0 text-accent" size={11} />
+						<span>Generates Ed25519 keypair on host.</span>
+					</li>
+					<li className="flex items-start gap-2">
+						<ChevronRight className="mt-0.5 shrink-0 text-accent" size={11} />
+						<span>
+							Submits CSR to <code className="text-accent">POST /v1/enroll</code>.
+						</span>
+					</li>
+					<li className="flex items-start gap-2">
+						<ChevronRight className="mt-0.5 shrink-0 text-accent" size={11} />
+						<span>Server issues leaf cert; host appears in inventory.</span>
+					</li>
 				</ul>
 			</Disclosure>
 			<Disclosure label="Risks" storageKey="enroll-risks">
-				<ul className="list-disc space-y-1 pl-5 text-sm">
-					<li>Anyone holding the token before expiry can enroll a host.</li>
-					<li>Revoke immediately if the token is exposed.</li>
-					<li>The token is single-use; redemption invalidates it.</li>
+				<ul className="space-y-1 font-mono text-[12px] text-text">
+					<li className="flex items-start gap-2">
+						<ChevronRight className="mt-0.5 shrink-0 text-warn" size={11} />
+						<span>Anyone holding token before expiry can enroll a host.</span>
+					</li>
+					<li className="flex items-start gap-2">
+						<ChevronRight className="mt-0.5 shrink-0 text-warn" size={11} />
+						<span>Revoke immediately if token is exposed.</span>
+					</li>
+					<li className="flex items-start gap-2">
+						<ChevronRight className="mt-0.5 shrink-0 text-warn" size={11} />
+						<span>Single-use; redemption invalidates it.</span>
+					</li>
 				</ul>
 			</Disclosure>
-			<footer className="flex justify-between gap-2 pt-2">
+			{revokeMsg ? (
+				<div
+					className={`flex items-center gap-2 rounded-sm border px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider ${
+						revokeMsg.tone === 'ok'
+							? 'border-ok/40 bg-ok/10 text-ok'
+							: 'border-danger/40 bg-danger/10 text-danger'
+					}`}
+				>
+					{revokeMsg.tone === 'ok' ? <Check size={11} /> : <ShieldAlert size={11} />}
+					<span>{revokeMsg.text}</span>
+				</div>
+			) : null}
+			<footer className="mt-4 flex justify-between gap-2 border-t border-hairline pt-3">
 				<button
 					type="button"
 					onClick={onRevoke}
-					className="rounded border border-red-500/40 px-3 py-1.5 text-sm text-red-400 hover:bg-red-500/10"
+					disabled={revokePending || revokeMsg?.tone === 'ok'}
+					className="rounded-sm border border-danger/40 bg-danger/5 px-3 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-danger hover:bg-danger/15 disabled:cursor-not-allowed disabled:opacity-40"
 				>
-					Revoke token
+					<KeyRound className="mr-1 inline" size={11} />
+					{revokePending ? ' Revoking…' : ' Revoke'}
 				</button>
 				<div className="flex gap-2">
 					<button
 						type="button"
 						onClick={onWatch}
-						className="rounded border border-hairline px-3 py-1.5 text-sm text-text hover:bg-surface-2"
+						className="rounded-sm border border-hairline bg-surface-2 px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider text-text hover:border-accent"
 					>
-						Watch for redemption
+						Watch
 					</button>
 					<button
 						type="button"
 						onClick={onDone}
-						className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-black"
+						className="rounded-sm border border-accent bg-accent/15 px-3 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-accent hover:bg-accent/25"
 					>
 						Done
 					</button>
@@ -298,22 +452,31 @@ function WatchingStep({
 					<div className="flex justify-center py-4">
 						<div className="h-6 w-6 animate-spin rounded-full border-2 border-accent border-t-transparent" />
 					</div>
-					<p className="text-center text-sm text-text-dim">Waiting for agent to enroll…</p>
-					<div className="flex justify-center text-sm text-text-dim">
-						<Countdown to={minted.expires_at} onExpire={handleExpire} />
+					<p className="text-center font-mono text-[12px] uppercase tracking-wider text-text-dim">
+						Waiting for agent…
+					</p>
+					<div className="flex justify-center">
+						<span className="mc-pip border-accent/40 text-accent">
+							<Countdown to={minted.expires_at} onExpire={handleExpire} />
+						</span>
 					</div>
 				</>
 			)}
 
 			{watchingState === 'enrolled' && (
 				<>
-					<p className="text-center text-sm font-medium text-text">Enrolled ✓</p>
-					<p className="text-center text-sm text-text-dim">Host appeared in inventory.</p>
-					<footer className="flex justify-end gap-2 pt-2">
+					<div className="flex flex-col items-center gap-2 py-4">
+						<Check className="text-ok" size={32} strokeWidth={2.5} />
+						<p className="font-mono text-[13px] font-semibold uppercase tracking-wider text-ok">
+							Enrolled
+						</p>
+						<p className="font-mono text-[12px] text-text-dim">Host appeared in inventory.</p>
+					</div>
+					<footer className="mt-4 flex justify-end gap-2 border-t border-hairline pt-3">
 						<button
 							type="button"
 							onClick={onClose}
-							className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-black"
+							className="rounded-sm border border-accent bg-accent/15 px-3 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-accent hover:bg-accent/25"
 						>
 							Done
 						</button>
@@ -323,19 +486,24 @@ function WatchingStep({
 
 			{watchingState === 'expired' && (
 				<>
-					<p className="text-center text-sm text-red-400">Token expired without redemption.</p>
-					<footer className="flex justify-end gap-2 pt-2">
+					<div className="flex flex-col items-center gap-2 py-4">
+						<XIcon className="text-danger" size={32} strokeWidth={2.5} />
+						<p className="font-mono text-[12px] uppercase tracking-wider text-danger">
+							Token expired without redemption.
+						</p>
+					</div>
+					<footer className="mt-4 flex justify-end gap-2 border-t border-hairline pt-3">
 						<button
 							type="button"
 							onClick={onBackToMint}
-							className="rounded border border-hairline px-3 py-1.5 text-sm text-text hover:bg-surface-2"
+							className="rounded-sm border border-hairline bg-surface-2 px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider text-text hover:border-accent"
 						>
-							Mint new
+							Mint New
 						</button>
 						<button
 							type="button"
 							onClick={onClose}
-							className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-black"
+							className="rounded-sm border border-accent bg-accent/15 px-3 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-accent hover:bg-accent/25"
 						>
 							Close
 						</button>

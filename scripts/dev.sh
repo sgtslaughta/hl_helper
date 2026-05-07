@@ -56,18 +56,75 @@ is_running() {
 	[[ -f "$pidfile" ]] && kill -0 "$(cat "$pidfile")" 2>/dev/null
 }
 
+# pids_on_port — print all PIDs listening on the given TCP port, one per line.
+# Empty stdout means port is free. Prefers `ss` because some Linux setups have
+# a sandboxed lsof that returns nothing for ports the user does own (e.g.
+# fuse.portal env), which would silently leave orphans alive.
+pids_on_port() {
+	local port="$1" out=""
+	if command -v ss >/dev/null 2>&1; then
+		out=$(ss -tlnpH "sport = :$port" 2>/dev/null \
+			| grep -oE 'pid=[0-9]+' | cut -d= -f2 | sort -u)
+	fi
+	if [[ -z "$out" ]] && command -v lsof >/dev/null 2>&1; then
+		out=$(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null | sort -u)
+	fi
+	if [[ -z "$out" ]] && command -v fuser >/dev/null 2>&1; then
+		out=$(fuser -n tcp "$port" 2>/dev/null \
+			| tr -s '[:space:]' '\n' | grep -E '^[0-9]+$' | sort -u)
+	fi
+	if [[ -n "$out" ]]; then
+		printf '%s\n' "$out"
+	fi
+	return 0
+}
+
+# free_port — graceful TERM, then KILL anything bound to the port. Used both
+# before start (to clear orphans) and during down/reset so a stale uvicorn
+# never holds the port across a restart and silently serves the old DB.
+free_port() {
+	local port="$1" name="${2:-port $1}"
+	local pids; pids=$(pids_on_port "$port")
+	[[ -z "$pids" ]] && return 0
+
+	log "freeing $name (:$port) — killing pid(s): $(echo "$pids" | tr '\n' ' ')"
+	# shellcheck disable=SC2086
+	kill -TERM $pids 2>/dev/null || true
+	for _ in $(seq 1 20); do
+		pids=$(pids_on_port "$port")
+		[[ -z "$pids" ]] && return 0
+		sleep 0.25
+	done
+	pids=$(pids_on_port "$port")
+	if [[ -n "$pids" ]]; then
+		# shellcheck disable=SC2086
+		kill -KILL $pids 2>/dev/null || true
+		sleep 0.5
+	fi
+}
+
 stop_pid() {
 	local pidfile="$1" name="$2"
 	if is_running "$pidfile"; then
 		local pid; pid=$(cat "$pidfile")
 		log "stopping $name (pid=$pid)"
-		kill "$pid" 2>/dev/null || true
-		# wait up to 10s for graceful exit
+		# Kill the whole process group — uvicorn's --reload spawns a child
+		# that survives SIGTERM to the parent and would keep the port bound.
+		local pgid; pgid=$(ps -o pgid= "$pid" 2>/dev/null | tr -d ' ' || true)
+		if [[ -n "$pgid" ]]; then
+			kill -TERM "-$pgid" 2>/dev/null || true
+		else
+			kill "$pid" 2>/dev/null || true
+		fi
 		for _ in $(seq 1 20); do
 			kill -0 "$pid" 2>/dev/null || break
 			sleep 0.5
 		done
-		kill -9 "$pid" 2>/dev/null || true
+		if [[ -n "$pgid" ]]; then
+			kill -KILL "-$pgid" 2>/dev/null || true
+		else
+			kill -9 "$pid" 2>/dev/null || true
+		fi
 	fi
 	rm -f "$pidfile"
 }
@@ -83,35 +140,95 @@ start_server() {
 		return
 	fi
 
+	# Tracked pid is dead but port may still be held by an orphan from a prior
+	# run (uvicorn --reload spawns a child that outlives an unclean exit). If
+	# we don't free it here, the next start binds to a different port or — worse
+	# — the health probe hits the orphan and reports a stale DB as "healthy".
+	rm -f "$PID_SERVER"
+	free_port "$SERVER_PORT" "server"
+
 	local admin_token; admin_token=$(cat "$ADMIN_TOKEN_FILE")
-	log "starting server on :$SERVER_PORT (data=$DATA_DIR, autoreload)"
+
+	# Resolve a routable host for advertised origins so install commands point
+	# at something agents on the LAN can actually reach. Default `localhost` is
+	# fine for same-box curls; prefer the first non-loopback IPv4 if available.
+	# Override with FLEET_PUBLIC_HOST=<ip-or-name> to pin a specific value.
+	local public_host="${FLEET_PUBLIC_HOST:-}"
+	if [[ -z "$public_host" ]]; then
+		public_host=$(ip -4 -o addr show scope global 2>/dev/null \
+			| awk '{print $4}' | cut -d/ -f1 | head -n1)
+		[[ -z "$public_host" ]] && public_host="localhost"
+	fi
+	# Dev runs uvicorn HTTP on $SERVER_PORT (no TLS). Match the scheme/port the
+	# server actually listens on so mint URLs are reachable. For HTTPS, run
+	# behind a reverse proxy and override FLEET_PUBLIC_URL.
+	local public_url="${FLEET_PUBLIC_URL:-http://$public_host:$SERVER_PORT}"
+
+	log "starting server on :$SERVER_PORT (data=$DATA_DIR, autoreload, public=$public_url)"
 
 	# Pydantic settings reads FLEET_*; cookie_secure=false so HTTP dev sets cookies.
-	(
-		cd "$REPO"
-		FLEET_DATA_DIR="$DATA_DIR" \
-		FLEET_DB_URL="sqlite+aiosqlite:///$DATA_DIR/fleet.db" \
-		FLEET_ADMIN_TOKEN="$admin_token" \
-		FLEET_COOKIE_SECURE=false \
-		exec uv run uvicorn server.app.main:app \
-			--host "$HOST_BIND" \
-			--port "$SERVER_PORT" \
-			--reload \
-			--reload-dir server \
-			>>"$LOG_SERVER" 2>&1
-	) &
+	# `setsid` puts the server in its own process group so we can SIGTERM the
+	# whole tree (uv → uvicorn → reloader → app worker) without the signal
+	# bouncing back to dev.sh itself.
+	setsid bash -c "
+		cd \"$REPO\"
+		exec env \
+			FLEET_DATA_DIR=\"$DATA_DIR\" \
+			FLEET_DB_URL=\"sqlite+aiosqlite:///$DATA_DIR/fleet.db\" \
+			FLEET_ADMIN_TOKEN=\"$admin_token\" \
+			FLEET_PUBLIC_URL=\"$public_url\" \
+			FLEET_COOKIE_SECURE=false \
+			uv run uvicorn server.app.main:app \
+				--host \"$HOST_BIND\" \
+				--port \"$SERVER_PORT\" \
+				--reload \
+				--reload-dir server \
+			>>\"$LOG_SERVER\" 2>&1
+	" </dev/null >/dev/null 2>&1 &
 	echo $! >"$PID_SERVER"
 	disown
 
-	# wait for /openapi.json
+	# wait for /openapi.json AND verify the listener is our process tree, not
+	# a stranger that happened to be on this port. Without the pid check we
+	# would silently report "healthy" against an unrelated server.
+	local our_pid; our_pid=$(cat "$PID_SERVER")
 	for _ in $(seq 1 60); do
+		# Did our spawned process die? Stop probing.
+		if ! kill -0 "$our_pid" 2>/dev/null; then
+			err "server process exited before becoming healthy; check $LOG_SERVER"
+			rm -f "$PID_SERVER"
+			return 1
+		fi
 		if curl -sf "http://127.0.0.1:$SERVER_PORT/openapi.json" >/dev/null 2>&1; then
-			log "server healthy"
-			return
+			local listening; listening=$(pids_on_port "$SERVER_PORT")
+			# Listener PID may be a child of our_pid (uv → uvicorn → reloader).
+			# Walk up parents to confirm relationship.
+			if _pid_in_tree "$our_pid" $listening; then
+				log "server healthy"
+				return
+			fi
+			err "port :$SERVER_PORT held by foreign pid(s) $listening — aborting"
+			rm -f "$PID_SERVER"
+			return 1
 		fi
 		sleep 0.5
 	done
 	err "server did not become healthy in 30s; check $LOG_SERVER"
+	return 1
+}
+
+# _pid_in_tree — return 0 if any of $2..$N has $1 as an ancestor (or equals $1).
+_pid_in_tree() {
+	local root="$1"; shift
+	local pid
+	for pid in "$@"; do
+		local cur="$pid"
+		for _ in $(seq 1 20); do
+			[[ -z "$cur" || "$cur" == "0" ]] && break
+			[[ "$cur" == "$root" ]] && return 0
+			cur=$(ps -o ppid= "$cur" 2>/dev/null | tr -d ' ')
+		done
+	done
 	return 1
 }
 
@@ -133,20 +250,23 @@ start_webui() {
 		return
 	fi
 
+	rm -f "$PID_WEBUI"
+	free_port "$WEBUI_PORT" "webui"
+
 	log "starting webui on :$WEBUI_PORT (next dev, hot reload, source maps)"
 
-	(
-		cd "$REPO/webui"
-		# Proxy handler reads INTERNAL_API_BASE per request; hot edits to
-		# routes/components reload automatically without container rebuild.
-		INTERNAL_API_BASE="http://127.0.0.1:$SERVER_PORT" \
-		PORT="$WEBUI_PORT" \
-		HOSTNAME="$HOST_BIND" \
-		NEXT_TELEMETRY_DISABLED=1 \
-		FLEET_PWA=0 \
-		exec npm run dev -- --hostname "$HOST_BIND" --port "$WEBUI_PORT" \
-			>>"$LOG_WEBUI" 2>&1
-	) &
+	# setsid: own process group, so cmd_down's group-kill never reaches dev.sh.
+	setsid bash -c "
+		cd \"$REPO/webui\"
+		exec env \
+			INTERNAL_API_BASE=\"http://127.0.0.1:$SERVER_PORT\" \
+			PORT=\"$WEBUI_PORT\" \
+			HOSTNAME=\"$HOST_BIND\" \
+			NEXT_TELEMETRY_DISABLED=1 \
+			FLEET_PWA=0 \
+			npm run dev -- --hostname \"$HOST_BIND\" --port \"$WEBUI_PORT\" \
+			>>\"$LOG_WEBUI\" 2>&1
+	" </dev/null >/dev/null 2>&1 &
 	echo $! >"$PID_WEBUI"
 	disown
 
@@ -164,7 +284,6 @@ start_webui() {
 
 bootstrap_owner() {
 	local email="${1:-owner@example.com}" password="${2:-Hunter2!ChangeMeSoon}"
-	local admin_token; admin_token=$(cat "$ADMIN_TOKEN_FILE")
 
 	# mint a one-time bootstrap token directly via Python
 	local token
@@ -187,12 +306,20 @@ async def main():
     print(raw)
 
 asyncio.run(main())
-")
+") || { err "bootstrap token mint failed"; return 1; }
 	log "bootstrap token minted, redeeming…"
-	curl -sS -X POST -H 'Content-Type: application/json' \
+	local body status
+	body=$(curl -sS -o /tmp/.dev_bootstrap_body.$$ -w '%{http_code}' \
+		-X POST -H 'Content-Type: application/json' \
 		-d "{\"token\":\"$token\",\"email\":\"$email\",\"password\":\"$password\"}" \
-		"http://127.0.0.1:$SERVER_PORT/v1/bootstrap/owner" | head -c 300
-	echo
+		"http://127.0.0.1:$SERVER_PORT/v1/bootstrap/owner") || true
+	status="$body"
+	body=$(cat /tmp/.dev_bootstrap_body.$$ 2>/dev/null | head -c 300)
+	rm -f /tmp/.dev_bootstrap_body.$$
+	if [[ "$status" != "200" && "$status" != "201" && "$status" != "204" ]]; then
+		err "bootstrap redeem failed (HTTP $status): $body"
+		return 1
+	fi
 	log "owner provisioned: $email / $password"
 }
 
@@ -202,10 +329,15 @@ cmd_up() {
 	start_server
 	start_webui
 
-	# bootstrap if no users exist (best-effort)
+	# bootstrap if no users exist. Marker only set on real success so a failed
+	# attempt (e.g. server not yet ready, or talking to an orphan with empty DB)
+	# does not poison subsequent runs.
 	if [[ ! -f "$DEV_DIR/.bootstrapped" ]]; then
-		bootstrap_owner || log "bootstrap skipped (already provisioned?)"
-		touch "$DEV_DIR/.bootstrapped"
+		if bootstrap_owner; then
+			touch "$DEV_DIR/.bootstrapped"
+		else
+			log "bootstrap failed; will retry on next 'up' or via 'scripts/dev.sh bootstrap'"
+		fi
 	fi
 
 	cat <<EOF
@@ -227,6 +359,10 @@ EOF
 cmd_down() {
 	stop_pid "$PID_WEBUI" webui
 	stop_pid "$PID_SERVER" server
+	# Belt-and-suspenders: kill anything still bound to our ports so a stale
+	# uvicorn reloader child or next-dev worker can't ghost into the next run.
+	free_port "$WEBUI_PORT" "webui"
+	free_port "$SERVER_PORT" "server"
 	log "stopped"
 }
 

@@ -1,7 +1,7 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
 import { type LogLine, tailHostLogs } from '@/lib/api/hosts-logs';
+import { useQuery } from '@tanstack/react-query';
 
 interface Props {
 	hostId: string;
@@ -25,11 +25,7 @@ export function HostLogsPanel({ hostId, paused, wrap, severity }: Props) {
 	});
 
 	if (q.isError) {
-		return (
-			<div className="text-sm text-text-dim">
-				Logs endpoint not available for this host.
-			</div>
-		);
+		return <div className="text-sm text-text-dim">Logs endpoint not available for this host.</div>;
 	}
 
 	const lines = (q.data ?? []).filter(l => severity === 'all' || l.level === severity);
@@ -37,7 +33,9 @@ export function HostLogsPanel({ hostId, paused, wrap, severity }: Props) {
 	return (
 		<div className={`font-mono text-[11px] ${wrap ? '' : 'whitespace-nowrap overflow-x-auto'}`}>
 			{q.isLoading ? <div className="text-text-dim">Loading…</div> : null}
-			{!q.isLoading && lines.length === 0 ? <div className="text-text-dim">No log lines.</div> : null}
+			{!q.isLoading && lines.length === 0 ? (
+				<div className="text-text-dim">No log lines.</div>
+			) : null}
 			{lines.map((l, i) => (
 				<div key={`${l.ts}-${i}`} className={`px-1 ${TONE[l.level]}`}>
 					<span className="text-text-dim">{l.ts.slice(11, 19)}</span> {l.msg}

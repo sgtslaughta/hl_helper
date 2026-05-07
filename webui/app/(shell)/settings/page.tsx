@@ -9,9 +9,9 @@ import { useQuery } from '@tanstack/react-query';
 
 interface Setting {
 	key: string;
-	value: string;
+	value: unknown;
 	source: 'runtime' | 'env' | 'file' | 'default';
-	scope?: 'runtime-mutable' | 'read-only';
+	scope?: 'runtime-mutable' | 'read-only' | 'boot-only' | 'env-locked';
 }
 
 interface SettingsResponse {
@@ -73,7 +73,14 @@ export default function SettingsPage() {
 										{prefixSettings.map(setting => (
 											<SettingRow
 												key={setting.key}
-												value={setting.value}
+												settingKey={setting.key}
+												value={
+													setting.value === null || setting.value === undefined
+														? ''
+														: typeof setting.value === 'object'
+															? JSON.stringify(setting.value)
+															: String(setting.value)
+												}
 												source={setting.source}
 												scope={setting.scope}
 											/>

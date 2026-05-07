@@ -1,10 +1,56 @@
 syntax = "proto3";
 package fleet.v1;
 
+option go_package = "github.com/hlhelper/hl-agent/proto/fleet/v1";
+
 import "google/protobuf/timestamp.proto";
 
 import "fleet/v1/envelope.proto";
 import "fleet/v1/results.proto";
+
+message Disk {
+  string device = 1;
+  string mount = 2;
+  string fstype = 3;
+  uint64 size_bytes = 4;
+}
+
+message Nic {
+  string name = 1;
+  string mac = 2;
+  repeated string ipv4 = 3;
+  repeated string ipv6 = 4;
+  uint64 speed_mbps = 5;
+}
+
+message HostSurvey {
+  string host_id = 1;
+  string os = 2;
+  string os_version = 3;
+  string kernel = 4;
+  string arch = 5;
+  string virt = 6;
+  string cpu_model = 7;
+  uint32 cpu_cores = 8;
+  uint32 cpu_threads = 9;
+  uint64 mem_total_bytes = 10;
+  repeated Disk disks = 11;
+  repeated Nic nics = 12;
+  string bios_vendor = 13;
+  string bios_version = 14;
+  string board_vendor = 15;
+  string board_product = 16;
+  google.protobuf.Timestamp collected_at = 17;
+  bytes signature = 200;
+}
+
+message HeartbeatConfig {
+  uint32 interval_s = 1;
+}
+
+message RunSurvey {
+  string reason = 1;
+}
 
 message HostMetrics {
   float load_1 = 1;
@@ -13,6 +59,8 @@ message HostMetrics {
   float mem_used_pct = 4;
   float disk_used_pct = 5;
   uint64 uptime_seconds = 6;
+  uint64 net_rx_bps = 7;  // bytes/sec received, averaged over heartbeat interval
+  uint64 net_tx_bps = 8;  // bytes/sec transmitted, averaged over heartbeat interval
 }
 
 message Heartbeat {
@@ -71,6 +119,7 @@ message AgentToServer {
     CapabilityRequest cap_req = 4;
     CertRotateRequest cert_rotate = 5;
     DecommissionAck decom_ack = 6;
+    HostSurvey host_survey = 7;
   }
 }
 
@@ -81,6 +130,8 @@ message ServerToAgent {
     CertIssueResponse cert_issue = 3;
     ManifestUpdate manifest = 4;
     Decommission decom = 5;
+    HeartbeatConfig hb_config = 6;
+    RunSurvey run_survey = 7;
   }
 }
 

@@ -24,8 +24,59 @@ import (
 	"github.com/hlhelper/hl-agent/internal/executor"
 	"github.com/hlhelper/hl-agent/internal/keystore"
 	"github.com/hlhelper/hl-agent/internal/outbox"
+	"github.com/hlhelper/hl-agent/internal/survey"
 	pb "github.com/hlhelper/hl-agent/proto/fleet/v1"
+
+	"github.com/shirou/gopsutil/v3/disk"
+	gpshost "github.com/shirou/gopsutil/v3/host"
+	"github.com/shirou/gopsutil/v3/load"
+	"github.com/shirou/gopsutil/v3/mem"
+	gpsnet "github.com/shirou/gopsutil/v3/net"
+	"sync/atomic"
 )
+
+// netSampler tracks cumulative rx/tx byte counts across heartbeats and
+// converts them into per-second rates over the elapsed wall-clock interval.
+// First sample yields zero (no prior datum to compare against).
+type netSampler struct {
+	mu       sync.Mutex
+	lastRx   uint64
+	lastTx   uint64
+	lastTime time.Time
+}
+
+func (n *netSampler) sample() (rxBps, txBps uint64) {
+	stats, err := gpsnet.IOCounters(false)
+	if err != nil || len(stats) == 0 {
+		return 0, 0
+	}
+	cur := stats[0]
+	now := time.Now()
+
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	if n.lastTime.IsZero() {
+		n.lastRx = cur.BytesRecv
+		n.lastTx = cur.BytesSent
+		n.lastTime = now
+		return 0, 0
+	}
+	dt := now.Sub(n.lastTime).Seconds()
+	if dt <= 0 {
+		return 0, 0
+	}
+	if cur.BytesRecv >= n.lastRx {
+		rxBps = uint64(float64(cur.BytesRecv-n.lastRx) / dt)
+	}
+	if cur.BytesSent >= n.lastTx {
+		txBps = uint64(float64(cur.BytesSent-n.lastTx) / dt)
+	}
+	n.lastRx = cur.BytesRecv
+	n.lastTx = cur.BytesSent
+	n.lastTime = now
+	return rxBps, txBps
+}
 
 // Executor interface for running commands.
 type Executor interface {
@@ -47,9 +98,10 @@ type Options struct {
 	OnCommand         func(*pb.CommandEnvelope) // optional legacy callback
 	BaseBackoff       time.Duration
 	MaxBackoff        time.Duration
-	HeartbeatInterval time.Duration // default 15s when zero
+	HeartbeatInterval time.Duration // default 30s when zero; overridden at runtime by HeartbeatConfig from server
 	DialOptions       []grpc.DialOption // override (tests use bufconn)
 	KeystoreDir       string        // optional; for persisting result sequence counter
+	AgentVersion      string        // optional; included in heartbeats for visibility
 }
 
 type Client struct{ opts Options }
@@ -120,13 +172,19 @@ func (c *Client) runOnce(ctx context.Context) error {
 		return err
 	}
 
-	hbInterval := c.opts.HeartbeatInterval
-	if hbInterval <= 0 {
-		hbInterval = 15 * time.Second
+	defaultIvl := c.opts.HeartbeatInterval
+	if defaultIvl <= 0 {
+		defaultIvl = 30 * time.Second
 	}
+	// Atomic interval seconds — server may override via HeartbeatConfig at any
+	// time. Reset channel kicks the ticker so the new interval takes effect
+	// immediately rather than waiting for the previous tick.
+	intervalS := atomic.Int32{}
+	intervalS.Store(int32(defaultIvl / time.Second))
+	resetCh := make(chan struct{}, 1)
 
 	// gRPC bidi stream Send is NOT goroutine-safe. Serialize all senders
-	// (heartbeat + outbox drain) through this mutex.
+	// (heartbeat + outbox drain + survey) through this mutex.
 	var sendMu sync.Mutex
 	sendMsg := func(msg *pb.AgentToServer) error {
 		sendMu.Lock()
@@ -134,39 +192,44 @@ func (c *Client) runOnce(ctx context.Context) error {
 		return stream.Send(msg)
 	}
 
+	// One-shot survey on every connect: server overwrites the previous row
+	// in-place, so we always re-send (cheap on Linux: a few /proc reads + DMI
+	// strings). Failure is non-fatal — the next reconnect will retry.
+	go func() {
+		s, err := survey.Collect(ctx, c.opts.HostID)
+		if err != nil || s == nil {
+			return
+		}
+		_ = sendMsg(&pb.AgentToServer{
+			Msg: &pb.AgentToServer_HostSurvey{HostSurvey: s},
+		})
+	}()
+
+	// Net rate sampler shared across heartbeats so deltas are computed
+	// against the previous send interval.
+	netSamp := &netSampler{}
+
 	// Heartbeat sender goroutine. Lifecycle is bound to ctx + send-error.
 	hbCtx, hbCancel := context.WithCancel(ctx)
 	defer hbCancel()
 	hbErr := make(chan error, 1)
 	go func() {
-		// Send one immediately on stream open so server registers the host
-		// promptly (avoids ~15s of "offline" right after connect).
-		if err := sendMsg(&pb.AgentToServer{
-			Msg: &pb.AgentToServer_Heartbeat{
-				Heartbeat: &pb.Heartbeat{
-					HostId: c.opts.HostID,
-					At:     timestamppb.Now(),
-				},
-			},
-		}); err != nil {
+		if err := sendMsg(buildHeartbeat(c.opts.HostID, c.opts.AgentVersion, netSamp)); err != nil {
 			hbErr <- err
 			return
 		}
-		t := time.NewTicker(hbInterval)
-		defer t.Stop()
 		for {
+			ivl := time.Duration(intervalS.Load()) * time.Second
+			t := time.NewTimer(ivl)
 			select {
 			case <-hbCtx.Done():
+				t.Stop()
 				return
+			case <-resetCh:
+				t.Stop()
+				continue
 			case <-t.C:
-				if err := sendMsg(&pb.AgentToServer{
-					Msg: &pb.AgentToServer_Heartbeat{
-						Heartbeat: &pb.Heartbeat{
-							HostId: c.opts.HostID,
-							At:     timestamppb.Now(),
-						},
-					},
-				}); err != nil {
+				if err := sendMsg(buildHeartbeat(c.opts.HostID, c.opts.AgentVersion, netSamp)); err != nil {
 					hbErr <- err
 					return
 				}
@@ -237,15 +300,38 @@ func (c *Client) runOnce(ctx context.Context) error {
 				recvErr <- e
 				return
 			}
-			if cmd := msg.GetCommand(); cmd != nil {
-				// If executor is set, execute the command and queue result
+			switch m := msg.Msg.(type) {
+			case *pb.ServerToAgent_Command:
+				cmd := m.Command
 				if c.opts.Executor != nil && c.opts.Outbox != nil {
 					go c.executeAndQueueResult(ctx, cmd, &resultSeqMu, &resultSeq, &prevHash)
 				}
-				// Also call legacy OnCommand callback if set
 				if c.opts.OnCommand != nil {
 					c.opts.OnCommand(cmd)
 				}
+			case *pb.ServerToAgent_HbConfig:
+				ivl := int32(m.HbConfig.IntervalS)
+				if ivl < 5 {
+					ivl = 5
+				}
+				if ivl > 3600 {
+					ivl = 3600
+				}
+				intervalS.Store(ivl)
+				select {
+				case resetCh <- struct{}{}:
+				default:
+				}
+			case *pb.ServerToAgent_RunSurvey:
+				go func(reason string) {
+					s, err := survey.Collect(ctx, c.opts.HostID)
+					if err != nil || s == nil {
+						return
+					}
+					_ = sendMsg(&pb.AgentToServer{
+						Msg: &pb.AgentToServer_HostSurvey{HostSurvey: s},
+					})
+				}(m.RunSurvey.Reason)
 			}
 		}
 	}()
@@ -414,4 +500,38 @@ func (c *Client) tlsCreds() (credentials.TransportCredentials, error) {
 		},
 	}
 	return credentials.NewTLS(cfg), nil
+}
+
+// buildHeartbeat assembles a heartbeat message with current minimal metrics.
+// Cheap on Linux: load avg from /proc/loadavg, mem from /proc/meminfo, disk
+// usage from statfs(/), uptime from /proc/uptime.
+func buildHeartbeat(hostID, agentVersion string, ns *netSampler) *pb.AgentToServer {
+	m := &pb.HostMetrics{}
+	if l, err := load.Avg(); err == nil {
+		m.Load_1 = float32(l.Load1)
+		m.Load_5 = float32(l.Load5)
+		m.Load_15 = float32(l.Load15)
+	}
+	if vm, err := mem.VirtualMemory(); err == nil {
+		m.MemUsedPct = float32(vm.UsedPercent)
+	}
+	if u, err := disk.Usage("/"); err == nil {
+		m.DiskUsedPct = float32(u.UsedPercent)
+	}
+	if up, err := gpshost.Uptime(); err == nil {
+		m.UptimeSeconds = up
+	}
+	if ns != nil {
+		m.NetRxBps, m.NetTxBps = ns.sample()
+	}
+	return &pb.AgentToServer{
+		Msg: &pb.AgentToServer_Heartbeat{
+			Heartbeat: &pb.Heartbeat{
+				HostId:       hostID,
+				At:           timestamppb.Now(),
+				Metrics:      m,
+				AgentVersion: agentVersion,
+			},
+		},
+	}
 }

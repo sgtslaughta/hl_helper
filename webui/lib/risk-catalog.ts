@@ -4,6 +4,7 @@ export type ActionType =
 	| 'reboot'
 	| 'shell-exec'
 	| 'pkg-update'
+	| 'resurvey'
 	| 'revoke-host'
 	| 'delete-host'
 	| 'mint-enrollment-token'
@@ -72,6 +73,18 @@ export const riskCatalog: Record<ActionType, RiskEntry> = {
 			method: 'POST',
 			pathTemplate: '/v1/hosts/{id}/actions/pkg-update',
 			samplePayload: { classes: ['security'] },
+		},
+	},
+	resurvey: {
+		displayName: 'Resurvey host',
+		summary: 'Requests hardware and system information refresh from the agent.',
+		riskClass: 'info',
+		risks: [],
+		rollback: 'Previous survey data is preserved; this only refreshes the latest snapshot.',
+		technical: {
+			method: 'POST',
+			pathTemplate: '/v1/hosts/{id}/resurvey',
+			samplePayload: {},
 		},
 	},
 	'revoke-host': {

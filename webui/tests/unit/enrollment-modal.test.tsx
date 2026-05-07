@@ -8,9 +8,10 @@ vi.mock('@/lib/api/enrollment', () => ({
   mintEnrollmentToken: vi.fn(),
   listPendingTokens: vi.fn().mockResolvedValue([]),
   revokePendingToken: vi.fn(),
+  getAdvertisedOrigins: vi.fn(),
 }));
 
-import { mintEnrollmentToken, listPendingTokens } from '@/lib/api/enrollment';
+import { mintEnrollmentToken, listPendingTokens, getAdvertisedOrigins } from '@/lib/api/enrollment';
 
 function wrap(ui: ReactNode) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -18,7 +19,13 @@ function wrap(ui: ReactNode) {
 }
 
 describe('EnrollmentModal step 1', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (getAdvertisedOrigins as unknown as { mockResolvedValue: (v: unknown) => void }).mockResolvedValue({
+      origins: ['origin-a'],
+      default: 'origin-a',
+    });
+  });
 
   it('disables submit when label empty', () => {
     render(wrap(<EnrollmentModal onClose={vi.fn()} />));
@@ -41,8 +48,63 @@ describe('EnrollmentModal step 1', () => {
   });
 });
 
-describe('EnrollmentModal step 3 watching', () => {
+describe('EnrollmentModal origin picker', () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it('shows origin select when origins.length > 1', async () => {
+    (getAdvertisedOrigins as unknown as { mockResolvedValue: (v: unknown) => void }).mockResolvedValue({
+      origins: ['origin-a', 'origin-b'],
+      default: 'origin-a',
+    });
+    render(wrap(<EnrollmentModal onClose={vi.fn()} />));
+    await waitFor(() => expect(screen.getByDisplayValue('origin-a')).toBeInTheDocument());
+  });
+
+  it('hides origin select when origins.length === 1', async () => {
+    (getAdvertisedOrigins as unknown as { mockResolvedValue: (v: unknown) => void }).mockResolvedValue({
+      origins: ['origin-a'],
+      default: 'origin-a',
+    });
+    render(wrap(<EnrollmentModal onClose={vi.fn()} />));
+    await waitFor(() => {
+      expect(screen.queryByLabelText(/Origin/i)).not.toBeInTheDocument();
+    });
+  });
+
+  it('passes selected origin in mint request', async () => {
+    (getAdvertisedOrigins as unknown as { mockResolvedValue: (v: unknown) => void }).mockResolvedValue({
+      origins: ['origin-a', 'origin-b'],
+      default: 'origin-a',
+    });
+    (mintEnrollmentToken as unknown as { mockResolvedValue: (v: unknown) => void }).mockResolvedValue({
+      token_id: 'et_1',
+      plaintext_token: 'hlh_enr_abc',
+      expires_at: new Date(Date.now() + 900_000).toISOString(),
+      install_command: 'curl ...',
+    });
+    render(wrap(<EnrollmentModal onClose={vi.fn()} />));
+    await waitFor(() => screen.getByDisplayValue('origin-a'));
+    fireEvent.change(screen.getByLabelText(/Origin/i), { target: { value: 'origin-b' } });
+    fireEvent.change(screen.getByLabelText(/label/i), { target: { value: 'lab-01' } });
+    fireEvent.click(screen.getByRole('button', { name: /mint token/i }));
+    await waitFor(() =>
+      expect(mintEnrollmentToken).toHaveBeenCalledWith({
+        label: 'lab-01',
+        ttl_seconds: 900,
+        origin: 'origin-b',
+      })
+    );
+  });
+});
+
+describe('EnrollmentModal step 3 watching', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (getAdvertisedOrigins as unknown as { mockResolvedValue: (v: unknown) => void }).mockResolvedValue({
+      origins: ['origin-a'],
+      default: 'origin-a',
+    });
+  });
 
   it('shows watching state when user clicks Watch for redemption', async () => {
     (mintEnrollmentToken as unknown as { mockResolvedValue: (v: unknown) => void }).mockResolvedValue({
@@ -58,8 +120,8 @@ describe('EnrollmentModal step 3 watching', () => {
     render(wrap(<EnrollmentModal onClose={vi.fn()} />));
     fireEvent.change(screen.getByLabelText(/label/i), { target: { value: 'lab-01' } });
     fireEvent.click(screen.getByRole('button', { name: /mint token/i }));
-    await waitFor(() => screen.getByRole('button', { name: /watch for redemption/i }));
-    fireEvent.click(screen.getByRole('button', { name: /watch for redemption/i }));
+    await waitFor(() => screen.getByRole('button', { name: /watch/i }));
+    fireEvent.click(screen.getByRole('button', { name: /watch/i }));
     expect(await screen.findByText(/Waiting for agent/i)).toBeInTheDocument();
   });
 
@@ -75,8 +137,8 @@ describe('EnrollmentModal step 3 watching', () => {
     render(wrap(<EnrollmentModal onClose={vi.fn()} />));
     fireEvent.change(screen.getByLabelText(/label/i), { target: { value: 'lab-02' } });
     fireEvent.click(screen.getByRole('button', { name: /mint token/i }));
-    await waitFor(() => screen.getByRole('button', { name: /watch for redemption/i }));
-    fireEvent.click(screen.getByRole('button', { name: /watch for redemption/i }));
+    await waitFor(() => screen.getByRole('button', { name: /watch/i }));
+    fireEvent.click(screen.getByRole('button', { name: /watch/i }));
     expect(await screen.findByText(/Enrolled/i)).toBeInTheDocument();
   });
 });

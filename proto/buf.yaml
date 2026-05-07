@@ -1,6 +1,4 @@
-version: v2
-modules:
-  - path: .
+version: v1
 lint:
   use:
     - STANDARD

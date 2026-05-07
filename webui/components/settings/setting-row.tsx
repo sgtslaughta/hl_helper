@@ -8,14 +8,16 @@ import { useState } from 'react';
 import { SourceBadge } from './source-badge';
 
 interface SettingRowProps {
-	key: string;
+	// `key` is reserved by React for list reconciliation and never reaches
+	// component props — accept it under a different name.
+	settingKey: string;
 	value: string;
 	source: 'runtime' | 'env' | 'file' | 'default';
-	scope?: 'runtime-mutable' | 'read-only';
+	scope?: 'runtime-mutable' | 'read-only' | 'boot-only' | 'env-locked';
 }
 
 export function SettingRow({
-	key,
+	settingKey,
 	value: initialValue,
 	source,
 	scope = 'read-only',
@@ -30,9 +32,11 @@ export function SettingRow({
 	const handleSave = async () => {
 		setIsLoading(true);
 		try {
+			// Server contract: PATCH /v1/settings expects {key, value} pair —
+			// not a single-property object keyed by the setting name.
 			await apiFetch('/v1/settings', {
 				method: 'PATCH',
-				body: JSON.stringify({ [key]: value }),
+				body: JSON.stringify({ key: settingKey, value }),
 			});
 			setIsEditing(false);
 		} catch (err) {
@@ -50,7 +54,7 @@ export function SettingRow({
 
 	return (
 		<tr className="border-t border-hairline hover:bg-surface-2">
-			<td className="px-4 py-3 text-small font-medium text-text">{key}</td>
+			<td className="px-4 py-3 text-small font-medium text-text">{settingKey}</td>
 			<td className="px-4 py-3 text-small text-text">
 				{isEditing && isEditable ? (
 					<input

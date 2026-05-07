@@ -27,37 +27,48 @@ from fleet.v1 import envelope_pb2 as fleet_dot_v1_dot_envelope__pb2
 from fleet.v1 import results_pb2 as fleet_dot_v1_dot_results__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1b\x66leet/v1/agent_bridge.proto\x12\x08\x66leet.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17\x66leet/v1/envelope.proto\x1a\x16\x66leet/v1/results.proto\"\x83\x01\n\x0bHostMetrics\x12\x0e\n\x06load_1\x18\x01 \x01(\x02\x12\x0e\n\x06load_5\x18\x02 \x01(\x02\x12\x0f\n\x07load_15\x18\x03 \x01(\x02\x12\x14\n\x0cmem_used_pct\x18\x04 \x01(\x02\x12\x15\n\rdisk_used_pct\x18\x05 \x01(\x02\x12\x16\n\x0euptime_seconds\x18\x06 \x01(\x04\"\xaf\x01\n\tHeartbeat\x12\x0f\n\x07host_id\x18\x01 \x01(\t\x12&\n\x02\x61t\x18\x02 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x16\n\x0elast_acked_seq\x18\x03 \x01(\x04\x12&\n\x07metrics\x18\x04 \x01(\x0b\x32\x15.fleet.v1.HostMetrics\x12\x15\n\ragent_version\x18\x05 \x01(\t\x12\x12\n\tsignature\x18\xc8\x01 \x01(\x0c\"X\n\x0cHeartbeatAck\x12-\n\tserver_at\x18\x01 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x19\n\x11next_expected_seq\x18\x02 \x01(\x04\"M\n\rResumeRequest\x12\x0f\n\x07host_id\x18\x01 \x01(\t\x12\x19\n\x11stream_session_id\x18\x02 \x01(\t\x12\x10\n\x08last_seq\x18\x03 \x01(\x04\"3\n\x11\x43\x61pabilityRequest\x12\x0f\n\x07host_id\x18\x01 \x01(\t\x12\r\n\x05scope\x18\x02 \x01(\t\"5\n\x11\x43\x65rtRotateRequest\x12\x0f\n\x07host_id\x18\x01 \x01(\t\x12\x0f\n\x07\x63sr_pem\x18\x02 \x01(\x0c\"Z\n\x11\x43\x65rtIssueResponse\x12\x16\n\x0e\x63\x65rt_chain_pem\x18\x01 \x01(\x0c\x12-\n\tnot_after\x18\x02 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\")\n\x0eManifestUpdate\x12\x17\n\x0fmanifest_signed\x18\x01 \x01(\x0c\"4\n\x0c\x44\x65\x63ommission\x12\x0e\n\x06reason\x18\x01 \x01(\t\x12\x14\n\x0crequested_by\x18\x02 \x01(\t\"9\n\x0f\x44\x65\x63ommissionAck\x12&\n\x02\x61t\x18\x01 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\"\xab\x02\n\rAgentToServer\x12(\n\theartbeat\x18\x01 \x01(\x0b\x32\x13.fleet.v1.HeartbeatH\x00\x12*\n\x06result\x18\x02 \x01(\x0b\x32\x18.fleet.v1.ResultEnvelopeH\x00\x12)\n\x06resume\x18\x03 \x01(\x0b\x32\x17.fleet.v1.ResumeRequestH\x00\x12.\n\x07\x63\x61p_req\x18\x04 \x01(\x0b\x32\x1b.fleet.v1.CapabilityRequestH\x00\x12\x32\n\x0b\x63\x65rt_rotate\x18\x05 \x01(\x0b\x32\x1b.fleet.v1.CertRotateRequestH\x00\x12.\n\tdecom_ack\x18\x06 \x01(\x0b\x32\x19.fleet.v1.DecommissionAckH\x00\x42\x05\n\x03msg\"\xf8\x01\n\rServerToAgent\x12,\n\x07\x63ommand\x18\x01 \x01(\x0b\x32\x19.fleet.v1.CommandEnvelopeH\x00\x12(\n\x06hb_ack\x18\x02 \x01(\x0b\x32\x16.fleet.v1.HeartbeatAckH\x00\x12\x31\n\ncert_issue\x18\x03 \x01(\x0b\x32\x1b.fleet.v1.CertIssueResponseH\x00\x12,\n\x08manifest\x18\x04 \x01(\x0b\x32\x18.fleet.v1.ManifestUpdateH\x00\x12\'\n\x05\x64\x65\x63om\x18\x05 \x01(\x0b\x32\x16.fleet.v1.DecommissionH\x00\x42\x05\n\x03msg2M\n\x0b\x41gentBridge\x12>\n\x06Stream\x12\x17.fleet.v1.AgentToServer\x1a\x17.fleet.v1.ServerToAgent(\x01\x30\x01\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1b\x66leet/v1/agent_bridge.proto\x12\x08\x66leet.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17\x66leet/v1/envelope.proto\x1a\x16\x66leet/v1/results.proto\"I\n\x04\x44isk\x12\x0e\n\x06\x64\x65vice\x18\x01 \x01(\t\x12\r\n\x05mount\x18\x02 \x01(\t\x12\x0e\n\x06\x66stype\x18\x03 \x01(\t\x12\x12\n\nsize_bytes\x18\x04 \x01(\x04\"P\n\x03Nic\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x0b\n\x03mac\x18\x02 \x01(\t\x12\x0c\n\x04ipv4\x18\x03 \x03(\t\x12\x0c\n\x04ipv6\x18\x04 \x03(\t\x12\x12\n\nspeed_mbps\x18\x05 \x01(\x04\"\x97\x03\n\nHostSurvey\x12\x0f\n\x07host_id\x18\x01 \x01(\t\x12\n\n\x02os\x18\x02 \x01(\t\x12\x12\n\nos_version\x18\x03 \x01(\t\x12\x0e\n\x06kernel\x18\x04 \x01(\t\x12\x0c\n\x04\x61rch\x18\x05 \x01(\t\x12\x0c\n\x04virt\x18\x06 \x01(\t\x12\x11\n\tcpu_model\x18\x07 \x01(\t\x12\x11\n\tcpu_cores\x18\x08 \x01(\r\x12\x13\n\x0b\x63pu_threads\x18\t \x01(\r\x12\x17\n\x0fmem_total_bytes\x18\n \x01(\x04\x12\x1d\n\x05\x64isks\x18\x0b \x03(\x0b\x32\x0e.fleet.v1.Disk\x12\x1b\n\x04nics\x18\x0c \x03(\x0b\x32\r.fleet.v1.Nic\x12\x13\n\x0b\x62ios_vendor\x18\r \x01(\t\x12\x14\n\x0c\x62ios_version\x18\x0e \x01(\t\x12\x14\n\x0c\x62oard_vendor\x18\x0f \x01(\t\x12\x15\n\rboard_product\x18\x10 \x01(\t\x12\x30\n\x0c\x63ollected_at\x18\x11 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x12\n\tsignature\x18\xc8\x01 \x01(\x0c\"%\n\x0fHeartbeatConfig\x12\x12\n\ninterval_s\x18\x01 \x01(\r\"\x1b\n\tRunSurvey\x12\x0e\n\x06reason\x18\x01 \x01(\t\"\xab\x01\n\x0bHostMetrics\x12\x0e\n\x06load_1\x18\x01 \x01(\x02\x12\x0e\n\x06load_5\x18\x02 \x01(\x02\x12\x0f\n\x07load_15\x18\x03 \x01(\x02\x12\x14\n\x0cmem_used_pct\x18\x04 \x01(\x02\x12\x15\n\rdisk_used_pct\x18\x05 \x01(\x02\x12\x16\n\x0euptime_seconds\x18\x06 \x01(\x04\x12\x12\n\nnet_rx_bps\x18\x07 \x01(\x04\x12\x12\n\nnet_tx_bps\x18\x08 \x01(\x04\"\xaf\x01\n\tHeartbeat\x12\x0f\n\x07host_id\x18\x01 \x01(\t\x12&\n\x02\x61t\x18\x02 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x16\n\x0elast_acked_seq\x18\x03 \x01(\x04\x12&\n\x07metrics\x18\x04 \x01(\x0b\x32\x15.fleet.v1.HostMetrics\x12\x15\n\ragent_version\x18\x05 \x01(\t\x12\x12\n\tsignature\x18\xc8\x01 \x01(\x0c\"X\n\x0cHeartbeatAck\x12-\n\tserver_at\x18\x01 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x19\n\x11next_expected_seq\x18\x02 \x01(\x04\"M\n\rResumeRequest\x12\x0f\n\x07host_id\x18\x01 \x01(\t\x12\x19\n\x11stream_session_id\x18\x02 \x01(\t\x12\x10\n\x08last_seq\x18\x03 \x01(\x04\"3\n\x11\x43\x61pabilityRequest\x12\x0f\n\x07host_id\x18\x01 \x01(\t\x12\r\n\x05scope\x18\x02 \x01(\t\"5\n\x11\x43\x65rtRotateRequest\x12\x0f\n\x07host_id\x18\x01 \x01(\t\x12\x0f\n\x07\x63sr_pem\x18\x02 \x01(\x0c\"Z\n\x11\x43\x65rtIssueResponse\x12\x16\n\x0e\x63\x65rt_chain_pem\x18\x01 \x01(\x0c\x12-\n\tnot_after\x18\x02 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\")\n\x0eManifestUpdate\x12\x17\n\x0fmanifest_signed\x18\x01 \x01(\x0c\"4\n\x0c\x44\x65\x63ommission\x12\x0e\n\x06reason\x18\x01 \x01(\t\x12\x14\n\x0crequested_by\x18\x02 \x01(\t\"9\n\x0f\x44\x65\x63ommissionAck\x12&\n\x02\x61t\x18\x01 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\"\xd8\x02\n\rAgentToServer\x12(\n\theartbeat\x18\x01 \x01(\x0b\x32\x13.fleet.v1.HeartbeatH\x00\x12*\n\x06result\x18\x02 \x01(\x0b\x32\x18.fleet.v1.ResultEnvelopeH\x00\x12)\n\x06resume\x18\x03 \x01(\x0b\x32\x17.fleet.v1.ResumeRequestH\x00\x12.\n\x07\x63\x61p_req\x18\x04 \x01(\x0b\x32\x1b.fleet.v1.CapabilityRequestH\x00\x12\x32\n\x0b\x63\x65rt_rotate\x18\x05 \x01(\x0b\x32\x1b.fleet.v1.CertRotateRequestH\x00\x12.\n\tdecom_ack\x18\x06 \x01(\x0b\x32\x19.fleet.v1.DecommissionAckH\x00\x12+\n\x0bhost_survey\x18\x07 \x01(\x0b\x32\x14.fleet.v1.HostSurveyH\x00\x42\x05\n\x03msg\"\xd3\x02\n\rServerToAgent\x12,\n\x07\x63ommand\x18\x01 \x01(\x0b\x32\x19.fleet.v1.CommandEnvelopeH\x00\x12(\n\x06hb_ack\x18\x02 \x01(\x0b\x32\x16.fleet.v1.HeartbeatAckH\x00\x12\x31\n\ncert_issue\x18\x03 \x01(\x0b\x32\x1b.fleet.v1.CertIssueResponseH\x00\x12,\n\x08manifest\x18\x04 \x01(\x0b\x32\x18.fleet.v1.ManifestUpdateH\x00\x12\'\n\x05\x64\x65\x63om\x18\x05 \x01(\x0b\x32\x16.fleet.v1.DecommissionH\x00\x12.\n\thb_config\x18\x06 \x01(\x0b\x32\x19.fleet.v1.HeartbeatConfigH\x00\x12)\n\nrun_survey\x18\x07 \x01(\x0b\x32\x13.fleet.v1.RunSurveyH\x00\x42\x05\n\x03msg2M\n\x0b\x41gentBridge\x12>\n\x06Stream\x12\x17.fleet.v1.AgentToServer\x1a\x17.fleet.v1.ServerToAgent(\x01\x30\x01\x42-Z+github.com/hlhelper/hl-agent/proto/fleet/v1b\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'fleet.v1.agent_bridge_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
-  DESCRIPTOR._loaded_options = None
-  _globals['_HOSTMETRICS']._serialized_start=124
-  _globals['_HOSTMETRICS']._serialized_end=255
-  _globals['_HEARTBEAT']._serialized_start=258
-  _globals['_HEARTBEAT']._serialized_end=433
-  _globals['_HEARTBEATACK']._serialized_start=435
-  _globals['_HEARTBEATACK']._serialized_end=523
-  _globals['_RESUMEREQUEST']._serialized_start=525
-  _globals['_RESUMEREQUEST']._serialized_end=602
-  _globals['_CAPABILITYREQUEST']._serialized_start=604
-  _globals['_CAPABILITYREQUEST']._serialized_end=655
-  _globals['_CERTROTATEREQUEST']._serialized_start=657
-  _globals['_CERTROTATEREQUEST']._serialized_end=710
-  _globals['_CERTISSUERESPONSE']._serialized_start=712
-  _globals['_CERTISSUERESPONSE']._serialized_end=802
-  _globals['_MANIFESTUPDATE']._serialized_start=804
-  _globals['_MANIFESTUPDATE']._serialized_end=845
-  _globals['_DECOMMISSION']._serialized_start=847
-  _globals['_DECOMMISSION']._serialized_end=899
-  _globals['_DECOMMISSIONACK']._serialized_start=901
-  _globals['_DECOMMISSIONACK']._serialized_end=958
-  _globals['_AGENTTOSERVER']._serialized_start=961
-  _globals['_AGENTTOSERVER']._serialized_end=1260
-  _globals['_SERVERTOAGENT']._serialized_start=1263
-  _globals['_SERVERTOAGENT']._serialized_end=1511
-  _globals['_AGENTBRIDGE']._serialized_start=1513
-  _globals['_AGENTBRIDGE']._serialized_end=1590
+  _globals['DESCRIPTOR']._loaded_options = None
+  _globals['DESCRIPTOR']._serialized_options = b'Z+github.com/hlhelper/hl-agent/proto/fleet/v1'
+  _globals['_DISK']._serialized_start=123
+  _globals['_DISK']._serialized_end=196
+  _globals['_NIC']._serialized_start=198
+  _globals['_NIC']._serialized_end=278
+  _globals['_HOSTSURVEY']._serialized_start=281
+  _globals['_HOSTSURVEY']._serialized_end=688
+  _globals['_HEARTBEATCONFIG']._serialized_start=690
+  _globals['_HEARTBEATCONFIG']._serialized_end=727
+  _globals['_RUNSURVEY']._serialized_start=729
+  _globals['_RUNSURVEY']._serialized_end=756
+  _globals['_HOSTMETRICS']._serialized_start=759
+  _globals['_HOSTMETRICS']._serialized_end=930
+  _globals['_HEARTBEAT']._serialized_start=933
+  _globals['_HEARTBEAT']._serialized_end=1108
+  _globals['_HEARTBEATACK']._serialized_start=1110
+  _globals['_HEARTBEATACK']._serialized_end=1198
+  _globals['_RESUMEREQUEST']._serialized_start=1200
+  _globals['_RESUMEREQUEST']._serialized_end=1277
+  _globals['_CAPABILITYREQUEST']._serialized_start=1279
+  _globals['_CAPABILITYREQUEST']._serialized_end=1330
+  _globals['_CERTROTATEREQUEST']._serialized_start=1332
+  _globals['_CERTROTATEREQUEST']._serialized_end=1385
+  _globals['_CERTISSUERESPONSE']._serialized_start=1387
+  _globals['_CERTISSUERESPONSE']._serialized_end=1477
+  _globals['_MANIFESTUPDATE']._serialized_start=1479
+  _globals['_MANIFESTUPDATE']._serialized_end=1520
+  _globals['_DECOMMISSION']._serialized_start=1522
+  _globals['_DECOMMISSION']._serialized_end=1574
+  _globals['_DECOMMISSIONACK']._serialized_start=1576
+  _globals['_DECOMMISSIONACK']._serialized_end=1633
+  _globals['_AGENTTOSERVER']._serialized_start=1636
+  _globals['_AGENTTOSERVER']._serialized_end=1980
+  _globals['_SERVERTOAGENT']._serialized_start=1983
+  _globals['_SERVERTOAGENT']._serialized_end=2322
+  _globals['_AGENTBRIDGE']._serialized_start=2324
+  _globals['_AGENTBRIDGE']._serialized_end=2401
 # @@protoc_insertion_point(module_scope)

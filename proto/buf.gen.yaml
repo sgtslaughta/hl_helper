@@ -1,12 +1,12 @@
-version: v2
+version: v1
 plugins:
-  - remote: buf.build/protocolbuffers/python
+  - plugin: buf.build/protocolbuffers/python:v27.1
     out: ../server/app/grpc/_pb
-  - remote: buf.build/grpc/python
+  - plugin: buf.build/grpc/python:v1.62.2
     out: ../server/app/grpc/_pb
-  - remote: buf.build/protocolbuffers/go
-    out: ../agent/internal/transport/pb
+  - plugin: buf.build/protocolbuffers/go:v1.35.2
+    out: ../agent/proto
     opt: paths=source_relative
-  - remote: buf.build/grpc/go
-    out: ../agent/internal/transport/pb
+  - plugin: buf.build/grpc/go:v1.5.1
+    out: ../agent/proto
     opt: paths=source_relative

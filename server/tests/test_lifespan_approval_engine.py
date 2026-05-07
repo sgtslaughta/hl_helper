@@ -135,9 +135,13 @@ async def test_lifespan_wires_approval_engine(
     from server.app.rbac.provider import Principal, Decision
 
     class FakeRBACProvider:
-        """Permissive RBAC for testing."""
+        """Permissive RBAC for testing — but deny task:approve so the
+        dispatcher's auto-self-approve path does not bypass the approval gate.
+        """
 
         async def is_authorized(self, principal: Principal, action: str, resource, ctx) -> Decision:
+            if action == "task:approve":
+                return Decision(allow=False)
             return Decision(allow=True)
 
     queue = CommandQueue()

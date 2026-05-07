@@ -1,6 +1,6 @@
 'use client';
 
-import { type HotkeyBinding, getHotkeys } from '@/lib/hotkeys';
+import { type HotkeyBinding, getHotkeys, ignoreEventInInputs } from '@/lib/hotkeys';
 import * as Dialog from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
 import { useState } from 'react';
@@ -9,7 +9,10 @@ import { useHotkeys } from 'react-hotkeys-hook';
 export function KeyboardShortcutsOverlay() {
 	const [open, setOpen] = useState(false);
 
-	useHotkeys('?', () => setOpen(true), { preventDefault: true });
+	useHotkeys('?', () => setOpen(true), {
+		preventDefault: true,
+		ignoreEventWhen: ignoreEventInInputs,
+	});
 	useHotkeys('esc', () => setOpen(false), { preventDefault: true });
 
 	const hotkeys = getHotkeys();
