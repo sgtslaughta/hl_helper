@@ -64,11 +64,23 @@ message HostMetrics {
 }
 
 message Heartbeat {
+  enum AgentUpdateStatus {
+    AGENT_UPDATE_STATUS_UNSPECIFIED = 0;
+    AGENT_UPDATE_STATUS_IDLE = 1;
+    AGENT_UPDATE_STATUS_DOWNLOADING = 2;
+    AGENT_UPDATE_STATUS_SWAPPING = 3;
+    AGENT_UPDATE_STATUS_HEALTHCHECKING = 4;
+    AGENT_UPDATE_STATUS_ROLLED_BACK = 5;
+    AGENT_UPDATE_STATUS_FAILED = 6;
+  }
+
   string host_id = 1;
   google.protobuf.Timestamp at = 2;
   uint64 last_acked_seq = 3;
   HostMetrics metrics = 4;
   string agent_version = 5;
+  AgentUpdateStatus update_status = 6;
+  string update_target_version = 7;
   bytes signature = 200;
 }
 
