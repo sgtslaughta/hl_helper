@@ -41,6 +41,9 @@ vendor/
 data/
 /data/
 
+# Local dev runtime (tokens, pids, logs, sqlite)
+.dev/
+
 # MkDocs build output
 site/
 
