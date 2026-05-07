@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import uuid
 from collections.abc import AsyncIterable, AsyncIterator
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 import grpc
@@ -13,6 +15,7 @@ from server.app.grpc._pb import fleet  # noqa: F401
 from server.app.grpc._pb.fleet.v1 import (
     agent_bridge_pb2,
     agent_bridge_pb2_grpc,
+    commands_pb2,
     envelope_pb2,
 )
 
@@ -244,9 +247,9 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
                 # The agent should fix signature issues on its side.
                 await self._dispatcher.ack(host_id, msg.result.command_id)
             elif kind == "heartbeat":
-                # Update Host.last_seen_at + status + persist HostMetrics so
-                # the UI can render live load/mem/disk/uptime without relying
-                # on a separate scrape path.
+                # Update Host.last_seen_at + status + metrics + agent version/update status.
+                # Persist HostMetrics so the UI can render live load/mem/disk/uptime without
+                # relying on a separate scrape path.
                 if self._sessionmaker is not None:
                     from server.app.models.host import Host
 
@@ -270,7 +273,9 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
                                 host.status = "healthy"
                                 host.metrics = metrics_dict
                                 host.metrics_at = now
-                                await session.commit()
+                            # Persist agent version and update status
+                            await _persist_heartbeat(session, host_id, msg.heartbeat)
+                            await session.commit()
                     except Exception as e:
                         log.warning(
                             "heartbeat.update_failed",
@@ -332,3 +337,111 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
                         )
             else:
                 log.warning("agent.unknown_message", host_id=host_id, kind=kind)
+
+
+# Heartbeat AgentUpdateStatus proto -> model enum mapping
+_HB_STATUS_MAP = {
+    agent_bridge_pb2.Heartbeat.AgentUpdateStatus.AGENT_UPDATE_STATUS_UNSPECIFIED: "idle",
+    agent_bridge_pb2.Heartbeat.AgentUpdateStatus.AGENT_UPDATE_STATUS_IDLE: "idle",
+    agent_bridge_pb2.Heartbeat.AgentUpdateStatus.AGENT_UPDATE_STATUS_DOWNLOADING: "downloading",
+    agent_bridge_pb2.Heartbeat.AgentUpdateStatus.AGENT_UPDATE_STATUS_SWAPPING: "swapping",
+    agent_bridge_pb2.Heartbeat.AgentUpdateStatus.AGENT_UPDATE_STATUS_HEALTHCHECKING: "healthchecking",
+    agent_bridge_pb2.Heartbeat.AgentUpdateStatus.AGENT_UPDATE_STATUS_ROLLED_BACK: "rolled_back",
+    agent_bridge_pb2.Heartbeat.AgentUpdateStatus.AGENT_UPDATE_STATUS_FAILED: "failed",
+}
+
+
+async def _build_agent_update_cmd(
+    payload: dict,
+    host_id: str,
+    session: Any,
+    *,
+    public_url: str | None = None,
+) -> commands_pb2.AgentUpdateCmd:
+    """Build AgentUpdateCmd from a task payload + DB-resolved release.
+
+    Args:
+        payload: Task payload dict with 'release_id' and optional 'force'.
+        host_id: Target host identifier.
+        session: SQLAlchemy async session.
+        public_url: Optional public URL. If None, load from config.
+
+    Returns:
+        AgentUpdateCmd proto message ready for inclusion in CommandEnvelope.
+
+    Raises:
+        RuntimeError: If release is not found or is yanked.
+    """
+    from server.app.api.v1.agent_releases import make_download_token
+    from server.app.models.agent_release import AgentRelease, ReleaseStatus
+
+    # Parse release_id from payload
+    release_id = payload.get("release_id")
+    if isinstance(release_id, str):
+        release_id = release_id
+    elif isinstance(release_id, uuid.UUID):
+        release_id = str(release_id)
+    else:
+        raise RuntimeError(f"invalid release_id type: {type(release_id)}")
+
+    # Load release from DB
+    rel = await session.get(AgentRelease, release_id)
+    if not rel or rel.status == ReleaseStatus.YANKED:
+        raise RuntimeError("release unavailable or yanked")
+
+    # Build download URL
+    if public_url is None:
+        from server.app.settings.config import load_settings
+        settings = load_settings()
+        public_url = settings.public_url
+    binary_url = f"{public_url}/v1/agent-releases/{rel.id}/binary"
+
+    # Create download token
+    token = make_download_token(rel.id, host_id)
+
+    return commands_pb2.AgentUpdateCmd(
+        release_id=str(rel.id),
+        manifest_json=rel.manifest_json,
+        manifest_sig=rel.manifest_sig,
+        binary_url=binary_url,
+        download_token=token,
+        expected_sha256=rel.sha256,
+        expected_size=rel.size,
+        force=bool(payload.get("force", False)),
+    )
+
+
+async def _persist_heartbeat(
+    session: Any,
+    host_id: str,
+    hb: agent_bridge_pb2.Heartbeat,
+) -> None:
+    """Persist heartbeat version and update status to Host model.
+
+    Args:
+        session: SQLAlchemy async session.
+        host_id: Host identifier.
+        hb: Heartbeat proto message from agent.
+    """
+    from server.app.models.host import Host, AgentUpdateStatus
+
+    host = await session.get(Host, host_id)
+    if not host:
+        return
+
+    # Update agent version if present
+    if hb.agent_version and host.agent_version != hb.agent_version:
+        host.agent_version = hb.agent_version
+        host.agent_version_updated_at = datetime.now(timezone.utc)
+
+    # Map proto update status to model enum
+    status_str = _HB_STATUS_MAP.get(hb.update_status, "idle")
+    host.agent_update_status = AgentUpdateStatus(status_str)
+
+    # Update target version if present
+    if hb.update_target_version:
+        host.agent_update_target_version = hb.update_target_version
+    else:
+        host.agent_update_target_version = None
+
+    await session.flush()

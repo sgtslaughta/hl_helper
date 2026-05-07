@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import timedelta
 from pathlib import Path
 from typing import AsyncGenerator
+from uuid import uuid4
 
 import grpc
 import grpc.aio
@@ -20,7 +21,8 @@ from server.app.crypto.signing import FileBackend
 from server.app.db.session import make_engine, make_sessionmaker
 from server.app.grpc.dispatcher import CommandDispatcher
 from server.app.grpc.server import make_grpc_server
-from server.app.models import Base
+from server.app.models import Base, Host
+from server.app.models.agent_release import AgentRelease, ReleaseChannel, ReleaseStatus
 
 
 def make_csr() -> tuple[bytes, bytes]:
@@ -156,3 +158,42 @@ async def sm(engine: AsyncEngine) -> async_sessionmaker:
 def signing_backend(tmp_path: Path) -> FileBackend:
     """Create a signing backend for audit chain."""
     return FileBackend.bootstrap(tmp_path / "signing")
+
+
+@pytest_asyncio.fixture
+async def host_id(sm: async_sessionmaker) -> str:
+    """Create a test host with Linux x86_64."""
+    async with sm() as session:
+        host = Host(
+            id=str(uuid4()),
+            hostname="test-host",
+            display_name="test-host",
+            agent_pubkey=b"\x00" * 32,
+            labels={"os": "linux", "arch": "x86_64"},
+            agent_version="0.4.0",
+        )
+        session.add(host)
+        await session.commit()
+        return host.id
+
+
+@pytest_asyncio.fixture
+async def published_release_id(sm: async_sessionmaker) -> str:
+    """Create a published Linux x86_64 release (v0.4.1)."""
+    async with sm() as session:
+        release = AgentRelease(
+            id=str(uuid4()),
+            version="0.4.1",
+            channel=ReleaseChannel.STABLE,
+            os="linux",
+            arch="x86_64",
+            sha256="abc123def456",
+            size=1024,
+            manifest_json=b'{"version":"0.4.1"}',
+            manifest_sig=b"sig",
+            status=ReleaseStatus.PUBLISHED,
+            uploaded_by="admin",
+        )
+        session.add(release)
+        await session.commit()
+        return release.id

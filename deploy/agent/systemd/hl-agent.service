@@ -1,5 +1,6 @@
 [Unit]
 Description=hl-helper agent
+Documentation=https://gitlab.com/richardsoto1010/hl_helper
 After=network-online.target
 Wants=network-online.target
 
@@ -8,15 +9,35 @@ Type=notify
 ExecStart=/usr/local/bin/hl-agent
 Restart=always
 RestartSec=2
+TimeoutStartSec=30
+TimeoutStopSec=15
+WatchdogSec=120
+
+# State + update support
 StateDirectory=hl-agent
 Environment=HL_STATE_DIR=/var/lib/hl-agent
-WatchdogSec=120
+# Self-update writes new binary to install path; updater needs RW on /usr/local/bin.
+# /var/lib/hl-agent for updater state, manifest, prev-binary backup.
+ReadWritePaths=/var/lib/hl-agent /usr/local/bin
+
+# Security hardening (compatible w/ majority of distros)
 NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/hl-agent /usr/local/bin
-PrivateTmp=true
-TimeoutStopSec=15
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
 
 [Install]
 WantedBy=multi-user.target
