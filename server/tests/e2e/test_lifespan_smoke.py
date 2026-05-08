@@ -95,8 +95,8 @@ async def test_lifespan_enroll_revoke_smoke(tmp_path: Path, monkeypatch) -> None
             )
             assert response.status_code == 204
 
-            # Verify host is revoked
+            # Verify host is deleted (cascading delete)
             async with state.sessionmaker() as session:
                 host = await session.get(Host, host_id)
-                assert host is not None
-                assert host.status == "revoked"
+                # New behavior: DELETE removes the host row entirely (cascading delete).
+                assert host is None

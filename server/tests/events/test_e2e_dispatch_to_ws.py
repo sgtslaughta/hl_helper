@@ -87,9 +87,9 @@ async def stack_with_bus(engine: AsyncEngine, sm, tmp_path):
     audit_chain = SqlAuditChain(signing_backend, event_bus=bus)
     rbac_provider = FakeRBACProvider()
 
-    # Grant admin all perms
+    # Grant admin all perms (dispatcher maps shell_exec -> host:exec)
     rbac_provider.grant("user-admin", "host:reboot", host_prod.id)
-    rbac_provider.grant("user-admin", "host:shell_exec", host_prod.id)
+    rbac_provider.grant("user-admin", "host:exec", host_prod.id)
 
     # Approval engine stub
     from server.app.rbac.approvals import ApprovalEngine

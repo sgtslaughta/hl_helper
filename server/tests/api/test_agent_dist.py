@@ -21,7 +21,7 @@ def ca_fixture(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_get_agent_binary_amd64_deprecated(sm, ca_fixture, tmp_path):
-    """GET /agent/{arch}/hl-agent returns binary (deprecated route)."""
+    """GET /agent/{arch}/hl-agent redirects with valid token (deprecated route)."""
     app = create_app()
     app.state.app_state = make_test_app_state(sessionmaker=sm, ca=ca_fixture, tmp_path=tmp_path)
 
@@ -32,17 +32,19 @@ async def test_get_agent_binary_amd64_deprecated(sm, ca_fixture, tmp_path):
     binary_path.write_bytes(b"ELF_BINARY_DATA")
 
     with mock.patch.dict("os.environ", {"HL_AGENT_DIST_DIR": str(dist_dir)}):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
-            r = await client.get("/agent/amd64/hl-agent", follow_redirects=False)
+        with mock.patch("server.app.api.v1.agent_dist._validate_enrollment_token"):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
+                r = await client.get("/agent/amd64/hl-agent?token=valid_token", follow_redirects=False)
 
-    assert r.status_code == 200
-    assert r.content == b"ELF_BINARY_DATA"
-    assert r.headers["content-disposition"] == 'attachment; filename="hl-agent"'
+    assert r.status_code == 307
+    assert "/v1/install/agent-binary" in r.headers["location"]
+    assert "token=valid_token" in r.headers["location"]
+    assert "arch=amd64" in r.headers["location"]
 
 
 @pytest.mark.asyncio
 async def test_get_agent_binary_fallback(sm, ca_fixture, tmp_path):
-    """GET /agent/{arch}/hl-agent falls back to single binary (deprecated route)."""
+    """GET /agent/{arch}/hl-agent redirects with valid token (deprecated route)."""
     app = create_app()
     app.state.app_state = make_test_app_state(sessionmaker=sm, ca=ca_fixture, tmp_path=tmp_path)
 
@@ -53,11 +55,14 @@ async def test_get_agent_binary_fallback(sm, ca_fixture, tmp_path):
     binary_path.write_bytes(b"ELF_FALLBACK_DATA")
 
     with mock.patch.dict("os.environ", {"HL_AGENT_DIST_DIR": str(dist_dir)}):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
-            r = await client.get("/agent/arm64/hl-agent", follow_redirects=False)
+        with mock.patch("server.app.api.v1.agent_dist._validate_enrollment_token"):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
+                r = await client.get("/agent/arm64/hl-agent?token=valid_token", follow_redirects=False)
 
-    assert r.status_code == 200
-    assert r.content == b"ELF_FALLBACK_DATA"
+    assert r.status_code == 307
+    assert "/v1/install/agent-binary" in r.headers["location"]
+    assert "token=valid_token" in r.headers["location"]
+    assert "arch=arm64" in r.headers["location"]
 
 
 @pytest.mark.asyncio
@@ -70,16 +75,19 @@ async def test_get_agent_binary_unsupported_arch(sm, ca_fixture, tmp_path):
     dist_dir.mkdir()
 
     with mock.patch.dict("os.environ", {"HL_AGENT_DIST_DIR": str(dist_dir)}):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
-            r = await client.get("/agent/unsupported/hl-agent", follow_redirects=False)
+        with mock.patch("server.app.api.v1.agent_dist._validate_enrollment_token"):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
+                r = await client.get("/agent/unsupported/hl-agent?token=valid_token", follow_redirects=False)
 
     assert r.status_code == 400
     assert "unsupported arch" in r.json()["detail"]
 
 
 @pytest.mark.asyncio
-async def test_get_agent_binary_not_found(sm, ca_fixture, tmp_path):
-    """GET /agent/{arch}/hl-agent returns 404 when binary missing."""
+async def test_get_agent_binary_invalid_token(sm, ca_fixture, tmp_path):
+    """GET /agent/{arch}/hl-agent returns 401 when token is invalid."""
+    from fastapi import HTTPException
+
     app = create_app()
     app.state.app_state = make_test_app_state(sessionmaker=sm, ca=ca_fixture, tmp_path=tmp_path)
 
@@ -87,11 +95,15 @@ async def test_get_agent_binary_not_found(sm, ca_fixture, tmp_path):
     dist_dir.mkdir()
 
     with mock.patch.dict("os.environ", {"HL_AGENT_DIST_DIR": str(dist_dir)}):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
-            r = await client.get("/agent/amd64/hl-agent", follow_redirects=False)
+        with mock.patch(
+            "server.app.api.v1.agent_dist._validate_enrollment_token",
+            side_effect=HTTPException(status_code=401, detail="invalid token"),
+        ):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
+                r = await client.get("/agent/amd64/hl-agent?token=bogus", follow_redirects=False)
 
-    assert r.status_code == 404
-    assert "agent binary not found" in r.json()["detail"]
+    assert r.status_code == 401
+    assert "invalid token" in r.json()["detail"]
 
 
 @pytest.mark.asyncio

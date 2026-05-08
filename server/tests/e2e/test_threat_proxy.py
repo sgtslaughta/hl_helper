@@ -17,7 +17,7 @@ def test_proxy_terminate_agent_port_diagnostic() -> None:
     )
     assert "gRPC port" in rendered
     assert "unreachable" in rendered
-    assert "HTTP/2 end-to-end" in rendered
+    assert "Reverse proxies must forward HTTP/2" in rendered
     assert "nc -z" in rendered
     assert "exit 1" in rendered
 
