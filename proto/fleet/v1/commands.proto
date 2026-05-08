@@ -17,6 +17,8 @@ message ShellExec {
   string command = 1;
   repeated string args = 2;
   uint32 timeout_seconds = 3;
+  bool as_root = 4;
+  string reason = 5;
 }
 
 message TerminalOpen {
