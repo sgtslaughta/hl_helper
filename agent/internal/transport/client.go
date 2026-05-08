@@ -106,6 +106,7 @@ type Options struct {
 	KeystoreDir       string        // optional; for persisting result sequence counter
 	AgentVersion      string        // optional; included in heartbeats for visibility
 	StateDir          string        // optional; for updater state and pending check
+	AuditChan         <-chan *pb.AgentToServer // optional; drained inside Run, each msg sent on the bidi stream
 }
 
 type Client struct {
@@ -206,6 +207,26 @@ func (c *Client) runOnce(ctx context.Context) error {
 		sendMu.Lock()
 		defer sendMu.Unlock()
 		return stream.Send(msg)
+	}
+
+	// Audit channel drain goroutine: ranges over audit events and forwards them
+	// on the bidi stream. Tied to connection lifetime; exits cleanly on ctx cancel.
+	if c.opts.AuditChan != nil {
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case msg, ok := <-c.opts.AuditChan:
+					if !ok {
+						return
+					}
+					if err := sendMsg(msg); err != nil {
+						log.Printf("audit: bridge send failed: %v", err)
+					}
+				}
+			}
+		}()
 	}
 
 	// One-shot survey on every connect: server overwrites the previous row

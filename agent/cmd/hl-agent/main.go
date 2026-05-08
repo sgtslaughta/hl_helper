@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -18,6 +20,7 @@ import (
 
 	"github.com/hlhelper/hl-agent/internal/decom"
 	"github.com/hlhelper/hl-agent/internal/enrollment"
+	xexec "github.com/hlhelper/hl-agent/internal/exec"
 	"github.com/hlhelper/hl-agent/internal/executor"
 	"github.com/hlhelper/hl-agent/internal/keystore"
 	"github.com/hlhelper/hl-agent/internal/outbox"
@@ -268,16 +271,25 @@ func runCmd() *cobra.Command {
 			}
 			defer ob.Close()
 
+			elev := xexec.DetectElevator()
+			log.Printf("elevator: kind=%s path=%s", elev.Kind, elev.Path)
+			auditCh := make(chan *pb.AgentToServer, 32)
+			sink := executor.NewMultiSink(
+				executor.NewJSONLSink("/var/log/hl-agent/elevated.jsonl", 10*1024*1024),
+				executor.NewBridgeSink(auditCh),
+			)
+
 			client := transport.New(transport.Options{
 				Endpoint:     endpoint,
 				HostID:       hostID,
 				Keystore:     ks,
 				Outbox:       ob,
-				Executor:     &ShellExecutor{StateDir: stateDir},
+				Executor:     &ShellExecutor{StateDir: stateDir, Elevator: elev, Sink: sink},
 				Signer:       ks,
 				KeystoreDir:  dir,
 				AgentVersion: version,
 				StateDir:     stateDir,
+				AuditChan:    auditCh,
 				OnCommand: func(env *pb.CommandEnvelope) {
 					fmt.Fprintf(cmd.OutOrStdout(), "command received: id=%s\n", env.GetCommandId())
 				},
@@ -328,6 +340,8 @@ func decommissionCmd() *cobra.Command {
 // ShellExecutor implements transport.Executor using RunShell.
 type ShellExecutor struct {
 	StateDir string
+	Elevator xexec.Elevator
+	Sink     executor.AuditSink
 }
 
 func (e *ShellExecutor) Execute(ctx context.Context, cmd *pb.CommandEnvelope) *pb.ResultEnvelope {
@@ -367,7 +381,28 @@ func (e *ShellExecutor) Execute(ctx context.Context, cmd *pb.CommandEnvelope) *p
 
 	// Run the shell command
 	cmdStr := shellExec.Command
-	stdout, stderr, exitCode, status := executor.RunShell(ctx, cmdStr, timeoutSec)
+	var stdout, stderr []byte
+	var exitCode int32
+	var status pb.ResultStatus
+
+	if shellExec.AsRoot {
+		if strings.TrimSpace(shellExec.Reason) == "" {
+			return &pb.ResultEnvelope{
+				StartedAt:       timestamppb.Now(),
+				CompletedAt:     timestamppb.Now(),
+				Status:          pb.ResultStatus_RESULT_REJECTED,
+				RejectionReason: "as_root requires reason",
+			}
+		}
+		stdout, stderr, exitCode, status = executor.RunShellElevated(ctx, cmdStr, timeoutSec, executor.ElevatedRequest{
+			Elevator: e.Elevator,
+			TaskID:   cmd.CommandId,
+			Reason:   shellExec.Reason,
+			Sink:     e.Sink,
+		})
+	} else {
+		stdout, stderr, exitCode, status = executor.RunShell(ctx, cmdStr, timeoutSec)
+	}
 
 	// Build the result envelope
 	result := &pb.ResultEnvelope{
