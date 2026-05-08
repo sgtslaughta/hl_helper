@@ -67,11 +67,13 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
         result_handler: ResultHandler | None = None,
         revocation: RevocationService | None = None,
         sessionmaker: Any | None = None,
+        audit_chain: Any | None = None,
     ) -> None:
         self._dispatcher = dispatcher
         self._result_handler = result_handler
         self._revocation = revocation
         self._sessionmaker = sessionmaker
+        self._audit_chain = audit_chain
 
     async def Stream(
         self,
@@ -333,6 +335,33 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
                         log.warning(
                             "survey.update_failed",
                             host_id=host_id,
+                            error=str(e),
+                        )
+            elif kind == "audit":
+                if self._sessionmaker is not None and self._audit_chain is not None:
+                    audit_event = msg.audit
+                    try:
+                        async with self._sessionmaker() as audit_session:
+                            await self._audit_chain.append(
+                                audit_session,
+                                actor=f"agent:{host_id}",
+                                action=f"exec.elevated.{audit_event.phase}",
+                                subject=audit_event.task_id,
+                                payload={
+                                    "binary": audit_event.binary,
+                                    "args": list(audit_event.args),
+                                    "elevator": audit_event.elevator,
+                                    "reason": audit_event.reason,
+                                    "exit_code": audit_event.exit_code,
+                                    "error": audit_event.error,
+                                },
+                            )
+                            await audit_session.commit()
+                    except Exception as e:
+                        log.warning(
+                            "audit.append_failed",
+                            host_id=host_id,
+                            phase=audit_event.phase,
                             error=str(e),
                         )
             else:

@@ -8,10 +8,14 @@ from datetime import datetime, timezone
 import grpc
 import grpc.aio
 import pytest
+from google.protobuf.timestamp_pb2 import Timestamp
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from server.app.grpc._pb import fleet  # noqa: F401
 from server.app.grpc._pb.fleet.v1 import agent_bridge_pb2, agent_bridge_pb2_grpc, envelope_pb2
 from server.app.grpc.dispatcher import CommandDispatcher
+from server.app.models.audit import AuditEntry
 
 
 def make_env(host_id: str, command_id: str) -> envelope_pb2.CommandEnvelope:
@@ -266,3 +270,71 @@ async def test_stream_acks_even_on_result_error(
     # Reconnect: queue should be empty
     state2 = await dispatcher.register("test-host-1")
     assert state2.queue.empty()
+
+
+@pytest.mark.asyncio
+async def test_stream_persists_audit_event(
+    sm: async_sessionmaker[AsyncSession],
+) -> None:
+    """Agent sends audit event via stream → persisted to AuditEntry."""
+    from server.app.audit.sql_chain import SqlAuditChain
+    from server.app.crypto.signing import FileBackend
+    from server.app.grpc.agent_bridge import AgentBridgeService
+    from server.app.grpc.dispatcher import CommandDispatcher
+    from pathlib import Path
+    import tempfile
+
+    # Set up audit chain
+    with tempfile.TemporaryDirectory() as tmpdir:
+        signing_backend = FileBackend.bootstrap(Path(tmpdir) / "signing")
+        audit_chain = SqlAuditChain(signing_backend)
+
+        # Create service
+        dispatcher = CommandDispatcher()
+        service = AgentBridgeService(
+            dispatcher,
+            sessionmaker=sm,
+        )
+        # Set audit_chain directly (will be in __init__ after Sub-task B)
+        service._audit_chain = audit_chain
+
+        # Build audit event
+        audit_msg = agent_bridge_pb2.AgentAuditEvent(
+            timestamp=Timestamp(seconds=1700000000),
+            task_id="t-99",
+            binary="/bin/sh",
+            args=["-c", "ls /root"],
+            elevator="sudo",
+            reason="package refresh",
+            phase="started",
+            exit_code=0,
+            error="",
+        )
+
+        # Wrap in AgentToServer
+        msg = agent_bridge_pb2.AgentToServer(audit=audit_msg)
+
+        # Simulate stream by passing message to _recv_loop
+        host_id = "test-host-1"
+
+        async def async_iter():
+            yield msg
+
+        # Call _recv_loop (which processes messages)
+        await service._recv_loop(host_id, async_iter())
+
+        # Verify entry was written
+        async with sm() as session:
+            result = await session.execute(
+                select(AuditEntry).where(
+                    AuditEntry.action == "exec.elevated.started"
+                )
+            )
+            entries = result.scalars().all()
+            assert len(entries) == 1
+
+            entry = entries[0]
+            assert entry.action == "exec.elevated.started"
+            assert entry.subject == "t-99"
+            assert entry.actor.startswith("agent:")
+            assert entry.payload["reason"] == "package refresh"

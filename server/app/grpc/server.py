@@ -30,6 +30,7 @@ def make_grpc_server(
     result_handler: ResultHandler | None = None,
     revocation: RevocationService | None = None,
     sessionmaker: Any | None = None,
+    audit_chain: Any | None = None,
 ) -> tuple[Server, str, CommandDispatcher]:
     """Build configured async gRPC server with mTLS + servicer wired.
 
@@ -41,6 +42,7 @@ def make_grpc_server(
         dispatcher: CommandDispatcher instance; created if None.
         result_handler: ResultHandler instance; optional for tests.
         revocation: RevocationService instance; optional for tests.
+        audit_chain: Optional audit chain for persisting audit events.
 
     Returns:
         (server, bound_address, dispatcher) tuple. Caller must `await server.start()`.
@@ -54,6 +56,7 @@ def make_grpc_server(
             result_handler=result_handler,
             revocation=revocation,
             sessionmaker=sessionmaker,
+            audit_chain=audit_chain,
         ),
         server,
     )
