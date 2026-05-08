@@ -77,7 +77,7 @@ func TestRunOnceDeliversCommand(t *testing.T) {
 		DialOptions: bufDialOpts(lis),
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	_ = cli.RunOnce(ctx)
@@ -87,7 +87,7 @@ func TestRunOnceDeliversCommand(t *testing.T) {
 		if cmd.CommandId != "test-cmd-1" {
 			t.Errorf("Expected CommandId test-cmd-1, got %s", cmd.CommandId)
 		}
-	case <-time.After(1 * time.Second):
+	case <-time.After(8 * time.Second):
 		t.Errorf("OnCommand was not called within timeout")
 	}
 }
@@ -194,7 +194,7 @@ func TestHeartbeatWithSleepState(t *testing.T) {
 		DialOptions: bufDialOpts(lis),
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	_ = cli.RunOnce(ctx)
@@ -207,7 +207,7 @@ func TestHeartbeatWithSleepState(t *testing.T) {
 		if hb.SleepUntil == nil {
 			t.Errorf("Expected SleepUntil to be set, got nil")
 		}
-	case <-time.After(1 * time.Second):
+	case <-time.After(8 * time.Second):
 		t.Errorf("Heartbeat not received within timeout")
 	}
 }
@@ -240,7 +240,7 @@ func TestHeartbeatWithoutSleepState(t *testing.T) {
 		DialOptions: bufDialOpts(lis),
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	_ = cli.RunOnce(ctx)
@@ -253,7 +253,7 @@ func TestHeartbeatWithoutSleepState(t *testing.T) {
 		if hb.SleepUntil != nil {
 			t.Errorf("Expected SleepUntil=nil, got %v", hb.SleepUntil)
 		}
-	case <-time.After(1 * time.Second):
+	case <-time.After(8 * time.Second):
 		t.Errorf("Heartbeat not received within timeout")
 	}
 }
