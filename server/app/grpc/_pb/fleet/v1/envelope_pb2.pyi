@@ -29,7 +29,7 @@ class CapabilityToken(_message.Message):
     def __init__(self, biscuit: _Optional[bytes] = ..., declared_scopes: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class CommandEnvelope(_message.Message):
-    __slots__ = ("command_id", "host_id", "sequence", "nonce", "issued_at", "expires_at", "issued_by", "risk", "capability", "pkg_update", "reboot", "shell_exec", "terminal_open", "file_transfer", "docker_op", "get_facts", "plugin_invoke", "signature")
+    __slots__ = ("command_id", "host_id", "sequence", "nonce", "issued_at", "expires_at", "issued_by", "risk", "capability", "pkg_update", "reboot", "shell_exec", "terminal_open", "file_transfer", "docker_op", "get_facts", "plugin_invoke", "agent_update", "signature")
     COMMAND_ID_FIELD_NUMBER: _ClassVar[int]
     HOST_ID_FIELD_NUMBER: _ClassVar[int]
     SEQUENCE_FIELD_NUMBER: _ClassVar[int]
@@ -47,6 +47,7 @@ class CommandEnvelope(_message.Message):
     DOCKER_OP_FIELD_NUMBER: _ClassVar[int]
     GET_FACTS_FIELD_NUMBER: _ClassVar[int]
     PLUGIN_INVOKE_FIELD_NUMBER: _ClassVar[int]
+    AGENT_UPDATE_FIELD_NUMBER: _ClassVar[int]
     SIGNATURE_FIELD_NUMBER: _ClassVar[int]
     command_id: str
     host_id: str
@@ -65,5 +66,6 @@ class CommandEnvelope(_message.Message):
     docker_op: _commands_pb2.DockerOp
     get_facts: _commands_pb2.GetFacts
     plugin_invoke: _commands_pb2.PluginInvoke
+    agent_update: _commands_pb2.AgentUpdateCmd
     signature: bytes
-    def __init__(self, command_id: _Optional[str] = ..., host_id: _Optional[str] = ..., sequence: _Optional[int] = ..., nonce: _Optional[bytes] = ..., issued_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., expires_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., issued_by: _Optional[str] = ..., risk: _Optional[_Union[RiskLevel, str]] = ..., capability: _Optional[_Union[CapabilityToken, _Mapping]] = ..., pkg_update: _Optional[_Union[_commands_pb2.PkgUpdate, _Mapping]] = ..., reboot: _Optional[_Union[_commands_pb2.Reboot, _Mapping]] = ..., shell_exec: _Optional[_Union[_commands_pb2.ShellExec, _Mapping]] = ..., terminal_open: _Optional[_Union[_commands_pb2.TerminalOpen, _Mapping]] = ..., file_transfer: _Optional[_Union[_commands_pb2.FileTransfer, _Mapping]] = ..., docker_op: _Optional[_Union[_commands_pb2.DockerOp, _Mapping]] = ..., get_facts: _Optional[_Union[_commands_pb2.GetFacts, _Mapping]] = ..., plugin_invoke: _Optional[_Union[_commands_pb2.PluginInvoke, _Mapping]] = ..., signature: _Optional[bytes] = ...) -> None: ...
+    def __init__(self, command_id: _Optional[str] = ..., host_id: _Optional[str] = ..., sequence: _Optional[int] = ..., nonce: _Optional[bytes] = ..., issued_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., expires_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., issued_by: _Optional[str] = ..., risk: _Optional[_Union[RiskLevel, str]] = ..., capability: _Optional[_Union[CapabilityToken, _Mapping]] = ..., pkg_update: _Optional[_Union[_commands_pb2.PkgUpdate, _Mapping]] = ..., reboot: _Optional[_Union[_commands_pb2.Reboot, _Mapping]] = ..., shell_exec: _Optional[_Union[_commands_pb2.ShellExec, _Mapping]] = ..., terminal_open: _Optional[_Union[_commands_pb2.TerminalOpen, _Mapping]] = ..., file_transfer: _Optional[_Union[_commands_pb2.FileTransfer, _Mapping]] = ..., docker_op: _Optional[_Union[_commands_pb2.DockerOp, _Mapping]] = ..., get_facts: _Optional[_Union[_commands_pb2.GetFacts, _Mapping]] = ..., plugin_invoke: _Optional[_Union[_commands_pb2.PluginInvoke, _Mapping]] = ..., agent_update: _Optional[_Union[_commands_pb2.AgentUpdateCmd, _Mapping]] = ..., signature: _Optional[bytes] = ...) -> None: ...

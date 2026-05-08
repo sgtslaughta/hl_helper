@@ -1,6 +1,7 @@
 import datetime
 
 from google.protobuf import timestamp_pb2 as _timestamp_pb2
+from fleet.v1 import commands_pb2 as _commands_pb2
 from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
@@ -23,7 +24,7 @@ RESULT_TIMEOUT: ResultStatus
 RESULT_CAPABILITY_DENIED: ResultStatus
 
 class ResultEnvelope(_message.Message):
-    __slots__ = ("command_id", "host_id", "sequence", "started_at", "completed_at", "exit_code", "stdout_chunk", "stderr_chunk", "final", "status", "rejection_reason", "prev_result_hash", "signature")
+    __slots__ = ("command_id", "host_id", "sequence", "started_at", "completed_at", "exit_code", "stdout_chunk", "stderr_chunk", "final", "status", "rejection_reason", "prev_result_hash", "agent_update_result", "signature")
     COMMAND_ID_FIELD_NUMBER: _ClassVar[int]
     HOST_ID_FIELD_NUMBER: _ClassVar[int]
     SEQUENCE_FIELD_NUMBER: _ClassVar[int]
@@ -36,6 +37,7 @@ class ResultEnvelope(_message.Message):
     STATUS_FIELD_NUMBER: _ClassVar[int]
     REJECTION_REASON_FIELD_NUMBER: _ClassVar[int]
     PREV_RESULT_HASH_FIELD_NUMBER: _ClassVar[int]
+    AGENT_UPDATE_RESULT_FIELD_NUMBER: _ClassVar[int]
     SIGNATURE_FIELD_NUMBER: _ClassVar[int]
     command_id: str
     host_id: str
@@ -49,5 +51,6 @@ class ResultEnvelope(_message.Message):
     status: ResultStatus
     rejection_reason: str
     prev_result_hash: bytes
+    agent_update_result: _commands_pb2.AgentUpdateResult
     signature: bytes
-    def __init__(self, command_id: _Optional[str] = ..., host_id: _Optional[str] = ..., sequence: _Optional[int] = ..., started_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., completed_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., exit_code: _Optional[int] = ..., stdout_chunk: _Optional[bytes] = ..., stderr_chunk: _Optional[bytes] = ..., final: bool = ..., status: _Optional[_Union[ResultStatus, str]] = ..., rejection_reason: _Optional[str] = ..., prev_result_hash: _Optional[bytes] = ..., signature: _Optional[bytes] = ...) -> None: ...
+    def __init__(self, command_id: _Optional[str] = ..., host_id: _Optional[str] = ..., sequence: _Optional[int] = ..., started_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., completed_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., exit_code: _Optional[int] = ..., stdout_chunk: _Optional[bytes] = ..., stderr_chunk: _Optional[bytes] = ..., final: bool = ..., status: _Optional[_Union[ResultStatus, str]] = ..., rejection_reason: _Optional[str] = ..., prev_result_hash: _Optional[bytes] = ..., agent_update_result: _Optional[_Union[_commands_pb2.AgentUpdateResult, _Mapping]] = ..., signature: _Optional[bytes] = ...) -> None: ...

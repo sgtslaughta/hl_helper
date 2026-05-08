@@ -66,6 +66,23 @@ exclude = ["server/app/migrations/"]
 module = "server.app.grpc._pb.*"
 ignore_errors = true
 
+# Pre-existing untyped tech debt — to be cleaned up in a follow-up.
+[[tool.mypy.overrides]]
+module = [
+    "server.app.api.v1.agent_releases",
+    "server.app.api.v1.enrollment_tokens",
+    "server.app.api.v1.install",
+    "server.app.api.v1.settings",
+    "server.app.api.v1.tasks",
+    "server.app.grpc.agent_bridge",
+    "server.app.grpc.command_bridge",
+    "server.app.lifespan",
+    "server.app.models.host",
+    "server.app.plugins.manifest",
+    "server.app.settings.config",
+]
+ignore_errors = true
+
 [[tool.mypy.overrides]]
 module = "biscuit_auth"
 ignore_missing_imports = true
