@@ -81,6 +81,8 @@ message Heartbeat {
   string agent_version = 5;
   AgentUpdateStatus update_status = 6;
   string update_target_version = 7;
+  bool sleeping = 8;
+  google.protobuf.Timestamp sleep_until = 9;
   bytes signature = 200;
 }
 
