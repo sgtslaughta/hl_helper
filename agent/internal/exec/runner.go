@@ -90,16 +90,18 @@ type Result struct {
 
 // Runner executes commands per Allowlist, streaming output via channel.
 type Runner struct {
-	allow *Allowlist
+	allow    *Allowlist
+	elevator Elevator
 }
 
-// NewRunner creates a new Runner with an Allowlist.
-func NewRunner(allow *Allowlist) *Runner {
-	return &Runner{allow: allow}
+// NewRunner constructs a Runner with the given allowlist and an elevator.
+// When the elevator's Kind is ElevatorNone, AsRoot rules will fail with ErrNoElevator.
+func NewRunner(allow *Allowlist, elevator Elevator) *Runner {
+	return &Runner{allow: allow, elevator: elevator}
 }
 
 // Run executes binary with args, sending output chunks on out (closed when done).
-// Honors ctx cancel + per-rule timeout. AsRoot rules prepend "sudo --non-interactive".
+// Honors ctx cancel + per-rule timeout. AsRoot rules use Elevator.Wrap.
 // Returns the Result.
 func (r *Runner) Run(ctx context.Context, binary string, args []string, out chan<- Chunk) Result {
 	// Check allowlist
@@ -124,9 +126,12 @@ func (r *Runner) Run(ctx context.Context, binary string, args []string, out chan
 	var cmdArgs []string
 
 	if rule.AsRoot {
-		cmdBinary = "sudo"
-		cmdArgs = append([]string{"--non-interactive", "--"}, binary)
-		cmdArgs = append(cmdArgs, args...)
+		wrapped, wrappedArgs, err := r.elevator.Wrap(binary, args)
+		if err != nil {
+			return Result{Err: err}
+		}
+		cmdBinary = wrapped
+		cmdArgs = wrappedArgs
 	} else {
 		cmdBinary = binary
 		cmdArgs = args

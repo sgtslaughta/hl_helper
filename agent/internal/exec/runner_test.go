@@ -23,7 +23,7 @@ func TestAllowlistRejectsUnknownBinary(t *testing.T) {
 		AllowAnyArgs: true,
 	}
 	allow := exec.NewAllowlist(rule)
-	runner := exec.NewRunner(allow)
+	runner := exec.NewRunner(allow, exec.Elevator{Kind: exec.ElevatorDirect})
 
 	out := make(chan exec.Chunk, 100)
 	result := runner.Run(context.Background(), "/bin/cat", []string{}, out)
@@ -42,7 +42,7 @@ func TestAllowlistRejectsDisallowedArg(t *testing.T) {
 		AllowedArgs: []string{"hello"},
 	}
 	allow := exec.NewAllowlist(rule)
-	runner := exec.NewRunner(allow)
+	runner := exec.NewRunner(allow, exec.Elevator{Kind: exec.ElevatorDirect})
 
 	out := make(chan exec.Chunk, 100)
 	result := runner.Run(context.Background(), "/bin/echo", []string{"world"}, out)
@@ -61,7 +61,7 @@ func TestAllowAnyArgsBypassesArgCheck(t *testing.T) {
 		AllowAnyArgs: true,
 	}
 	allow := exec.NewAllowlist(rule)
-	runner := exec.NewRunner(allow)
+	runner := exec.NewRunner(allow, exec.Elevator{Kind: exec.ElevatorDirect})
 
 	out := make(chan exec.Chunk, 100)
 	result := runner.Run(context.Background(), "/bin/echo", []string{"arbitrary", "args"}, out)
@@ -81,7 +81,7 @@ func TestRunStreamsStdout(t *testing.T) {
 		AllowAnyArgs: true,
 	}
 	allow := exec.NewAllowlist(rule)
-	runner := exec.NewRunner(allow)
+	runner := exec.NewRunner(allow, exec.Elevator{Kind: exec.ElevatorDirect})
 
 	out := make(chan exec.Chunk, 100)
 	result := runner.Run(context.Background(), "/bin/echo", []string{"hello"}, out)
@@ -114,7 +114,7 @@ func TestRunCapturesNonZeroExitCode(t *testing.T) {
 		AllowAnyArgs: true,
 	}
 	allow := exec.NewAllowlist(rule)
-	runner := exec.NewRunner(allow)
+	runner := exec.NewRunner(allow, exec.Elevator{Kind: exec.ElevatorDirect})
 
 	out := make(chan exec.Chunk, 100)
 	result := runner.Run(context.Background(), "/bin/sh", []string{"-c", "exit 7"}, out)
@@ -140,7 +140,7 @@ func TestRunHonorsContextCancel(t *testing.T) {
 		AllowAnyArgs: true,
 	}
 	allow := exec.NewAllowlist(rule)
-	runner := exec.NewRunner(allow)
+	runner := exec.NewRunner(allow, exec.Elevator{Kind: exec.ElevatorDirect})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	out := make(chan exec.Chunk, 100)
@@ -177,7 +177,7 @@ func TestRunHonorsTimeout(t *testing.T) {
 		Timeout:     200 * time.Millisecond,
 	}
 	allow := exec.NewAllowlist(rule)
-	runner := exec.NewRunner(allow)
+	runner := exec.NewRunner(allow, exec.Elevator{Kind: exec.ElevatorDirect})
 
 	out := make(chan exec.Chunk, 100)
 	start := time.Now()
@@ -206,7 +206,7 @@ func TestRunChunkChannelClosesOnExit(t *testing.T) {
 		AllowAnyArgs: true,
 	}
 	allow := exec.NewAllowlist(rule)
-	runner := exec.NewRunner(allow)
+	runner := exec.NewRunner(allow, exec.Elevator{Kind: exec.ElevatorDirect})
 
 	out := make(chan exec.Chunk, 100)
 	result := runner.Run(context.Background(), "/bin/echo", []string{"test"}, out)
@@ -240,7 +240,7 @@ func TestStderrChunksRoutedSeparately(t *testing.T) {
 		AllowAnyArgs: true,
 	}
 	allow := exec.NewAllowlist(rule)
-	runner := exec.NewRunner(allow)
+	runner := exec.NewRunner(allow, exec.Elevator{Kind: exec.ElevatorDirect})
 
 	out := make(chan exec.Chunk, 100)
 	result := runner.Run(context.Background(), "/bin/sh", []string{"-c", "echo a; echo b 1>&2"}, out)
