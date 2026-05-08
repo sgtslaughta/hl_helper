@@ -4,11 +4,10 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=notify
+Type=simple
 ExecStart={{.ExecPath}}{{range .ExecArgs}} {{.}}{{end}}
 Restart=always
 RestartSec=2
-WatchdogSec=120
 {{if .User}}User={{.User}}{{end}}
 {{range $k,$v := .Environment}}Environment="{{$k}}={{$v}}"
 {{end}}
