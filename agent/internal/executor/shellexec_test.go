@@ -1,11 +1,14 @@
 package executor_test
 
 import (
+	"bytes"
 	"context"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/hlhelper/hl-agent/internal/executor"
+	xexec "github.com/hlhelper/hl-agent/internal/exec"
 	pb "github.com/hlhelper/hl-agent/proto/fleet/v1"
 )
 
@@ -55,5 +58,59 @@ func TestRunShellTimeout(t *testing.T) {
 	// Exact exit code varies; just verify we got non-zero and no data
 	if len(stdout) != 0 || len(stderr) != 0 {
 		t.Fatalf("expected no output on timeout, got stdout=%q stderr=%q", string(stdout), string(stderr))
+	}
+}
+
+func TestRunShell_AsRootDirect(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("requires root for direct mode")
+	}
+	sink := &recordingSink{}
+	stdout, _, code, status := executor.RunShellElevated(
+		context.Background(),
+		"echo elev",
+		1,
+		executor.ElevatedRequest{
+			Elevator: xexec.Elevator{Kind: xexec.ElevatorDirect},
+			TaskID:   "t-direct",
+			Reason:   "diagnostic",
+			Sink:     sink,
+		},
+	)
+	if code != 0 || status != pb.ResultStatus_RESULT_OK {
+		t.Fatalf("code=%d status=%v", code, status)
+	}
+	if !bytes.Contains(stdout, []byte("elev")) {
+		t.Fatalf("stdout=%q", stdout)
+	}
+	if len(sink.events) < 2 {
+		t.Fatalf("expected start+complete, got %d", len(sink.events))
+	}
+	if sink.events[0].Phase != executor.PhaseStarted {
+		t.Fatalf("first phase=%q", sink.events[0].Phase)
+	}
+	if sink.events[len(sink.events)-1].Phase != executor.PhaseCompleted {
+		t.Fatalf("last phase=%q", sink.events[len(sink.events)-1].Phase)
+	}
+}
+
+func TestRunShell_AsRootNoElevator(t *testing.T) {
+	sink := &recordingSink{}
+	_, _, _, status := executor.RunShellElevated(
+		context.Background(),
+		"echo nope",
+		1,
+		executor.ElevatedRequest{
+			Elevator: xexec.Elevator{Kind: xexec.ElevatorNone},
+			TaskID:   "t-none",
+			Reason:   "diagnostic",
+			Sink:     sink,
+		},
+	)
+	if status != pb.ResultStatus_RESULT_REJECTED {
+		t.Fatalf("status=%v", status)
+	}
+	if len(sink.events) != 1 || sink.events[0].Phase != executor.PhaseDenied {
+		t.Fatalf("events=%+v", sink.events)
 	}
 }
