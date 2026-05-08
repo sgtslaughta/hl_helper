@@ -1,6 +1,7 @@
 'use client';
 
 import { ActionConfirmDialog } from '@/components/hosts/action-confirm-dialog';
+import { ShellExecForm } from '@/components/hosts/shell-exec-form';
 import {
 	type Host,
 	deleteHost,
@@ -97,6 +98,8 @@ export function QuickActions({ host, onDeleted }: { host: Host; onDeleted?: () =
 	const [timeout_s, setTimeout_s] = useState(60);
 	const [classes, setClasses] = useState<string[]>(['security']);
 	const [reason, setReason] = useState('');
+	const [asRoot, setAsRoot] = useState(false);
+	const [shellReason, setShellReason] = useState('');
 	const qc = useQueryClient();
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: setters are stable
@@ -105,6 +108,8 @@ export function QuickActions({ host, onDeleted }: { host: Host; onDeleted?: () =
 		setTimeout_s(60);
 		setClasses(['security']);
 		setReason('');
+		setAsRoot(false);
+		setShellReason('');
 	}, [pending]);
 
 	const reboot = useCanPerform('reboot');
@@ -135,7 +140,12 @@ export function QuickActions({ host, onDeleted }: { host: Host; onDeleted?: () =
 		},
 	});
 	const shellMut = useMutation({
-		mutationFn: (principal: string) => shellExecHost(host.id, { command, timeout_s }, principal),
+		mutationFn: (principal: string) =>
+			shellExecHost(
+				host.id,
+				{ command, timeout_s, as_root: asRoot, reason: asRoot ? shellReason : undefined },
+				principal,
+			),
 		onSuccess: () => {
 			qc.invalidateQueries({ queryKey: ['hosts', host.id] });
 			qc.invalidateQueries({ queryKey: ['tasks'] });
@@ -180,31 +190,16 @@ export function QuickActions({ host, onDeleted }: { host: Host; onDeleted?: () =
 	function formChildren(): ReactNode {
 		if (pending === 'shell-exec') {
 			return (
-				<div className="mb-3 space-y-2">
-					<label className="block font-mono text-[11px] uppercase tracking-wider text-text-dim">
-						Command
-						<textarea
-							value={command}
-							onChange={e => setCommand(e.target.value)}
-							rows={6}
-							spellCheck={false}
-							placeholder="$ "
-							className="mt-1 w-full resize-y rounded-sm border border-hairline bg-canvas px-2 py-1.5 font-mono text-[13px] leading-relaxed text-text outline-none focus:border-accent"
-						/>
-					</label>
-					<div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-wider text-text-dim">
-						<span>Timeout</span>
-						<input
-							type="number"
-							min={1}
-							value={timeout_s}
-							onChange={e => setTimeout_s(Math.max(1, Number.parseInt(e.target.value) || 1))}
-							aria-label="Timeout seconds"
-							className="w-20 rounded-sm border border-hairline bg-bezel/60 px-2 py-1 text-right font-mono text-[12px] text-text outline-none focus:border-accent"
-						/>
-						<span className="text-text-dim normal-case">seconds</span>
-					</div>
-				</div>
+				<ShellExecForm
+					command={command}
+					setCommand={setCommand}
+					timeoutS={timeout_s}
+					setTimeoutS={setTimeout_s}
+					asRoot={asRoot}
+					setAsRoot={setAsRoot}
+					reason={shellReason}
+					setReason={setShellReason}
+				/>
 			);
 		}
 		if (pending === 'pkg-update') {

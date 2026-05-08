@@ -260,10 +260,10 @@ async def test_list_hosts_filter_by_status(client: httpx.AsyncClient, async_sess
 
 
 @pytest.mark.asyncio
-async def test_shell_exec_as_root_requires_reason(
+async def test_shell_exec_as_root_no_reason_now_allowed(
     client: httpx.AsyncClient, async_session_maker
 ):
-    """as_root=true without reason -> 422."""
+    """as_root=true with empty reason -> dispatches successfully (admin-trusted)."""
     # Pre-create host
     async with async_session_maker() as session:
         host = Host(
@@ -283,34 +283,10 @@ async def test_shell_exec_as_root_requires_reason(
         },
         json={"command": "ls", "as_root": True},
     )
-    assert response.status_code == 422
-
-
-@pytest.mark.asyncio
-async def test_shell_exec_as_root_short_reason_rejected(
-    client: httpx.AsyncClient, async_session_maker
-):
-    """Reason shorter than 8 chars -> 422."""
-    # Pre-create host
-    async with async_session_maker() as session:
-        host = Host(
-            id="test-host-1",
-            hostname="test.example.com",
-            agent_pubkey=b"x" * 32,
-            cert_serial="abc123",
-        )
-        session.add(host)
-        await session.commit()
-
-    response = await client.post(
-        "/v1/hosts/test-host-1/actions/shell-exec",
-        headers={
-            "Authorization": "Bearer test-admin-token",
-            "X-Acting-Principal": "user:admin",
-        },
-        json={"command": "ls", "as_root": True, "reason": "x"},
-    )
-    assert response.status_code == 422
+    assert response.status_code == 200
+    data = response.json()
+    assert "task_id" in data
+    assert data["dispatched"] == ["test-host-1"]
 
 
 @pytest.mark.asyncio

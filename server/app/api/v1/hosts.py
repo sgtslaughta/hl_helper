@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -79,13 +79,6 @@ class ShellExecActionRequest(BaseModel):
     timeout_s: int = 60
     as_root: bool = False
     reason: str | None = None
-
-    @model_validator(mode="after")
-    def _require_reason_when_as_root(self) -> "ShellExecActionRequest":
-        if self.as_root:
-            if not self.reason or len(self.reason.strip()) < 8:
-                raise ValueError("reason required (>=8 chars) when as_root=true")
-        return self
 
 
 class PkgUpdateActionRequest(BaseModel):

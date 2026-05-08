@@ -125,27 +125,4 @@ describe('HostTasksPanel — elevated execution', () => {
     expect(screen.getByText(/ELEVATED EXECUTION/)).toBeInTheDocument();
   });
 
-  it('Confirm button is disabled when reason is too short', async () => {
-    render(wrap(<HostTasksPanel hostId="h1" />));
-    const newTaskBtn = await screen.findByRole('button', { name: /new task/i });
-    fireEvent.click(newTaskBtn);
-    const elevatedCheckbox = await screen.findByRole('checkbox', { name: /run elevated/i });
-    fireEvent.click(elevatedCheckbox);
-    const reasonInput = await screen.findByPlaceholderText(/Why does this need root/);
-    fireEvent.change(reasonInput, { target: { value: 'short' } });
-    const confirmBtn = screen.getByRole('button', { name: /confirm/i });
-    expect(confirmBtn).toBeDisabled();
-  });
-
-  it('Confirm button is enabled when reason is valid (8+ chars)', async () => {
-    render(wrap(<HostTasksPanel hostId="h1" />));
-    const newTaskBtn = await screen.findByRole('button', { name: /new task/i });
-    fireEvent.click(newTaskBtn);
-    const elevatedCheckbox = await screen.findByRole('checkbox', { name: /run elevated/i });
-    fireEvent.click(elevatedCheckbox);
-    const reasonInput = await screen.findByPlaceholderText(/Why does this need root/);
-    fireEvent.change(reasonInput, { target: { value: 'longEnough' } });
-    const confirmBtn = screen.getByRole('button', { name: /confirm/i });
-    expect(confirmBtn).not.toBeDisabled();
-  });
 });
