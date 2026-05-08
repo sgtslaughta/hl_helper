@@ -21,6 +21,7 @@ import (
 	"github.com/hlhelper/hl-agent/internal/executor"
 	"github.com/hlhelper/hl-agent/internal/keystore"
 	"github.com/hlhelper/hl-agent/internal/outbox"
+	"github.com/hlhelper/hl-agent/internal/sleep"
 	"github.com/hlhelper/hl-agent/internal/transport"
 	"github.com/hlhelper/hl-agent/internal/updater"
 	pb "github.com/hlhelper/hl-agent/proto/fleet/v1"
@@ -88,9 +89,28 @@ func newRootCmd() *cobra.Command {
 		versionCmd(),
 		enrollCmd(),
 		runCmd(),
-		serviceCmd(),
 		decommissionCmd(),
-		rotateSigningKeyCmd(),
+		// Getters
+		newGetHostIDCmd(),
+		newGetEndpointCmd(),
+		newGetConfigCmd(),
+		newSetEndpointCmd(),
+		newShowEndpointCmd(),
+		// Info and lifecycle
+		newInfoCmd(),
+		newStartCmd(),
+		newStopCmd(),
+		newRestartCmd(),
+		// Status, sleep, update
+		newStatusCmd(),
+		newSleepCmd(),
+		newResumeCmd(),
+		newUpdateCmd(),
+		// Logs, doctor, install, uninstall
+		newLogsCmd(),
+		newDoctorCmd(),
+		newInstallCmd(),
+		newUninstallCmd(),
 	)
 
 	return root
@@ -253,7 +273,7 @@ func runCmd() *cobra.Command {
 				HostID:       hostID,
 				Keystore:     ks,
 				Outbox:       ob,
-				Executor:     &ShellExecutor{},
+				Executor:     &ShellExecutor{StateDir: stateDir},
 				Signer:       ks,
 				KeystoreDir:  dir,
 				AgentVersion: version,
@@ -281,18 +301,6 @@ func runCmd() *cobra.Command {
 	return cmd
 }
 
-func serviceCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "service",
-		Short: "manage the agent service",
-		Long:  "manage the agent service (not yet implemented)",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Fprintf(cmd.OutOrStderr(), "service: not yet implemented\n")
-			return fmt.Errorf("service: not yet implemented")
-		},
-	}
-}
-
 func decommissionCmd() *cobra.Command {
 	decommissionCmd := &cobra.Command{
 		Use:   "decommission",
@@ -317,20 +325,10 @@ func decommissionCmd() *cobra.Command {
 	return decommissionCmd
 }
 
-func rotateSigningKeyCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "rotate-signing-key",
-		Short: "rotate the signing key",
-		Long:  "rotate the signing key (not yet implemented)",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Fprintf(cmd.OutOrStderr(), "rotate-signing-key: not yet implemented\n")
-			return fmt.Errorf("rotate-signing-key: not yet implemented")
-		},
-	}
-}
-
 // ShellExecutor implements transport.Executor using RunShell.
-type ShellExecutor struct{}
+type ShellExecutor struct {
+	StateDir string
+}
 
 func (e *ShellExecutor) Execute(ctx context.Context, cmd *pb.CommandEnvelope) *pb.ResultEnvelope {
 	// Extract ShellExec payload
@@ -341,6 +339,19 @@ func (e *ShellExecutor) Execute(ctx context.Context, cmd *pb.CommandEnvelope) *p
 			CompletedAt:     timestamppb.Now(),
 			Status:          pb.ResultStatus_RESULT_REJECTED,
 			RejectionReason: "not a shell_exec command",
+		}
+	}
+
+	// Check if agent is sleeping
+	sleeping, sleepUntil := sleep.Check(e.StateDir)
+	if sleeping {
+		return &pb.ResultEnvelope{
+			StartedAt:       timestamppb.Now(),
+			CompletedAt:     timestamppb.Now(),
+			ExitCode:        124, // timeout-like exit code
+			StderrChunk:     []byte(fmt.Sprintf("agent sleeping until %s", sleepUntil.Format(time.RFC3339))),
+			Status:          pb.ResultStatus_RESULT_FAIL,
+			RejectionReason: "agent sleeping",
 		}
 	}
 
