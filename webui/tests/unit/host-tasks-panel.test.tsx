@@ -7,6 +7,10 @@ vi.mock('@/lib/rbac', () => ({
   useCanPerform: () => ({ allowed: true, reason: '', principal: 'u' }),
 }));
 
+vi.mock('@/lib/auth', () => ({
+  useAuth: () => ({ user: null }),
+}));
+
 vi.mock('@/components/tasks/task-result-preview', () => ({
   TaskResultPreview: ({ taskId, hostId }: { taskId: string; hostId: string }) => (
     <div data-testid="preview" data-task={taskId} data-host={hostId}>
@@ -96,5 +100,52 @@ describe('HostTasksPanel inline expansion', () => {
     expect(detail).toBeInTheDocument();
     expect(screen.getByText(/abc123de/)).toBeInTheDocument();
     expect(screen.getByText('Security update')).toBeInTheDocument();
+  });
+});
+
+describe('HostTasksPanel — elevated execution', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('reason field is hidden by default', async () => {
+    render(wrap(<HostTasksPanel hostId="h1" />));
+    const newTaskBtn = await screen.findByRole('button', { name: /new task/i });
+    fireEvent.click(newTaskBtn);
+    expect(screen.queryByPlaceholderText(/Why does this need root/)).not.toBeInTheDocument();
+  });
+
+  it('shows reason field + warn banner when "Run elevated" is checked', async () => {
+    render(wrap(<HostTasksPanel hostId="h1" />));
+    const newTaskBtn = await screen.findByRole('button', { name: /new task/i });
+    fireEvent.click(newTaskBtn);
+    const elevatedCheckbox = await screen.findByRole('checkbox', { name: /run elevated/i });
+    fireEvent.click(elevatedCheckbox);
+    expect(await screen.findByPlaceholderText(/Why does this need root/)).toBeInTheDocument();
+    expect(screen.getByText(/ELEVATED EXECUTION/)).toBeInTheDocument();
+  });
+
+  it('Confirm button is disabled when reason is too short', async () => {
+    render(wrap(<HostTasksPanel hostId="h1" />));
+    const newTaskBtn = await screen.findByRole('button', { name: /new task/i });
+    fireEvent.click(newTaskBtn);
+    const elevatedCheckbox = await screen.findByRole('checkbox', { name: /run elevated/i });
+    fireEvent.click(elevatedCheckbox);
+    const reasonInput = await screen.findByPlaceholderText(/Why does this need root/);
+    fireEvent.change(reasonInput, { target: { value: 'short' } });
+    const confirmBtn = screen.getByRole('button', { name: /confirm/i });
+    expect(confirmBtn).toBeDisabled();
+  });
+
+  it('Confirm button is enabled when reason is valid (8+ chars)', async () => {
+    render(wrap(<HostTasksPanel hostId="h1" />));
+    const newTaskBtn = await screen.findByRole('button', { name: /new task/i });
+    fireEvent.click(newTaskBtn);
+    const elevatedCheckbox = await screen.findByRole('checkbox', { name: /run elevated/i });
+    fireEvent.click(elevatedCheckbox);
+    const reasonInput = await screen.findByPlaceholderText(/Why does this need root/);
+    fireEvent.change(reasonInput, { target: { value: 'longEnough' } });
+    const confirmBtn = screen.getByRole('button', { name: /confirm/i });
+    expect(confirmBtn).not.toBeDisabled();
   });
 });

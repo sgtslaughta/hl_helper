@@ -80,6 +80,8 @@ export interface RebootBody {
 export interface ShellExecBody {
 	command: string;
 	timeout_s: number;
+	as_root?: boolean;
+	reason?: string;
 }
 export interface PkgUpdateBody {
 	classes: string[];

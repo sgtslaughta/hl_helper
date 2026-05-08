@@ -22,6 +22,7 @@ interface Props {
 	onConfirm: () => void;
 	onClose: () => void;
 	formChildren?: ReactNode;
+	disableConfirm?: boolean;
 }
 
 function actorDisplay(user: ReturnType<typeof useAuth>['user'], fallbackId: string): string {
@@ -58,6 +59,7 @@ export function ActionConfirmDialog({
 	onConfirm,
 	onClose,
 	formChildren,
+	disableConfirm,
 }: Props) {
 	const entry = riskCatalog[action];
 	const [match, setMatch] = useState(false);
@@ -256,7 +258,7 @@ export function ActionConfirmDialog({
 					</button>
 					<button
 						type="button"
-						disabled={!canConfirm}
+						disabled={!canConfirm || disableConfirm}
 						onClick={onConfirm}
 						className="rounded-sm border border-accent bg-accent/15 px-3 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-accent hover:bg-accent/25 disabled:cursor-not-allowed disabled:opacity-40"
 					>

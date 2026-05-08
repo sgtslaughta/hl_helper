@@ -92,14 +92,22 @@ export function HostTasksPanel({ hostId, host }: PanelProps) {
 	const [showNew, setShowNew] = useState(false);
 	const [command, setCommand] = useState('');
 	const [timeoutS, setTimeoutS] = useState(60);
+	const [asRoot, setAsRoot] = useState(false);
+	const [reason, setReason] = useState('');
 	const [expandedId, setExpandedId] = useState<string | null>(null);
 	const [page, setPage] = useState(0);
 	const [pageSize, setPageSize] = useState<(typeof PAGE_SIZES)[number]>(10);
 	const cap = useCanPerform('shell-exec');
 	const qc = useQueryClient();
+	const reasonValid = reason.trim().length >= 8;
+	const blockSubmit = asRoot && !reasonValid;
 	const shellMut = useMutation({
 		mutationFn: (principal: string) =>
-			shellExecHost(hostId, { command, timeout_s: timeoutS }, principal),
+			shellExecHost(
+				hostId,
+				{ command, timeout_s: timeoutS, as_root: asRoot, reason: asRoot ? reason : undefined },
+				principal,
+			),
 		onSuccess: () => qc.invalidateQueries({ queryKey: ['hosts', hostId, 'tasks'] }),
 	});
 	const q = useQuery<TasksPage>({
@@ -150,6 +158,8 @@ export function HostTasksPanel({ hostId, host }: PanelProps) {
 		setShowNew(false);
 		setCommand('');
 		setTimeoutS(60);
+		setAsRoot(false);
+		setReason('');
 	}
 
 	const modal =
@@ -160,6 +170,7 @@ export function HostTasksPanel({ hostId, host }: PanelProps) {
 				principal={cap.principal ?? ''}
 				onClose={() => setShowNew(false)}
 				onConfirm={dispatch}
+				disableConfirm={blockSubmit}
 				formChildren={
 					<div className="mb-3 space-y-2">
 						<label className="block font-mono text-[11px] uppercase tracking-wider text-text-dim">
@@ -185,6 +196,35 @@ export function HostTasksPanel({ hostId, host }: PanelProps) {
 							/>
 							<span className="text-text-dim normal-case">seconds</span>
 						</div>
+						<div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-wider text-text-dim">
+							<input
+								type="checkbox"
+								id="as-root"
+								checked={asRoot}
+								onChange={(e) => setAsRoot(e.target.checked)}
+								className="accent-warn"
+							/>
+							<label htmlFor="as-root" className="cursor-pointer">Run elevated (as root)</label>
+						</div>
+						{asRoot ? (
+							<>
+								<div className="rounded-sm border border-warn/40 bg-warn/10 p-2 font-mono text-[11px] text-warn">
+									<span className="font-semibold uppercase tracking-wider">⚠ ELEVATED EXECUTION</span>
+									{' '}— runs as <code>root</code> on the target host. Irreversible system changes possible. All actions logged and audited.
+								</div>
+								<label className="block font-mono text-[11px] uppercase tracking-wider text-text-dim">
+									Reason
+									<textarea
+										aria-label="Reason"
+										value={reason}
+										onChange={(e) => setReason(e.target.value)}
+										rows={2}
+										placeholder="Why does this need root? (audited, min 8 chars)"
+										className="mt-1 w-full resize-y rounded-sm border border-hairline bg-canvas px-2 py-1.5 font-mono text-[13px] leading-relaxed text-text outline-none focus:border-warn"
+									/>
+								</label>
+							</>
+						) : null}
 					</div>
 				}
 			/>
