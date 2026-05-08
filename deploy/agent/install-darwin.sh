@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-: "${HL_ENROLL_TOKEN:?required}"
-: "${HL_SERVER:?required}"
 
 ARCH="$(uname -m)"
 case "$ARCH" in
@@ -11,9 +9,7 @@ case "$ARCH" in
 esac
 
 INSTALL_PATH=/usr/local/bin/hl-agent
-STATE_DIR=/var/lib/hl-agent
 
-sudo mkdir -p "$STATE_DIR"
 curl -fsSL "$HL_SERVER/v1/agent-releases/latest?os=darwin&arch=$GOARCH" -o /tmp/release.json || \
   curl -fsSL "$HL_SERVER/agent/$GOARCH/hl-agent" -o /tmp/hl-agent
 
@@ -27,8 +23,8 @@ fi
 sudo install -m 0755 /tmp/hl-agent "$INSTALL_PATH"
 rm -f /tmp/hl-agent /tmp/release.json
 
-sudo HL_ENROLL_TOKEN="$HL_ENROLL_TOKEN" HL_SERVER="$HL_SERVER" "$INSTALL_PATH" enroll
-
-sudo cp "$(dirname "$0")/launchd/com.hl.agent.plist" /Library/LaunchDaemons/com.hl.agent.plist
-sudo launchctl load -w /Library/LaunchDaemons/com.hl.agent.plist
-echo "hl-agent installed + enrolled (darwin)"
+if [ -n "${HL_SERVER:-}" ] && [ -n "${HL_ENROLL_TOKEN:-}" ]; then
+  sudo "$INSTALL_PATH" install --unattended --server "$HL_SERVER" --token "$HL_ENROLL_TOKEN"
+else
+  sudo "$INSTALL_PATH" install
+fi
