@@ -1,0 +1,8 @@
+#!/sbin/openrc-run
+description="{{.Description}}"
+command="{{.ExecPath}}"
+command_args="{{range .ExecArgs}} {{.}}{{end}}"
+command_user="{{if .User}}{{.User}}{{else}}root{{end}}"
+pidfile="/run/{{.Name}}.pid"
+command_background="yes"
+depend() { need net; }

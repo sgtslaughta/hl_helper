@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.hlhelper.{{.Name}}</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>{{.ExecPath}}</string>
+{{range .ExecArgs}}
+		<string>{{.}}</string>
+{{end}}
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+{{if .User}}
+	<key>UserName</key>
+	<string>{{.User}}</string>
+{{end}}
+{{range $k,$v := .Environment}}
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>{{$k}}</key>
+		<string>{{$v}}</string>
+	</dict>
+{{end}}
+</dict>
+</plist>
