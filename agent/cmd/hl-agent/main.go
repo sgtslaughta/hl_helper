@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
@@ -386,14 +385,6 @@ func (e *ShellExecutor) Execute(ctx context.Context, cmd *pb.CommandEnvelope) *p
 	var status pb.ResultStatus
 
 	if shellExec.AsRoot {
-		if strings.TrimSpace(shellExec.Reason) == "" {
-			return &pb.ResultEnvelope{
-				StartedAt:       timestamppb.Now(),
-				CompletedAt:     timestamppb.Now(),
-				Status:          pb.ResultStatus_RESULT_REJECTED,
-				RejectionReason: "as_root requires reason",
-			}
-		}
 		stdout, stderr, exitCode, status = executor.RunShellElevated(ctx, cmdStr, timeoutSec, executor.ElevatedRequest{
 			Elevator: e.Elevator,
 			TaskID:   cmd.CommandId,
