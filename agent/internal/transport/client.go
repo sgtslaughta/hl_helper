@@ -25,6 +25,7 @@ import (
 	"github.com/hlhelper/hl-agent/internal/executor"
 	"github.com/hlhelper/hl-agent/internal/keystore"
 	"github.com/hlhelper/hl-agent/internal/outbox"
+	"github.com/hlhelper/hl-agent/internal/sleep"
 	"github.com/hlhelper/hl-agent/internal/survey"
 	"github.com/hlhelper/hl-agent/internal/updater"
 	pb "github.com/hlhelper/hl-agent/proto/fleet/v1"
@@ -211,6 +212,13 @@ func (c *Client) runOnce(ctx context.Context) error {
 	// in-place, so we always re-send (cheap on Linux: a few /proc reads + DMI
 	// strings). Failure is non-fatal — the next reconnect will retry.
 	go func() {
+		// Skip survey if sleeping
+		sleeping, sleepUntil := sleep.Check(c.opts.StateDir)
+		if sleeping {
+			log.Printf("survey: suppressed (sleeping until %s)", sleepUntil.Format(time.RFC3339))
+			return
+		}
+
 		s, err := survey.Collect(ctx, c.opts.HostID)
 		if err != nil || s == nil {
 			return
@@ -229,7 +237,7 @@ func (c *Client) runOnce(ctx context.Context) error {
 	defer hbCancel()
 	hbErr := make(chan error, 1)
 	go func() {
-		if err := sendMsg(buildHeartbeat(c.opts.HostID, c.opts.AgentVersion, netSamp)); err != nil {
+		if err := sendMsg(buildHeartbeat(c.opts.HostID, c.opts.AgentVersion, c.opts.StateDir, netSamp)); err != nil {
 			hbErr <- err
 			return
 		}
@@ -244,7 +252,7 @@ func (c *Client) runOnce(ctx context.Context) error {
 				t.Stop()
 				continue
 			case <-t.C:
-				if err := sendMsg(buildHeartbeat(c.opts.HostID, c.opts.AgentVersion, netSamp)); err != nil {
+				if err := sendMsg(buildHeartbeat(c.opts.HostID, c.opts.AgentVersion, c.opts.StateDir, netSamp)); err != nil {
 					hbErr <- err
 					return
 				}
@@ -617,7 +625,9 @@ func (c *Client) handleAgentUpdate(ctx context.Context, env *pb.CommandEnvelope,
 // buildHeartbeat assembles a heartbeat message with current minimal metrics.
 // Cheap on Linux: load avg from /proc/loadavg, mem from /proc/meminfo, disk
 // usage from statfs(/), uptime from /proc/uptime.
-func buildHeartbeat(hostID, agentVersion string, ns *netSampler) *pb.AgentToServer {
+// Loads sleep state from stateDir and sets Sleeping + SleepUntil fields if sleeping.
+// Auto-clears expired sleep state and logs the resume.
+func buildHeartbeat(hostID, agentVersion, stateDir string, ns *netSampler) *pb.AgentToServer {
 	m := &pb.HostMetrics{}
 	if l, err := load.Avg(); err == nil {
 		m.Load_1 = float32(l.Load1)
@@ -636,14 +646,33 @@ func buildHeartbeat(hostID, agentVersion string, ns *netSampler) *pb.AgentToServ
 	if ns != nil {
 		m.NetRxBps, m.NetTxBps = ns.sample()
 	}
+
+	hb := &pb.Heartbeat{
+		HostId:       hostID,
+		At:           timestamppb.Now(),
+		Metrics:      m,
+		AgentVersion: agentVersion,
+	}
+
+	// Load sleep state and set fields if sleeping
+	state, err := sleep.Load(stateDir)
+	if err != nil {
+		log.Printf("heartbeat: failed to load sleep state: %v", err)
+	} else if state.IsSleeping() {
+		hb.Sleeping = true
+		hb.SleepUntil = timestamppb.New(state.Until)
+	} else if !state.Until.IsZero() && time.Now().After(state.Until) {
+		// Sleep state file exists but expired: auto-resume
+		if err := sleep.Clear(stateDir); err != nil {
+			log.Printf("heartbeat: failed to clear expired sleep state: %v", err)
+		} else {
+			log.Printf("heartbeat: auto-resumed from sleep (was until %s)", state.Until.Format(time.RFC3339))
+		}
+	}
+
 	return &pb.AgentToServer{
 		Msg: &pb.AgentToServer_Heartbeat{
-			Heartbeat: &pb.Heartbeat{
-				HostId:       hostID,
-				At:           timestamppb.Now(),
-				Metrics:      m,
-				AgentVersion: agentVersion,
-			},
+			Heartbeat: hb,
 		},
 	}
 }

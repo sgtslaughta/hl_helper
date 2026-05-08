@@ -3,7 +3,10 @@ package transport_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -151,5 +154,106 @@ func TestRunRespectsContextCancel(t *testing.T) {
 	err := cli.Run(ctx)
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("Expected context.Canceled, got %v", err)
+	}
+}
+
+// TestHeartbeatWithSleepState verifies that sleep state is reflected in heartbeat.
+func TestHeartbeatWithSleepState(t *testing.T) {
+	heartbeatReceived := make(chan *pb.Heartbeat, 1)
+
+	srv := &stubServer{
+		onConnect: func(stream grpc.BidiStreamingServer[pb.AgentToServer, pb.ServerToAgent]) error {
+			msg, err := stream.Recv()
+			if err != nil {
+				return err
+			}
+			if hb := msg.GetHeartbeat(); hb != nil {
+				heartbeatReceived <- hb
+			}
+			<-time.After(100 * time.Millisecond)
+			return nil
+		},
+	}
+
+	_, lis := newBufServer(t, srv)
+
+	stateDir := t.TempDir()
+	sleepUntil := time.Now().Add(5 * time.Minute)
+
+	// Write sleep state to disk
+	stateFile := filepath.Join(stateDir, "sleep.json")
+	sleepData := fmt.Sprintf(`{"until":"%s","reason":"test sleep"}`, sleepUntil.Format(time.RFC3339Nano))
+	if err := os.WriteFile(stateFile, []byte(sleepData), 0o600); err != nil {
+		t.Fatalf("Failed to write sleep state: %v", err)
+	}
+
+	cli := transport.New(transport.Options{
+		Endpoint: "localhost:9999",
+		HostID:   "test-host",
+		StateDir: stateDir,
+		DialOptions: bufDialOpts(lis),
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	_ = cli.RunOnce(ctx)
+
+	select {
+	case hb := <-heartbeatReceived:
+		if !hb.Sleeping {
+			t.Errorf("Expected Sleeping=true, got false")
+		}
+		if hb.SleepUntil == nil {
+			t.Errorf("Expected SleepUntil to be set, got nil")
+		}
+	case <-time.After(1 * time.Second):
+		t.Errorf("Heartbeat not received within timeout")
+	}
+}
+
+// TestHeartbeatWithoutSleepState verifies heartbeat when no sleep state exists.
+func TestHeartbeatWithoutSleepState(t *testing.T) {
+	heartbeatReceived := make(chan *pb.Heartbeat, 1)
+
+	srv := &stubServer{
+		onConnect: func(stream grpc.BidiStreamingServer[pb.AgentToServer, pb.ServerToAgent]) error {
+			msg, err := stream.Recv()
+			if err != nil {
+				return err
+			}
+			if hb := msg.GetHeartbeat(); hb != nil {
+				heartbeatReceived <- hb
+			}
+			<-time.After(100 * time.Millisecond)
+			return nil
+		},
+	}
+
+	_, lis := newBufServer(t, srv)
+	stateDir := t.TempDir()
+
+	cli := transport.New(transport.Options{
+		Endpoint: "localhost:9999",
+		HostID:   "test-host",
+		StateDir: stateDir,
+		DialOptions: bufDialOpts(lis),
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	_ = cli.RunOnce(ctx)
+
+	select {
+	case hb := <-heartbeatReceived:
+		if hb.Sleeping {
+			t.Errorf("Expected Sleeping=false, got true")
+		}
+		if hb.SleepUntil != nil {
+			t.Errorf("Expected SleepUntil=nil, got %v", hb.SleepUntil)
+		}
+	case <-time.After(1 * time.Second):
+		t.Errorf("Heartbeat not received within timeout")
 	}
 }
