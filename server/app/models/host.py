@@ -6,7 +6,7 @@ import enum
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Enum as SAEnum, Index, JSON, String, func
+from sqlalchemy import Boolean, DateTime, Enum as SAEnum, Index, JSON, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from server.app.models.base import Base
@@ -72,6 +72,10 @@ class Host(Base):
     )
     agent_update_target_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
     pinned_release_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    sleeping: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    sleep_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     memberships: Mapped[list[GroupMembership]] = relationship(
         "GroupMembership",

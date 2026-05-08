@@ -448,4 +448,12 @@ async def _persist_heartbeat(
     else:
         host.agent_update_target_version = None
 
+    # Update sleeping status and sleep_until timestamp
+    host.sleeping = hb.sleeping
+    if hb.sleeping and hb.sleep_until:
+        # Convert protobuf Timestamp to datetime with timezone
+        host.sleep_until = hb.sleep_until.ToDatetime()
+    else:
+        host.sleep_until = None
+
     await session.flush()

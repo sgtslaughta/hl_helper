@@ -54,6 +54,8 @@ class HostOut(BaseModel):
     agent_update_status: str = "idle"
     agent_update_target_version: str | None = None
     pinned_release_id: str | None = None
+    sleeping: bool = False
+    sleep_until: datetime | None = None
 
 
 class HostPatchRequest(BaseModel):
