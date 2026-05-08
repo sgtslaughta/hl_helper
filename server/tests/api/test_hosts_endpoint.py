@@ -58,13 +58,37 @@ def revocation_service(
 
 
 @pytest.fixture
-async def client(async_session_maker, revocation_service: RevocationService, monkeypatch):
+async def client(
+    async_session_maker, revocation_service: RevocationService, audit_chain: SqlAuditChain, monkeypatch
+):
     """Create FastAPI test client with overridden dependencies."""
     from unittest import mock
     from server.app.settings.config import FleetSettings
+    from server.app.dispatcher.dispatcher import DispatchResult
+    from server.tests._helpers.app_state import make_test_app_state
     from pydantic import SecretStr
 
     app = create_app()
+
+    # Mock api_dispatcher to return realistic results
+    mock_api_dispatcher = mock.AsyncMock()
+    mock_api_dispatcher.dispatch = mock.AsyncMock(
+        return_value=DispatchResult(
+            task_id="task-123",
+            dispatched=["test-host-1"],
+            denied=[],
+            pending_approval_ids=[],
+        )
+    )
+
+    # Build app state
+    app_state = make_test_app_state(
+        sessionmaker=async_session_maker,
+        audit_chain=audit_chain,
+        revocation_service=revocation_service,
+        api_dispatcher=mock_api_dispatcher,
+    )
+    app.state.app_state = app_state
 
     async def override_session_dep() -> AsyncIterator[AsyncSession]:
         async with async_session_maker() as session:
@@ -233,3 +257,91 @@ async def test_list_hosts_filter_by_status(client: httpx.AsyncClient, async_sess
     assert len(data) == 1
     assert data[0]["id"] == "host-1"
     assert data[0]["status"] == "online"
+
+
+@pytest.mark.asyncio
+async def test_shell_exec_as_root_requires_reason(
+    client: httpx.AsyncClient, async_session_maker
+):
+    """as_root=true without reason -> 422."""
+    # Pre-create host
+    async with async_session_maker() as session:
+        host = Host(
+            id="test-host-1",
+            hostname="test.example.com",
+            agent_pubkey=b"x" * 32,
+            cert_serial="abc123",
+        )
+        session.add(host)
+        await session.commit()
+
+    response = await client.post(
+        "/v1/hosts/test-host-1/actions/shell-exec",
+        headers={
+            "Authorization": "Bearer test-admin-token",
+            "X-Acting-Principal": "user:admin",
+        },
+        json={"command": "ls", "as_root": True},
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_shell_exec_as_root_short_reason_rejected(
+    client: httpx.AsyncClient, async_session_maker
+):
+    """Reason shorter than 8 chars -> 422."""
+    # Pre-create host
+    async with async_session_maker() as session:
+        host = Host(
+            id="test-host-1",
+            hostname="test.example.com",
+            agent_pubkey=b"x" * 32,
+            cert_serial="abc123",
+        )
+        session.add(host)
+        await session.commit()
+
+    response = await client.post(
+        "/v1/hosts/test-host-1/actions/shell-exec",
+        headers={
+            "Authorization": "Bearer test-admin-token",
+            "X-Acting-Principal": "user:admin",
+        },
+        json={"command": "ls", "as_root": True, "reason": "x"},
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_shell_exec_as_root_dispatches_with_reason(
+    client: httpx.AsyncClient, async_session_maker
+):
+    """Valid as_root request -> 200; payload threads as_root + reason; audit entry written."""
+    # Pre-create host
+    async with async_session_maker() as session:
+        host = Host(
+            id="test-host-1",
+            hostname="test.example.com",
+            agent_pubkey=b"x" * 32,
+            cert_serial="abc123",
+        )
+        session.add(host)
+        await session.commit()
+
+    response = await client.post(
+        "/v1/hosts/test-host-1/actions/shell-exec",
+        headers={
+            "Authorization": "Bearer test-admin-token",
+            "X-Acting-Principal": "user:admin",
+        },
+        json={
+            "command": "ls",
+            "as_root": True,
+            "reason": "package refresh",
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "task_id" in data
+    assert data["dispatched"] == ["test-host-1"]

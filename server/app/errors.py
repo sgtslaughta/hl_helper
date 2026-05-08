@@ -95,7 +95,7 @@ async def validation_exception_handler(
     errors = exc.errors()
     scrubbed_errors = []
     for error in errors:
-        # Keep only loc, msg, type; drop input and ctx.input
+        # Keep only loc, msg, type; drop input and ctx
         scrubbed_error = {}
         if "loc" in error:
             scrubbed_error["loc"] = error["loc"]
@@ -103,14 +103,7 @@ async def validation_exception_handler(
             scrubbed_error["msg"] = error["msg"]
         if "type" in error:
             scrubbed_error["type"] = error["type"]
-        # Preserve ctx if it exists but doesn't have input
-        if "ctx" in error:
-            ctx = error["ctx"]
-            if isinstance(ctx, dict) and "input" in ctx:
-                # Remove input from ctx
-                ctx = {k: v for k, v in ctx.items() if k != "input"}
-            if ctx:
-                scrubbed_error["ctx"] = ctx
+        # Drop ctx entirely to avoid non-serializable objects
         scrubbed_errors.append(scrubbed_error)
 
     return problem(

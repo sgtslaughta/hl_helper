@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -77,6 +77,15 @@ class ShellExecActionRequest(BaseModel):
 
     command: str
     timeout_s: int = 60
+    as_root: bool = False
+    reason: str | None = None
+
+    @model_validator(mode="after")
+    def _require_reason_when_as_root(self) -> "ShellExecActionRequest":
+        if self.as_root:
+            if not self.reason or len(self.reason.strip()) < 8:
+                raise ValueError("reason required (>=8 chars) when as_root=true")
+        return self
 
 
 class PkgUpdateActionRequest(BaseModel):
@@ -405,7 +414,12 @@ async def shell_exec_host(
 
     principal = Principal(user_id=acting_principal)
     targets = HostListSelector(host_ids=[host_id])
-    payload = ShellExecPayload(command=body.command, timeout_s=body.timeout_s)
+    payload = ShellExecPayload(
+        command=body.command,
+        timeout_s=body.timeout_s,
+        as_root=body.as_root,
+        reason=(body.reason or "").strip(),
+    )
     idempotency_key = request.headers.get("Idempotency-Key")
 
 
@@ -418,6 +432,27 @@ async def shell_exec_host(
         idempotency_key=idempotency_key,
     )
     await session.commit()
+
+    # Write server-side audit entry
+    async with state.sessionmaker() as audit_session:
+        try:
+            action = "exec.elevated.dispatched" if body.as_root else "exec.dispatched"
+            await state.audit_chain.append(
+                audit_session,
+                actor=f"user:{principal.user_id}",
+                action=action,
+                subject=host_id,
+                payload={
+                    "command": body.command,
+                    "as_root": body.as_root,
+                    "reason": payload.reason,
+                    "task_id": result.task_id,
+                },
+            )
+            await audit_session.commit()
+        except Exception:
+            # Audit failure must not break the dispatch response.
+            pass
 
     return ActionResponse(
         task_id=result.task_id,

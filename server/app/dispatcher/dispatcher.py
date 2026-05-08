@@ -52,6 +52,8 @@ class ShellExecPayload:
 
     command: str
     timeout_s: int = 60
+    as_root: bool = False
+    reason: str = ""
     payload_kind: ClassVar[str] = "shell_exec"
 
 
@@ -103,7 +105,10 @@ def _payload_to_proto(payload: object) -> tuple[str, object]:
         return (
             "shell_exec",
             commands_pb2.ShellExec(
-                command=payload.command, timeout_seconds=payload.timeout_s
+                command=payload.command,
+                timeout_seconds=payload.timeout_s,
+                as_root=payload.as_root,
+                reason=payload.reason,
             ),
         )
     elif isinstance(payload, PkgUpdatePayload):
@@ -120,7 +125,12 @@ def _payload_to_dict(payload: object) -> dict[str, object]:
     if isinstance(payload, RebootPayload):
         return {"delay_s": payload.delay_s, "reason": payload.reason}
     elif isinstance(payload, ShellExecPayload):
-        return {"command": payload.command, "timeout_s": payload.timeout_s}
+        return {
+            "command": payload.command,
+            "timeout_s": payload.timeout_s,
+            "as_root": payload.as_root,
+            "reason": payload.reason,
+        }
     elif isinstance(payload, PkgUpdatePayload):
         return {"classes": list(payload.classes)}
     else:
