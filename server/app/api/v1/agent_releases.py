@@ -14,7 +14,6 @@ import jwt
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Header, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.app.api.state import get_app_state
 from server.app.api.middleware.admin_auth import admin_required

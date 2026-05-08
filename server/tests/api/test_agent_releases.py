@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select
 
 from server.app.api.app import create_app
 from server.app.api.v1.agent_releases import make_download_token

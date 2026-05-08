@@ -53,6 +53,10 @@ line-length = 100
 target-version = "py312"
 exclude = ["server/app/grpc/_pb"]
 
+[tool.ruff.lint.per-file-ignores]
+# pytest fixture re-imports look like redefinitions to ruff but are required.
+"server/tests/**/*.py" = ["F811"]
+
 [tool.mypy]
 strict = true
 python_version = "3.12"

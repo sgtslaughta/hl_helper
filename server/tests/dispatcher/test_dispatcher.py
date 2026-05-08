@@ -317,7 +317,6 @@ async def test_dispatch_creates_task_row(stack) -> None:
     from server.app.dispatcher.targets import HostListSelector
     from server.app.models import Task
     from server.app.models.task import TaskKind
-    from sqlalchemy import select
 
     async with stack.sm() as session:
         res = await stack.dispatcher.dispatch(

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from server.app.models.agent_release import AgentRelease, ReleaseChannel, ReleaseStatus

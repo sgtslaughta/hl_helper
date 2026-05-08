@@ -62,7 +62,6 @@ def _reconcile_added_columns(connection) -> None:
     inspector = inspect(connection)
     dialect = connection.dialect
 
-    import enum as _enum
 
     for table in Base.metadata.sorted_tables:
         if not inspector.has_table(table.name):
