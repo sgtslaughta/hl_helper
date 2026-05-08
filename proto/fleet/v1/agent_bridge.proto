@@ -125,6 +125,18 @@ message DecommissionAck {
   google.protobuf.Timestamp at = 1;
 }
 
+message AgentAuditEvent {
+  google.protobuf.Timestamp timestamp = 1;
+  string task_id = 2;
+  string binary = 3;
+  repeated string args = 4;
+  string elevator = 5;   // "sudo"|"doas"|"direct"|"none"
+  string reason = 6;
+  string phase = 7;      // "started"|"completed"|"denied"
+  int32 exit_code = 8;
+  string error = 9;
+}
+
 message AgentToServer {
   oneof msg {
     Heartbeat heartbeat = 1;
@@ -134,6 +146,7 @@ message AgentToServer {
     CertRotateRequest cert_rotate = 5;
     DecommissionAck decom_ack = 6;
     HostSurvey host_survey = 7;
+    AgentAuditEvent audit = 8;
   }
 }
 
