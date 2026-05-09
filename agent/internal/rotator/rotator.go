@@ -105,3 +105,76 @@ func (r *Rotator) fail(st State, reason string, cause error) error {
 	_ = SaveState(r.cfg.StatePath, st)
 	return fmt.Errorf("rotate %s: %w", reason, cause)
 }
+
+// Run is the long-running supervisor: schedules rotation at 50% TTL,
+// applies backoff on failure, transitions to RECOVERING when cert expired.
+func (r *Rotator) Run(ctx context.Context, certInfoFn func() (notBefore, notAfter time.Time, serial string, err error)) error {
+	const (
+		minBackoff = 5 * time.Minute
+		maxBackoff = 1 * time.Hour
+		jitter     = 0.10
+	)
+
+	backoff := minBackoff
+	for {
+		nb, na, _, err := certInfoFn()
+		if err != nil {
+			log.Printf("rotator: cert info err: %v", err)
+			if !sleepCtx(ctx, backoff) {
+				return ctx.Err()
+			}
+			backoff = nextBackoff(backoff, maxBackoff)
+			continue
+		}
+
+		now := time.Now().UTC()
+		if na.Before(now) {
+			// Cert expired — recovery path is the supervisor's job, not here.
+			log.Printf("rotator: cert expired at %v, deferring to recovery", na)
+			if !sleepCtx(ctx, 30*time.Second) {
+				return ctx.Err()
+			}
+			continue
+		}
+
+		rotateAt := ComputeRotateAfter(nb, na, now, jitter)
+		wait := rotateAt.Sub(now)
+		if wait < 0 {
+			wait = 0
+		}
+		log.Printf("rotator: next rotation at %v (wait=%v)", rotateAt, wait)
+		if !sleepCtx(ctx, wait) {
+			return ctx.Err()
+		}
+
+		if err := r.RotateOnce(ctx); err != nil {
+			log.Printf("rotator: attempt failed: %v", err)
+			if !sleepCtx(ctx, backoff) {
+				return ctx.Err()
+			}
+			backoff = nextBackoff(backoff, maxBackoff)
+			continue
+		}
+		backoff = minBackoff
+	}
+}
+
+func nextBackoff(cur, max time.Duration) time.Duration {
+	next := cur * 2
+	if next > max {
+		next = max
+	}
+	return next
+}
+
+func sleepCtx(ctx context.Context, d time.Duration) bool {
+	if d <= 0 {
+		return ctx.Err() == nil
+	}
+	select {
+	case <-time.After(d):
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}

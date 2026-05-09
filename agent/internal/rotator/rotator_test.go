@@ -103,3 +103,12 @@ func TestRotatorVerifyFailureRollsBack(t *testing.T) {
 		t.Errorf("must not reconnect on verify fail, got %d", tp.reconn)
 	}
 }
+
+func TestNextBackoffDoubles(t *testing.T) {
+	if got := nextBackoff(5*time.Minute, time.Hour); got != 10*time.Minute {
+		t.Errorf("nextBackoff(5m, 1h) = %v", got)
+	}
+	if got := nextBackoff(40*time.Minute, time.Hour); got != time.Hour {
+		t.Errorf("nextBackoff cap = %v", got)
+	}
+}
