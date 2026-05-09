@@ -90,6 +90,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(
 		versionCmd(),
 		enrollCmd(),
+		newReenrollCmd(),
 		runCmd(),
 		decommissionCmd(),
 		// Getters
