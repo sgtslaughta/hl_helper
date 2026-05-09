@@ -43,7 +43,7 @@ function readPayload(p: Record<string, unknown> | null | undefined): RowData {
 
 export function RiskRecentActivity({ entries }: { entries: AuditEntry[] }) {
 	return (
-		<section className="rounded border border-hairline bg-surface p-4">
+		<section className="rounded border border-hairline bg-surface p-3">
 			<div className="mb-2 font-mono text-[10px] uppercase tracking-[0.18em] text-text-dim">
 				Recent activity
 			</div>

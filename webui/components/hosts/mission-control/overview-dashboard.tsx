@@ -973,6 +973,13 @@ function RiskInfographic({
 
 	const needleAngle = scoreToAngle(displayScore);
 	const [nx, ny] = polar(needleAngle);
+	// Inner end of needle: start at ~70% of the radius so the line traces
+	// only the outer band of the gauge instead of crossing the centered
+	// score readout. Pure visual fix — angle/score math unchanged.
+	const innerR = r * 0.7;
+	const innerA = (needleAngle * Math.PI) / 180;
+	const innerX = cx + innerR * Math.cos(innerA);
+	const innerY = cy + innerR * Math.sin(innerA);
 
 	// Mouse-tracked hover panel for top drivers. Rendered via portal so it
 	// escapes the ribbon's overflow clipping and sits at the topmost layer.
@@ -1151,21 +1158,23 @@ function RiskInfographic({
 					{!loading ? (
 						<>
 							<line
-								x1={cx}
-								y1={cy}
+								x1={innerX}
+								y1={innerY}
 								x2={nx}
 								y2={ny}
 								stroke={color}
-								strokeWidth={2}
+								strokeWidth={2.5}
 								strokeLinecap="round"
+								style={{ filter: `drop-shadow(0 0 3px ${color})` }}
 							/>
-							<circle cx={cx} cy={cy} r={3} fill={color} />
+							{/* Tip dot at outer end for emphasis */}
+							<circle cx={nx} cy={ny} r={2.5} fill={color} />
 						</>
 					) : null}
 				</svg>
 				<div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col items-center font-mono leading-none">
 					<span
-						className="text-[20px] font-semibold tabular-nums"
+						className="rounded-sm bg-surface/80 px-1.5 text-[20px] font-semibold tabular-nums backdrop-blur-sm"
 						style={{ color: loading ? 'var(--color-text-dim)' : color }}
 					>
 						{loading ? '…' : Math.round(displayScore)}

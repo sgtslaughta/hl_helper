@@ -52,11 +52,11 @@ export function RiskHeroCard({ risk, hostId }: { risk: HostRiskOut; hostId: stri
 	const label = LEVEL_LABEL[risk.level] ?? risk.level;
 	const score = risk.score ?? 0;
 
-	const W = 240;
-	const H = 130;
+	const W = 200;
+	const H = 100;
 	const cx = W / 2;
-	const cy = H - 8;
-	const r = 96;
+	const cy = H - 6;
+	const r = 78;
 
 	const polar = (deg: number) => {
 		const a = (deg * Math.PI) / 180;
@@ -70,10 +70,17 @@ export function RiskHeroCard({ risk, hostId }: { risk: HostRiskOut; hostId: stri
 		const [x2, y2] = polar(a2);
 		return `M ${x1} ${y1} A ${r} ${r} 0 0 1 ${x2} ${y2}`;
 	};
-	const [nx, ny] = polar(scoreToAngle(score));
+	const needleAngle = scoreToAngle(score);
+	const [nx, ny] = polar(needleAngle);
+	// Inner end of needle at 70% of radius so it traces only the outer
+	// band and doesn't pierce the centered score readout.
+	const innerR = r * 0.7;
+	const innerA = (needleAngle * Math.PI) / 180;
+	const innerX = cx + innerR * Math.cos(innerA);
+	const innerY = cy + innerR * Math.sin(innerA);
 
 	return (
-		<section className="rounded border border-hairline bg-surface p-4">
+		<section className="rounded border border-hairline bg-surface p-3">
 			<div className="flex items-center justify-between">
 				<div className="font-mono text-[10px] uppercase tracking-[0.18em] text-text-dim">
 					Risk hero
@@ -114,7 +121,7 @@ export function RiskHeroCard({ risk, hostId }: { risk: HostRiskOut; hostId: stri
 							d={arc(b.from, b.to)}
 							stroke={b.color}
 							strokeOpacity={0.35}
-							strokeWidth={11}
+							strokeWidth={9}
 							fill="none"
 						/>
 					))}
@@ -122,25 +129,29 @@ export function RiskHeroCard({ risk, hostId }: { risk: HostRiskOut; hostId: stri
 						<path
 							d={arc(0, score)}
 							stroke={color}
-							strokeWidth={11}
+							strokeWidth={9}
 							strokeLinecap="round"
 							fill="none"
 							style={{ filter: `drop-shadow(0 0 6px ${color})` }}
 						/>
 					) : null}
 					<line
-						x1={cx}
-						y1={cy}
+						x1={innerX}
+						y1={innerY}
 						x2={nx}
 						y2={ny}
 						stroke={color}
-						strokeWidth={2}
+						strokeWidth={2.5}
 						strokeLinecap="round"
+						style={{ filter: `drop-shadow(0 0 3px ${color})` }}
 					/>
-					<circle cx={cx} cy={cy} r={3.5} fill={color} />
+					<circle cx={nx} cy={ny} r={2.5} fill={color} />
 				</svg>
 				<div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col items-center font-mono leading-none">
-					<span className="text-[28px] font-semibold tabular-nums" style={{ color }}>
+					<span
+						className="rounded-sm bg-surface/80 px-1.5 text-[22px] font-semibold tabular-nums backdrop-blur-sm"
+						style={{ color }}
+					>
 						{risk.score ?? '—'}
 					</span>
 				</div>

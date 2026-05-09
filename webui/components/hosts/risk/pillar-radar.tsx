@@ -2,11 +2,11 @@
 
 import type { PillarOut } from '@/lib/api/posture-risk';
 
-const W = 320;
-const H = 280;
+const W = 240;
+const H = 200;
 const CX = W / 2;
-const CY = H / 2 + 8;
-const R = 100;
+const CY = H / 2 + 6;
+const R = 72;
 
 function polygon(values: number[], maxValue = 100) {
 	const n = values.length;
@@ -25,11 +25,11 @@ function trunc(s: string, n: number): string {
 export function RiskPillarRadar({ pillars }: { pillars: PillarOut[] }) {
 	if (pillars.length < 3) {
 		return (
-			<section className="rounded border border-hairline bg-surface p-4">
+			<section className="rounded border border-hairline bg-surface p-3">
 				<div className="font-mono text-[10px] uppercase tracking-[0.18em] text-text-dim">
 					Pillar radar
 				</div>
-				<div className="flex h-[260px] items-center justify-center font-mono text-xs text-text-dim/70">
+				<div className="flex h-[180px] items-center justify-center font-mono text-xs text-text-dim/70">
 					Need ≥3 pillars for radar — currently {pillars.length}.
 				</div>
 			</section>
@@ -48,7 +48,7 @@ export function RiskPillarRadar({ pillars }: { pillars: PillarOut[] }) {
 	});
 
 	return (
-		<section className="rounded border border-hairline bg-surface p-4">
+		<section className="rounded border border-hairline bg-surface p-3">
 			<div className="mb-2 font-mono text-[10px] uppercase tracking-[0.18em] text-text-dim">
 				Pillar radar
 			</div>
