@@ -207,6 +207,6 @@ async def recompute_host_risk(
     if state.risk_recomputer is None:
         raise HTTPException(status_code=503, detail="recomputer_unavailable")
     asyncio.create_task(
-        state.risk_recomputer.recompute(host_id, trigger_reason="manual")
+        state.risk_recomputer.recompute(host_id, trigger_reason="manual", force=True)
     )
     return {"status": "queued"}

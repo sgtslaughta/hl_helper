@@ -27,6 +27,12 @@ class RiskRecomputer:
     DEBOUNCE_S = 30.0
     SCORER_TIMEOUT_S = 0.25
 
+    # Bumped whenever scorer math or input wiring changes — included in
+    # inputs_hash so cached rows from a previous code version invalidate
+    # automatically. Increment when a scorer fix would otherwise be hidden
+    # behind the short-circuit.
+    SCORER_CODEVERSION = 2
+
     def __init__(
         self,
         sessionmaker: async_sessionmaker,
@@ -61,6 +67,7 @@ class RiskRecomputer:
         *,
         trigger_reason: str,
         debounced: bool = False,
+        force: bool = False,
     ) -> None:
         async with self._lock(host_id):
             loop = asyncio.get_event_loop()
@@ -70,11 +77,15 @@ class RiskRecomputer:
             ):
                 return
             try:
-                await self._recompute_locked(host_id, trigger_reason=trigger_reason)
+                await self._recompute_locked(
+                    host_id, trigger_reason=trigger_reason, force=force
+                )
             finally:
                 self._last_run[host_id] = loop.time()
 
-    async def _recompute_locked(self, host_id: str, *, trigger_reason: str) -> None:
+    async def _recompute_locked(
+        self, host_id: str, *, trigger_reason: str, force: bool = False
+    ) -> None:
         from server.app.models.host import Host
         from server.app.models.host_advisory import HostAdvisory
         from server.app.models.host_risk import HostRisk
@@ -141,7 +152,7 @@ class RiskRecomputer:
         h = self._hash_inputs(host, advs, findings, weights)
         async with self._sm() as session:
             prev = await session.get(HostRisk, host_id)
-            if prev is not None and prev.inputs_hash == h:
+            if not force and prev is not None and prev.inputs_hash == h:
                 return
 
             level = risk.level
@@ -340,6 +351,7 @@ class RiskRecomputer:
                 for f in findings
             ),
             "weights": sorted(weights.items()),
+            "scorer_codeversion": self.SCORER_CODEVERSION,
         }
         s = json.dumps(payload, default=str, sort_keys=True)
         return hashlib.sha256(s.encode()).hexdigest()
