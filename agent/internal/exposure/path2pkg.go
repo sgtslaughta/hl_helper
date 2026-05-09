@@ -65,9 +65,13 @@ func (d *DpkgResolver) Resolve(paths []string) map[string]PathPkg {
 	if len(paths) == 0 {
 		return nil
 	}
+	// dpkg -S exits 1 if ANY path is not owned by an installed pkg, but it
+	// still writes successful matches to stdout. Capture stdout regardless
+	// of exit status; only bail if we got nothing.
 	args := append([]string{"-S"}, paths...)
-	out, err := exec.Command("dpkg", args...).Output()
-	if err != nil {
+	cmd := exec.Command("dpkg", args...)
+	out, _ := cmd.Output() // ignore ExitError; partial stdout is useful
+	if len(out) == 0 {
 		return nil
 	}
 	return parseDpkgSearchOutput(string(out))
@@ -97,8 +101,8 @@ func (r *RpmResolver) Resolve(paths []string) map[string]PathPkg {
 		return nil
 	}
 	args := append([]string{"-qf", "--qf", "%{NAME}-%{VERSION}\n"}, paths...)
-	out, err := exec.Command("rpm", args...).Output()
-	if err != nil {
+	out, _ := exec.Command("rpm", args...).Output() // ignore ExitError
+	if len(out) == 0 {
 		return nil
 	}
 	return parseRpmQfOutput(paths, string(out))
@@ -129,8 +133,8 @@ func (a *ApkResolver) Resolve(paths []string) map[string]PathPkg {
 		return nil
 	}
 	args := append([]string{"info", "-W"}, paths...)
-	out, err := exec.Command("apk", args...).Output()
-	if err != nil {
+	out, _ := exec.Command("apk", args...).Output() // ignore ExitError
+	if len(out) == 0 {
 		return nil
 	}
 	return parseApkInfoWOutput(string(out))
