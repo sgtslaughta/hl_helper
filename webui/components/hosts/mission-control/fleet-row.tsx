@@ -4,6 +4,8 @@ import type { Host } from '@/lib/api/hosts';
 import type { Density } from '@/lib/mission-control/density';
 import { parseServerTime } from '@/lib/time';
 import { AgentVersionChip } from '@/components/hosts/agent-version-chip';
+import { useQuery } from '@tanstack/react-query';
+import { getHostCert } from '@/lib/api/hosts';
 
 interface Props {
 	host: Host;
@@ -53,6 +55,37 @@ function tone(pct: number): 'ok' | 'warn' | 'crit' {
 	return 'ok';
 }
 
+function CertPill({ hostId, isOffline }: { hostId: string; isOffline: boolean }) {
+	const { data } = useQuery({
+		queryKey: ['host-cert', hostId],
+		queryFn: () => getHostCert(hostId),
+		refetchInterval: 60_000,
+		enabled: !isOffline,
+	});
+
+	if (!data) return null;
+
+	const expMs = data.expires_at ? new Date(data.expires_at).getTime() - Date.now() : null;
+
+	if (data.status === 'halted' || data.status === 'expired') {
+		return (
+			<span className="text-red-500" title="Cert halted or expired">
+				✕
+			</span>
+		);
+	}
+
+	if (expMs !== null && expMs < 24 * 3600 * 1000) {
+		return (
+			<span className="text-amber-400" title="Cert expires <24h">
+				⚠
+			</span>
+		);
+	}
+
+	return null;
+}
+
 export function FleetRow({ host, density, selected, onSelect, cpuHistory }: Props) {
 	const name = host.display_name ?? host.hostname;
 	const dot = DOT[host.status];
@@ -85,6 +118,7 @@ export function FleetRow({ host, density, selected, onSelect, cpuHistory }: Prop
 					<span className="rounded bg-surface-2 px-1.5 text-[10px] text-text-dim">{osLabel}</span>
 				) : null}
 				<AgentVersionChip current={host.agent_version} latest={host.agent_version_latest} status={host.agent_update_status} />
+				<CertPill hostId={host.id} isOffline={isOffline} />
 			</div>
 
 			{density !== 'lean' ? (
