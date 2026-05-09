@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"net/http"
@@ -282,5 +283,149 @@ func checkStateDir(dir string) checkResult {
 		name: "state_dir",
 		pass: true,
 		msg:  "writable",
+	}
+}
+
+func checkCertHealth(dir string) checkResult {
+	ks, err := keystore.OpenFile(dir)
+	if err != nil {
+		return checkResult{
+			name: "cert_health",
+			pass: false,
+			msg:  fmt.Sprintf("keystore open failed: %v", err),
+		}
+	}
+
+	// Get TLS certificate.
+	certPEM, _, err := ks.TLSCertAndKey()
+	if err != nil || len(certPEM) == 0 {
+		return checkResult{
+			name: "cert_health",
+			pass: false,
+			msg:  "no certificate found",
+		}
+	}
+
+	// Parse PEM to extract serial, NotBefore, NotAfter.
+	block, _ := pem.Decode(certPEM)
+	if block == nil {
+		return checkResult{
+			name: "cert_health",
+			pass: false,
+			msg:  "cannot decode certificate PEM",
+		}
+	}
+
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return checkResult{
+			name: "cert_health",
+			pass: false,
+			msg:  fmt.Sprintf("parse certificate: %v", err),
+		}
+	}
+
+	serial := fmt.Sprintf("%x", cert.SerialNumber)
+	notBefore := cert.NotBefore
+	notAfter := cert.NotAfter
+	now := time.Now()
+	expiresIn := notAfter.Sub(now)
+
+	// Build report
+	msg := fmt.Sprintf("serial=%s, NotBefore=%s, NotAfter=%s, expires in %.1f days",
+		serial, notBefore.Format(time.RFC3339), notAfter.Format(time.RFC3339), expiresIn.Hours()/24)
+
+	// Status: OK if >24h remaining, WARN if 0-24h, FAIL if expired
+	if expiresIn < 0 {
+		return checkResult{
+			name: "cert_health",
+			pass: false,
+			msg:  msg,
+		}
+	}
+
+	if expiresIn < 24*time.Hour {
+		return checkResult{
+			name: "cert_health",
+			pass: true,
+			msg:  msg,
+			warn: true,
+		}
+	}
+
+	return checkResult{
+		name: "cert_health",
+		pass: true,
+		msg:  msg,
+	}
+}
+
+func checkRotatorState(dir string) checkResult {
+	rotatorStatePath := filepath.Join(dir, "rotator.state.json")
+
+	// Skip silently if file doesn't exist (rotator hasn't run yet).
+	data, err := os.ReadFile(rotatorStatePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return checkResult{
+				name: "rotator_state",
+				pass: true,
+				msg:  "not yet initialized (normal)",
+			}
+		}
+		return checkResult{
+			name: "rotator_state",
+			pass: false,
+			msg:  fmt.Sprintf("read state failed: %v", err),
+		}
+	}
+
+	// Parse JSON state
+	var state struct {
+		Phase               string `json:"phase"`
+		ConsecutiveFailures int    `json:"consecutive_failures"`
+		HaltedReason        string `json:"halted_reason,omitempty"`
+	}
+	if err := json.Unmarshal(data, &state); err != nil {
+		return checkResult{
+			name: "rotator_state",
+			pass: false,
+			msg:  fmt.Sprintf("parse state failed: %v", err),
+		}
+	}
+
+	// Build report
+	msg := fmt.Sprintf("Phase=%s, failures=%d", state.Phase, state.ConsecutiveFailures)
+	if state.HaltedReason != "" {
+		msg += fmt.Sprintf(", reason=%s", state.HaltedReason)
+	}
+
+	// Status: OK if NORMAL, WARN if ROTATE_BACKOFF/RECOVERING, FAIL if HALTED
+	switch state.Phase {
+	case "NORMAL":
+		return checkResult{
+			name: "rotator_state",
+			pass: true,
+			msg:  msg,
+		}
+	case "ROTATE_BACKOFF", "RECOVERING":
+		return checkResult{
+			name: "rotator_state",
+			pass: true,
+			msg:  msg,
+			warn: true,
+		}
+	case "HALTED":
+		return checkResult{
+			name: "rotator_state",
+			pass: false,
+			msg:  msg,
+		}
+	default:
+		return checkResult{
+			name: "rotator_state",
+			pass: true,
+			msg:  msg,
+		}
 	}
 }

@@ -41,6 +41,47 @@ func TestCheckStateDir(t *testing.T) {
 	}
 }
 
+func TestCheckRotatorState(t *testing.T) {
+	dir := t.TempDir()
+
+	// When rotator.state.json doesn't exist, should pass with "not yet initialized"
+	result := checkRotatorState(dir)
+	if !result.pass {
+		t.Errorf("expected rotator state check to pass when missing, got: %v", result.msg)
+	}
+
+	// Write a NORMAL state
+	stateFile := filepath.Join(dir, "rotator.state.json")
+	normalState := []byte(`{"phase":"NORMAL","consecutive_failures":0}`)
+	if err := os.WriteFile(stateFile, normalState, 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result = checkRotatorState(dir)
+	if !result.pass || result.warn {
+		t.Errorf("expected NORMAL state to pass (no warn), got pass=%v warn=%v msg=%q", result.pass, result.warn, result.msg)
+	}
+
+	// Write a ROTATE_BACKOFF state
+	backoffState := []byte(`{"phase":"ROTATE_BACKOFF","consecutive_failures":3}`)
+	if err := os.WriteFile(stateFile, backoffState, 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result = checkRotatorState(dir)
+	if !result.pass || !result.warn {
+		t.Errorf("expected ROTATE_BACKOFF state to pass with warn, got pass=%v warn=%v", result.pass, result.warn)
+	}
+
+	// Write a HALTED state
+	haltedState := []byte(`{"phase":"HALTED","consecutive_failures":5,"halted_reason":"sig-mismatch"}`)
+	if err := os.WriteFile(stateFile, haltedState, 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result = checkRotatorState(dir)
+	if result.pass {
+		t.Errorf("expected HALTED state to fail, got pass=%v", result.pass)
+	}
+}
+
 func TestDoctorCmd(t *testing.T) {
 	dir := t.TempDir()
 

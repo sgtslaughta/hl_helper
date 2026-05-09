@@ -20,6 +20,8 @@ func newDoctorCmd() *cobra.Command {
 				checkManifest,
 				checkKeystore,
 				checkCert,
+				checkCertHealth,
+				checkRotatorState,
 				checkServerReach,
 				checkClockSkew,
 				checkStateDir,
