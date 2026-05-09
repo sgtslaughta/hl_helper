@@ -189,10 +189,30 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
         return [{"name": r.name, "version": r.version} for r in rows]
 
     async def _load_advisories_for_host(self, host_id: str) -> list[dict]:
-        """Load advisories matched to this host's packages. Stub for first cut."""
-        # MINIMAL CUT: return empty list. Real wiring depends on existing
-        # advisory-matching pipeline (server/app/advisory/...).
-        return []
+        """Load open advisories already matched to this host's packages.
+
+        Pulls from HostAdvisory rows (already populated by the advisory
+        matching worker). Each row maps an advisory_id to a package on the
+        host. derive_exposure() uses {id, package, affected_paths} shape; we
+        leave affected_paths empty (catalog doesn't expose it yet — exposure
+        derivation falls through to package-name and process-pkg matches).
+        """
+        from sqlalchemy import select
+        from server.app.models.host_advisory import HostAdvisory
+
+        async with self._sessionmaker() as session:
+            rows = (
+                await session.execute(
+                    select(HostAdvisory).where(
+                        HostAdvisory.host_id == host_id,
+                        HostAdvisory.status == "open",
+                    )
+                )
+            ).scalars().all()
+        return [
+            {"id": r.advisory_id, "package": r.package, "affected_paths": []}
+            for r in rows
+        ]
 
     async def Stream(
         self,
