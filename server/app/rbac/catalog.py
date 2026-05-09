@@ -89,6 +89,7 @@ CATALOG: tuple[Permission, ...] = (
     Permission("integration:read", "integration"),
     Permission("integration:write", "integration"),
     Permission("events:subscribe", "events"),
+    Permission("docs:read", "docs", description="Read embedded user/admin wiki"),
 )
 
 
