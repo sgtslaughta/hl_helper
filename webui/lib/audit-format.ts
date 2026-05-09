@@ -22,6 +22,7 @@ const ACTION_LABELS: Record<string, string> = {
 	'token.minted': 'Minted enrollment token',
 	'token.revoked': 'Revoked enrollment token',
 	'heartbeat.interval.set': 'Updated heartbeat interval',
+	'risk.recomputed': 'Recomputed posture risk',
 };
 
 /** Pull a navigable target href out of an audit entry's payload, if any.
