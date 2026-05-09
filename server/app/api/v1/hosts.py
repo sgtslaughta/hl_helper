@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, AsyncIterator
 
@@ -400,6 +402,53 @@ async def rotate_cert_now(
 
     delivered = await bridge.push_run_cert_rotate(host_id, reason="operator-initiated")
     return {"delivered": bool(delivered)}
+
+
+@router.post("/{host_id}/reenroll-token")
+async def mint_reenroll_token(
+    host_id: str,
+    actor: str = Depends(admin_required),
+    session: AsyncSession = Depends(get_session),
+):
+    """Mint a reenroll enrollment token for a host.
+
+    Returns a plaintext token and install command for agent reenrollment.
+    """
+    from server.app.enrollment.tokens import generate_token, hash_token
+    from server.app.models.enrollment_token import EnrollmentToken
+
+    row = await session.get(Host, host_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="host_not_found")
+
+    token_str = generate_token()
+    token_hash = hash_token(token_str)
+    now = datetime.now(timezone.utc)
+    tok = EnrollmentToken(
+        id=str(uuid.uuid4()),
+        token_hash=token_hash,
+        issued_at=now,
+        expires_at=now + timedelta(minutes=30),
+        issued_by=actor,
+        purpose="reenroll",
+        bind_host_id=host_id,
+    )
+    session.add(tok)
+    await session.commit()
+    await session.refresh(tok)
+
+    enrollment_url = os.environ.get("HL_ENROLLMENT_URL", "https://localhost:7443")
+    install_command = (
+        f"sudo hl-agent reenroll \\\n"
+        f"  --url {enrollment_url} \\\n"
+        f"  --token {token_str}"
+    )
+    return {
+        "token_id": tok.id,
+        "token": token_str,
+        "expires_at": tok.expires_at.isoformat(),
+        "install_command": install_command,
+    }
 
 
 @router.patch("/{host_id}", response_model=HostOut)
