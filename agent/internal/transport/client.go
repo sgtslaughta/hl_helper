@@ -119,20 +119,23 @@ type Client struct {
 	// firstHealthyCB is called on first successful heartbeat ack after pending was detected
 	firstHealthyCB func(string)
 	// cert rotation channels
-	mu              sync.Mutex
-	cancelStream    context.CancelFunc
-	certIssueCh     chan *pb.CertIssueResponse
-	runCertRotateCh chan *pb.RunCertRotate
+	mu                sync.Mutex
+	cancelStream      context.CancelFunc
+	certIssueCh       chan *pb.CertIssueResponse
+	runCertRotateCh   chan *pb.RunCertRotate
+	runExposureScanCh chan *pb.RunExposureScan
+	sendFunc          func(context.Context, *pb.AgentToServer) error
 	// net interface sampler
 	NetIfaceSampler *NetIfaceSampler
 }
 
 func New(opts Options) *Client {
 	return &Client{
-		opts:            opts,
-		certIssueCh:     make(chan *pb.CertIssueResponse, 1),
-		runCertRotateCh: make(chan *pb.RunCertRotate, 1),
-		NetIfaceSampler: &NetIfaceSampler{ExcludeVirtual: opts.ExcludeVirtualInterfaces},
+		opts:              opts,
+		certIssueCh:       make(chan *pb.CertIssueResponse, 1),
+		runCertRotateCh:   make(chan *pb.RunCertRotate, 1),
+		runExposureScanCh: make(chan *pb.RunExposureScan, 1),
+		NetIfaceSampler:   &NetIfaceSampler{ExcludeVirtual: opts.ExcludeVirtualInterfaces},
 	}
 }
 
@@ -175,6 +178,23 @@ func (c *Client) CertIssueCh() <-chan *pb.CertIssueResponse {
 // RunCertRotateCh returns the channel for receiving RunCertRotate messages.
 func (c *Client) RunCertRotateCh() <-chan *pb.RunCertRotate {
 	return c.runCertRotateCh
+}
+
+// RunExposureScanCh returns the channel for receiving RunExposureScan messages.
+func (c *Client) RunExposureScanCh() <-chan *pb.RunExposureScan {
+	return c.runExposureScanCh
+}
+
+// SendRuntimeExposure enqueues a RuntimeExposure on the active stream.
+func (c *Client) SendRuntimeExposure(ctx context.Context, exp *pb.RuntimeExposure) error {
+	c.mu.Lock()
+	send := c.sendFunc
+	c.mu.Unlock()
+	if send == nil {
+		return errors.New("transport: no active stream")
+	}
+	msg := &pb.AgentToServer{Msg: &pb.AgentToServer_RuntimeExposure{RuntimeExposure: exp}}
+	return send(ctx, msg)
 }
 
 func (c *Client) Run(ctx context.Context) error {
@@ -266,6 +286,15 @@ func (c *Client) runOnce(ctx context.Context) error {
 		defer sendMu.Unlock()
 		return stream.Send(msg)
 	}
+
+	// Store sendMsg in Client so SendRuntimeExposure can use it
+	c.mu.Lock()
+	c.sendFunc = func(ctx context.Context, msg *pb.AgentToServer) error {
+		sendMu.Lock()
+		defer sendMu.Unlock()
+		return stream.Send(msg)
+	}
+	c.mu.Unlock()
 
 	// Audit channel drain goroutine: ranges over audit events and forwards them
 	// on the bidi stream. Tied to connection lifetime; exits cleanly on ctx cancel.
@@ -473,6 +502,11 @@ func (c *Client) runOnce(ctx context.Context) error {
 		case *pb.ServerToAgent_RunCertRotate:
 			select {
 			case c.runCertRotateCh <- m.RunCertRotate:
+			default:
+			}
+		case *pb.ServerToAgent_RunExposureScan:
+			select {
+			case c.runExposureScanCh <- m.RunExposureScan:
 			default:
 			}
 			}
