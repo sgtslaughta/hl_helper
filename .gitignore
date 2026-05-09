@@ -57,3 +57,13 @@ fleet.db
 # Built agent binaries
 agent/bin/
 agent/hl-agent
+
+# auto-generated API docs
+docs/developer/api/python/*
+docs/developer/api/agent/*
+docs/developer/api/grpc/*
+docs/developer/api/rest/*
+!docs/developer/api/*/index.md
+
+# in-app wiki bundle
+webui/public/wiki/
