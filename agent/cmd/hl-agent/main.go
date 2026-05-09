@@ -21,6 +21,7 @@ import (
 	"github.com/hlhelper/hl-agent/internal/enrollment"
 	xexec "github.com/hlhelper/hl-agent/internal/exec"
 	"github.com/hlhelper/hl-agent/internal/executor"
+	"github.com/hlhelper/hl-agent/internal/exposure"
 	"github.com/hlhelper/hl-agent/internal/keystore"
 	"github.com/hlhelper/hl-agent/internal/outbox"
 	"github.com/hlhelper/hl-agent/internal/rotator"
@@ -388,6 +389,64 @@ func runCmd() *cobra.Command {
 						if err := rot.RotateOnce(ctx); err != nil {
 							log.Printf("rotator (forced): %v", err)
 						}
+					}
+				}
+			}()
+
+			// Build exposure scanner
+			scanner := &exposure.Scanner{
+				HostID:     hostID,
+				Timeout:    60 * time.Second,
+				Resolver:   exposure.NewCachedResolver(exposure.AutoResolver()),
+				Collectors: []exposure.Collector{
+					&exposure.ProcessCollector{},
+					&exposure.SocketCollector{},
+					&exposure.SystemdServiceCollector{},
+					&exposure.KmodCollector{},
+					&exposure.ContainerCollector{},
+				},
+			}
+
+			doScan := func() {
+				sctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+				defer cancel()
+				exp := scanner.Scan(sctx)
+				if err := client.SendRuntimeExposure(sctx, exp); err != nil {
+					log.Printf("exposure scan send: %v", err)
+				} else {
+					log.Printf("exposure scan sent host=%s procs=%d listeners=%d truncated=%v",
+						hostID, len(exp.Processes), len(exp.Listeners), exp.Truncated)
+				}
+			}
+
+			// Long-running scan loop: every exposureInterval (default 6h)
+			go func() {
+				exposureInterval := 6 * time.Hour
+				if v := os.Getenv("HL_EXPOSURE_INTERVAL_HOURS"); v != "" {
+					if n, err := strconv.Atoi(v); err == nil && n > 0 {
+						exposureInterval = time.Duration(n) * time.Hour
+					}
+				}
+				t := time.NewTicker(exposureInterval)
+				defer t.Stop()
+
+				// First scan ~30s after boot to give transport time to settle.
+				select {
+				case <-time.After(30 * time.Second):
+					doScan()
+				case <-ctx.Done():
+					return
+				}
+
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-t.C:
+						doScan()
+					case req := <-client.RunExposureScanCh():
+						log.Printf("exposure scan triggered (reason=%s)", req.Reason)
+						doScan()
 					}
 				}
 			}()
