@@ -434,6 +434,7 @@ async def build_app_state(settings: FleetSettings) -> AppState:
         risk_registry,
         bus=bus,
         audit=audit_chain,
+        catalog_sessionmaker=catalog_sm,
     )
 
     # Build advisory worker (task started later in app_lifespan once the

@@ -34,8 +34,10 @@ class RiskRecomputer:
         *,
         bus: Any,
         audit: Any,
+        catalog_sessionmaker: async_sessionmaker | None = None,
     ):
         self._sm = sessionmaker
+        self._catalog_sm = catalog_sessionmaker
         self._reg = registry
         self._bus = bus
         self._audit = audit
@@ -81,7 +83,7 @@ class RiskRecomputer:
             host = await session.get(Host, host_id)
             if host is None:
                 return
-            advs = list(
+            ha_rows = list(
                 (
                     await session.execute(
                         select(HostAdvisory).where(HostAdvisory.host_id == host_id)
@@ -90,12 +92,36 @@ class RiskRecomputer:
             )
             findings = await self._fetch_findings(session, host_id)
 
+        # Enrich host_advisories with catalog-side fields (severity/kev/epss).
+        # HostAdvisory only carries the advisory_id pointer; severity etc.
+        # live on the Advisory table in the catalog DB. Without this join the
+        # vulnerabilities scorer sees `severity=""` → bucketed as unknown →
+        # zero contribution → 0/100 score regardless of actual fleet state.
+        advs = await self._enrich_advisories(ha_rows)
+
+        # Hygiene scorer reads `metrics["latest_agent_release"]` to compute
+        # version drift. host.metrics holds heartbeat telemetry (cpu/mem/etc),
+        # not release info — merge in the looked-up version here.
+        host_metrics = dict(getattr(host, "metrics", None) or {})
+        latest_release = await self._latest_agent_release(host)
+        if latest_release is not None:
+            host_metrics["latest_agent_release"] = latest_release
+
+        # Vulnerabilities scorer's confidence reads `survey["packages"]` as
+        # an inventory-presence flag. The agent's host_survey doesn't carry
+        # packages — they live in host_packages. Stamp a count into a copy
+        # of the survey dict so the scorer sees inventory coverage.
+        host_survey = dict(getattr(host, "survey", None) or {})
+        pkg_count = await self._host_package_count(host_id)
+        if pkg_count > 0:
+            host_survey["packages"] = pkg_count
+
         ctx = ScoreContext(
             host=host,
             advisories=advs,
             findings=findings,
-            survey=getattr(host, "survey", None),
-            metrics=getattr(host, "metrics", None),
+            survey=host_survey or None,
+            metrics=host_metrics or None,
             now=datetime.now(timezone.utc),
         )
 
@@ -162,14 +188,70 @@ class RiskRecomputer:
                 await self._emit_transition(host, prev.level, level, risk.score)
             await self._emit_audit(host_id, risk, prev, trigger_reason, h)
 
+    async def _enrich_advisories(self, ha_rows: list[Any]) -> list[Any]:
+        """Attach severity/kev/epss/package fields from the catalog Advisory
+        table onto each HostAdvisory row. The Vulnerabilities scorer reads
+        these via getattr; missing means base=0 → silent score collapse.
+
+        Falls back gracefully when the catalog sessionmaker is unavailable
+        (e.g. tests without split-DB) — host_advisory rows pass through
+        unchanged and the scorer's existing getattr defaults handle them.
+        """
+        if not ha_rows or self._catalog_sm is None:
+            return list(ha_rows)
+        from server.app.models.advisory import Advisory
+
+        ids = list({getattr(r, "advisory_id", "") for r in ha_rows if getattr(r, "advisory_id", "")})
+        by_id: dict[str, Any] = {}
+        try:
+            async with self._catalog_sm() as cat:
+                rows = (
+                    await cat.execute(select(Advisory).where(Advisory.id.in_(ids)))
+                ).scalars().all()
+                for a in rows:
+                    by_id[a.id] = a
+        except Exception:
+            log.exception("risk.advisory_enrich_failed")
+            return list(ha_rows)
+
+        enriched: list[Any] = []
+        for ha in ha_rows:
+            adv = by_id.get(getattr(ha, "advisory_id", ""))
+            if adv is None:
+                enriched.append(ha)
+                continue
+            # Decorate the HostAdvisory row in-place with the catalog fields
+            # the scorer expects. Safe because the row is detached at this point.
+            try:
+                setattr(ha, "severity", getattr(adv, "severity", "unknown") or "unknown")
+                setattr(ha, "kev", bool(getattr(adv, "kev", False)))
+                epss_val = getattr(adv, "epss", 0.0)
+                setattr(ha, "epss", float(epss_val) if epss_val is not None else 0.0)
+            except Exception:
+                pass
+            enriched.append(ha)
+        return enriched
+
     async def _fetch_findings(self, session, host_id: str) -> list[Any]:
+        """Pull both host-scoped findings (sshd, kernel, fs perms, …) AND
+        global/fleet-scoped findings (RBAC posture: no_owner_account,
+        excessive_admin_count, stale_pending_approvals, …).
+
+        Identity scorer specifically expects globals — without them every
+        host scores 0 on Identity even when the org has critical RBAC gaps.
+        """
         try:
             from server.app.posture.model import PostureFindingRow
+            from sqlalchemy import or_
 
             rows = (
                 await session.execute(
                     select(PostureFindingRow).where(
-                        PostureFindingRow.subject_id == host_id
+                        or_(
+                            PostureFindingRow.subject_id == host_id,
+                            PostureFindingRow.subject_kind == "global",
+                            PostureFindingRow.subject_kind == "fleet",
+                        )
                     )
                 )
             ).scalars().all()
@@ -180,6 +262,59 @@ class RiskRecomputer:
                 extra={"host_id": host_id, "err": str(exc)},
             )
             return []
+
+    async def _host_package_count(self, host_id: str) -> int:
+        """Count host_packages rows for the host. Used as the inventory-
+        presence proxy for the Vulnerabilities scorer's confidence."""
+        try:
+            from sqlalchemy import func
+
+            from server.app.models.host_package import HostPackage
+
+            async with self._sm() as session:
+                row = (
+                    await session.execute(
+                        select(func.count(HostPackage.id)).where(
+                            HostPackage.host_id == host_id
+                        )
+                    )
+                ).scalar_one()
+                return int(row or 0)
+        except Exception:
+            log.exception("risk.host_package_count_failed")
+            return 0
+
+    async def _latest_agent_release(self, host: Any) -> str | None:
+        """Look up the newest non-yanked AgentRelease matching host.os + arch.
+        Used by the Hygiene scorer to surface drift between the agent
+        running on the host and the latest one published."""
+        try:
+            from server.app.models.agent_release import AgentRelease, ReleaseStatus
+
+            os = getattr(host, "os", None) or (
+                (getattr(host, "labels", None) or {}).get("os")
+            )
+            arch = getattr(host, "arch", None) or (
+                (getattr(host, "labels", None) or {}).get("arch")
+            )
+            if not os or not arch:
+                return None
+            async with self._sm() as session:
+                stmt = (
+                    select(AgentRelease.version)
+                    .where(
+                        AgentRelease.os == os,
+                        AgentRelease.arch == arch,
+                        AgentRelease.status != ReleaseStatus.YANKED,
+                    )
+                    .order_by(AgentRelease.uploaded_at.desc())
+                    .limit(1)
+                )
+                row = (await session.execute(stmt)).scalar_one_or_none()
+                return row
+        except Exception:
+            log.exception("risk.latest_release_lookup_failed")
+            return None
 
     def _hash_inputs(self, host, advs, findings, weights) -> str:
         payload = {

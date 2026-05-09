@@ -58,9 +58,12 @@ class ConfigurationScorer:
 
         coverage = 0.4
         if isinstance(ctx.survey, dict):
+            # Survey keys come from the agent's host_survey envelope —
+            # `sshd`, `sysctl`, `fs_perms` (see server/app/posture/
+            # findings_misconfig.py for the canonical shape).
             seen = sum(
                 1
-                for key in ("sshd_config", "kernel", "fs_perms")
+                for key in ("sshd", "sysctl", "fs_perms")
                 if key in ctx.survey
             )
             coverage = max(0.4, min(1.0, 0.4 + 0.2 * seen))
