@@ -59,6 +59,10 @@ message RunInventory {
   repeated string lang_roots = 3;  // optional override roots; empty => agent defaults
 }
 
+message RunCertRotate {
+  string reason = 1;  // "operator-initiated"|"policy-initiated"
+}
+
 message HostMetrics {
   float load_1 = 1;
   float load_5 = 2;
@@ -112,6 +116,8 @@ message CapabilityRequest {
 message CertRotateRequest {
   string host_id = 1;
   bytes csr_pem = 2;
+  bytes signing_pubkey = 3;  // 32-byte Ed25519 public key for identity match
+  string prev_serial = 4;    // hex serial of currently-active cert (replay guard)
 }
 
 message CertIssueResponse {
@@ -170,6 +176,7 @@ message ServerToAgent {
     HeartbeatConfig hb_config = 6;
     RunSurvey run_survey = 7;
     RunInventory run_inventory = 8;
+    RunCertRotate run_cert_rotate = 9;
   }
 }
 
