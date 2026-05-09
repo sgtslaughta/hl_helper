@@ -90,6 +90,8 @@ class RiskRecomputer:
         from server.app.models.host_advisory import HostAdvisory
         from server.app.models.host_risk import HostRisk
 
+        from server.app.models.host_advisory_exposure import HostAdvisoryExposure
+
         async with self._sm() as session:
             host = await session.get(Host, host_id)
             if host is None:
@@ -102,6 +104,16 @@ class RiskRecomputer:
                 ).scalars().all()
             )
             findings = await self._fetch_findings(session, host_id)
+            exposure_rows = list(
+                (
+                    await session.execute(
+                        select(HostAdvisoryExposure).where(
+                            HostAdvisoryExposure.host_id == host_id
+                        )
+                    )
+                ).scalars().all()
+            )
+            exposure_multipliers = await self._load_exposure_multipliers(session)
 
         # Enrich host_advisories with catalog-side fields (severity/kev/epss).
         # HostAdvisory only carries the advisory_id pointer; severity etc.
@@ -134,6 +146,9 @@ class RiskRecomputer:
             survey=host_survey or None,
             metrics=host_metrics or None,
             now=datetime.now(timezone.utc),
+            host_advisory_exposure=exposure_rows,
+            exposure_multipliers=exposure_multipliers,
+            scan_interval_seconds=6 * 3600,
         )
 
         subs: dict[str, SubScore] = {}
@@ -149,7 +164,7 @@ class RiskRecomputer:
         weights = cfg.weights
         risk = blend(subs, weights)
 
-        h = self._hash_inputs(host, advs, findings, weights)
+        h = self._hash_inputs(host, advs, findings, weights, exposure_rows)
         async with self._sm() as session:
             prev = await session.get(HostRisk, host_id)
             if not force and prev is not None and prev.inputs_hash == h:
@@ -327,7 +342,33 @@ class RiskRecomputer:
             log.exception("risk.latest_release_lookup_failed")
             return None
 
-    def _hash_inputs(self, host, advs, findings, weights) -> str:
+    async def _load_exposure_multipliers(self, session) -> dict[str, float] | None:
+        """Load per-tier multipliers from settings; None falls scorer to defaults."""
+        try:
+            from server.app.models.setting import Setting
+        except ImportError:
+            return None
+        keys = {
+            "risk.exposure_multiplier.NETWORK_EXPOSED": "NETWORK_EXPOSED",
+            "risk.exposure_multiplier.ACTIVE": "ACTIVE",
+            "risk.exposure_multiplier.INSTALLED_ONLY": "INSTALLED_ONLY",
+            "risk.exposure_multiplier.UNKNOWN": "UNKNOWN",
+        }
+        out: dict[str, float] = {}
+        for k, tier in keys.items():
+            try:
+                row = await session.get(Setting, k)
+            except Exception:
+                continue
+            if row is None or row.value is None:
+                continue
+            try:
+                out[tier] = float(row.value)
+            except (TypeError, ValueError):
+                continue
+        return out or None
+
+    def _hash_inputs(self, host, advs, findings, weights, exposure_rows=None) -> str:
         payload = {
             "host_id": getattr(host, "id", None),
             "agent_version": getattr(host, "agent_version", None),
@@ -352,6 +393,13 @@ class RiskRecomputer:
             ),
             "weights": sorted(weights.items()),
             "scorer_codeversion": self.SCORER_CODEVERSION,
+            "exposure": sorted(
+                (
+                    getattr(e, "advisory_id", ""),
+                    getattr(e, "exposure_tier", ""),
+                )
+                for e in (exposure_rows or [])
+            ),
         }
         s = json.dumps(payload, default=str, sort_keys=True)
         return hashlib.sha256(s.encode()).hexdigest()

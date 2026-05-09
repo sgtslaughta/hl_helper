@@ -1,7 +1,8 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getHostExposure, rescanExposure, type HostExposureSummary } from "@/lib/api/hosts";
+import { getHostExposure, type HostExposureSummary } from "@/lib/api/hosts";
+import { apiFetch } from "@/lib/api-client";
 
 export function HostExposurePanel({ hostId }: { hostId: string }) {
 	const qc = useQueryClient();
@@ -10,9 +11,18 @@ export function HostExposurePanel({ hostId }: { hostId: string }) {
 		queryFn: () => getHostExposure(hostId),
 		refetchInterval: 60_000,
 	});
-	const rescan = useMutation({
-		mutationFn: () => rescanExposure(hostId),
-		onSuccess: () => qc.invalidateQueries({ queryKey: ["host-exposure", hostId] }),
+
+	// Unified scan: triggers package inventory + exposure scan + risk recompute
+	// via the existing /v1/hosts/{id}/rescan endpoint.
+	const fullScan = useMutation({
+		mutationFn: () =>
+			apiFetch(`/v1/hosts/${encodeURIComponent(hostId)}/rescan`, { method: "POST" }),
+		onSuccess: () => {
+			qc.invalidateQueries({ queryKey: ["host-exposure", hostId] });
+			qc.invalidateQueries({ queryKey: ["host-risk", hostId] });
+			qc.invalidateQueries({ queryKey: ["host-posture", hostId] });
+			qc.invalidateQueries({ queryKey: ["host-advisories", hostId] });
+		},
 	});
 
 	if (!data) return <div className="text-sm text-zinc-500">Loading exposure…</div>;
@@ -42,11 +52,12 @@ export function HostExposurePanel({ hostId }: { hostId: string }) {
 			</dl>
 			<button
 				type="button"
-				onClick={() => rescan.mutate()}
-				disabled={rescan.isPending}
-				className="mt-3 rounded border border-zinc-700 px-3 py-1 hover:bg-zinc-800"
+				onClick={() => fullScan.mutate()}
+				disabled={fullScan.isPending}
+				className="mt-3 rounded border border-zinc-700 px-3 py-1 hover:bg-zinc-800 disabled:opacity-40"
+				title="Inventory + exposure scan + risk recompute"
 			>
-				{rescan.isPending ? "Rescanning…" : "Rescan exposure now"}
+				{fullScan.isPending ? "Scanning…" : "Run full scan"}
 			</button>
 		</div>
 	);
