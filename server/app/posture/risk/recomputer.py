@@ -47,18 +47,30 @@ class RiskRecomputer:
         return self._locks.setdefault(host_id, asyncio.Lock())
 
     async def request(self, host_id: str, *, trigger_reason: str) -> None:
-        loop = asyncio.get_event_loop()
-        last = self._last_run.get(host_id, 0)
-        if loop.time() - last < self.DEBOUNCE_S:
-            return
-        await self.recompute(host_id, trigger_reason=trigger_reason)
+        """Debounced recompute — checks last-run time inside the per-host lock
+        so concurrent callers can't both slip past the window."""
+        await self.recompute(
+            host_id, trigger_reason=trigger_reason, debounced=True
+        )
 
-    async def recompute(self, host_id: str, *, trigger_reason: str) -> None:
+    async def recompute(
+        self,
+        host_id: str,
+        *,
+        trigger_reason: str,
+        debounced: bool = False,
+    ) -> None:
         async with self._lock(host_id):
+            loop = asyncio.get_event_loop()
+            if (
+                debounced
+                and loop.time() - self._last_run.get(host_id, 0) < self.DEBOUNCE_S
+            ):
+                return
             try:
                 await self._recompute_locked(host_id, trigger_reason=trigger_reason)
             finally:
-                self._last_run[host_id] = asyncio.get_event_loop().time()
+                self._last_run[host_id] = loop.time()
 
     async def _recompute_locked(self, host_id: str, *, trigger_reason: str) -> None:
         from server.app.models.host import Host
@@ -109,7 +121,6 @@ class RiskRecomputer:
             level = risk.level
             if (
                 prev is not None
-                and prev.level is not None
                 and risk.score is not None
                 and prev.score is not None
             ):
@@ -146,6 +157,8 @@ class RiskRecomputer:
             self._writes += 1
 
             if prev is not None and prev.level != level:
+                # `prev.level` is non-nullable per the model declaration.
+                assert isinstance(prev.level, str)
                 await self._emit_transition(host, prev.level, level, risk.score)
             await self._emit_audit(host_id, risk, prev, trigger_reason, h)
 
@@ -161,7 +174,11 @@ class RiskRecomputer:
                 )
             ).scalars().all()
             return list(rows)
-        except Exception:
+        except Exception as exc:
+            log.warning(
+                "risk.fetch_findings_failed",
+                extra={"host_id": host_id, "err": str(exc)},
+            )
             return []
 
     def _hash_inputs(self, host, advs, findings, weights) -> str:
