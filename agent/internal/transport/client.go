@@ -94,21 +94,22 @@ type Signer interface {
 }
 
 type Options struct {
-	Endpoint          string
-	HostID            string // sent in heartbeats; from manifest.json
-	Keystore          keystore.Keystore
-	Outbox            *outbox.Outbox
-	Executor          Executor     // optional; if set, commands are executed and results signed
-	Signer            Signer       // optional; used to sign results (defaults to keystore if not set)
-	OnCommand         func(*pb.CommandEnvelope) // optional legacy callback
-	BaseBackoff       time.Duration
-	MaxBackoff        time.Duration
-	HeartbeatInterval time.Duration // default 30s when zero; overridden at runtime by HeartbeatConfig from server
-	DialOptions       []grpc.DialOption // override (tests use bufconn)
-	KeystoreDir       string        // optional; for persisting result sequence counter
-	AgentVersion      string        // optional; included in heartbeats for visibility
-	StateDir          string        // optional; for updater state and pending check
-	AuditChan         <-chan *pb.AgentToServer // optional; drained inside Run, each msg sent on the bidi stream
+	Endpoint                   string
+	HostID                     string // sent in heartbeats; from manifest.json
+	Keystore                   keystore.Keystore
+	Outbox                     *outbox.Outbox
+	Executor                   Executor     // optional; if set, commands are executed and results signed
+	Signer                     Signer       // optional; used to sign results (defaults to keystore if not set)
+	OnCommand                  func(*pb.CommandEnvelope) // optional legacy callback
+	BaseBackoff                time.Duration
+	MaxBackoff                 time.Duration
+	HeartbeatInterval          time.Duration // default 30s when zero; overridden at runtime by HeartbeatConfig from server
+	DialOptions                []grpc.DialOption // override (tests use bufconn)
+	KeystoreDir                string        // optional; for persisting result sequence counter
+	AgentVersion               string        // optional; included in heartbeats for visibility
+	StateDir                   string        // optional; for updater state and pending check
+	AuditChan                  <-chan *pb.AgentToServer // optional; drained inside Run, each msg sent on the bidi stream
+	ExcludeVirtualInterfaces   bool          // exclude virtual interfaces (veth, cali, cni, docker) from metrics
 }
 
 type Client struct {
@@ -122,6 +123,8 @@ type Client struct {
 	cancelStream    context.CancelFunc
 	certIssueCh     chan *pb.CertIssueResponse
 	runCertRotateCh chan *pb.RunCertRotate
+	// net interface sampler
+	NetIfaceSampler *NetIfaceSampler
 }
 
 func New(opts Options) *Client {
@@ -129,6 +132,7 @@ func New(opts Options) *Client {
 		opts:            opts,
 		certIssueCh:     make(chan *pb.CertIssueResponse, 1),
 		runCertRotateCh: make(chan *pb.RunCertRotate, 1),
+		NetIfaceSampler: &NetIfaceSampler{ExcludeVirtual: opts.ExcludeVirtualInterfaces},
 	}
 }
 
@@ -312,7 +316,7 @@ func (c *Client) runOnce(ctx context.Context) error {
 	defer hbCancel()
 	hbErr := make(chan error, 1)
 	go func() {
-		if err := sendMsg(buildHeartbeat(c.opts.HostID, c.opts.AgentVersion, c.opts.StateDir, netSamp)); err != nil {
+		if err := sendMsg(buildHeartbeat(c.opts.HostID, c.opts.AgentVersion, c.opts.StateDir, netSamp, c.NetIfaceSampler)); err != nil {
 			writeHeartbeatStatus(c.opts.StateDir, false, err.Error())
 			hbErr <- err
 			return
@@ -329,7 +333,7 @@ func (c *Client) runOnce(ctx context.Context) error {
 				t.Stop()
 				continue
 			case <-t.C:
-				if err := sendMsg(buildHeartbeat(c.opts.HostID, c.opts.AgentVersion, c.opts.StateDir, netSamp)); err != nil {
+				if err := sendMsg(buildHeartbeat(c.opts.HostID, c.opts.AgentVersion, c.opts.StateDir, netSamp, c.NetIfaceSampler)); err != nil {
 					writeHeartbeatStatus(c.opts.StateDir, false, err.Error())
 					hbErr <- err
 					return
@@ -733,7 +737,7 @@ func (c *Client) handleAgentUpdate(ctx context.Context, env *pb.CommandEnvelope,
 // usage from statfs(/), uptime from /proc/uptime.
 // Loads sleep state from stateDir and sets Sleeping + SleepUntil fields if sleeping.
 // Auto-clears expired sleep state and logs the resume.
-func buildHeartbeat(hostID, agentVersion, stateDir string, ns *netSampler) *pb.AgentToServer {
+func buildHeartbeat(hostID, agentVersion, stateDir string, ns *netSampler, ifaceSampler *NetIfaceSampler) *pb.AgentToServer {
 	m := &pb.HostMetrics{}
 	if l, err := load.Avg(); err == nil {
 		m.Load_1 = float32(l.Load1)
@@ -751,6 +755,9 @@ func buildHeartbeat(hostID, agentVersion, stateDir string, ns *netSampler) *pb.A
 	}
 	if ns != nil {
 		m.NetRxBps, m.NetTxBps = ns.sample()
+	}
+	if ifaceSampler != nil {
+		m.Interfaces = ifaceSampler.Sample()
 	}
 
 	hb := &pb.Heartbeat{
