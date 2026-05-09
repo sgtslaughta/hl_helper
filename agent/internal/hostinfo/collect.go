@@ -38,11 +38,22 @@ func Collect(stateDir, agentVersion string) HostInfo {
 		info.BinaryPath = exe
 	}
 
-	// HostID/GrpcEndpoint: read manifest
+	// HostID/GrpcEndpoint: read manifest. Capture permission errors so the
+	// CLI can hint when the state dir isn't readable by the calling user
+	// (common when status is run without sudo while the service runs as
+	// the hl-agent user).
 	if m, err := manifest.Load(stateDir); err == nil {
 		info.HostID = m.HostID
 		info.GrpcEndpoint = m.GRPCEndpoint
+	} else if os.IsPermission(err) {
+		info.StateDirError = "state dir not readable (try sudo or set HL_STATE_DIR)"
+	} else if !os.IsNotExist(err) {
+		info.StateDirError = err.Error()
 	}
+
+	// HeartbeatAt/OK/Error: read <stateDir>/heartbeat.json (written by the
+	// running agent on each heartbeat).
+	info.HeartbeatAt, info.HeartbeatOK, info.HeartbeatError = readHeartbeat(stateDir)
 
 	// OSVersion: best-effort read /etc/os-release on linux for VERSION_ID;
 	// on darwin use `sw_vers -productVersion`; never error
@@ -110,6 +121,27 @@ func readCertNotAfter(stateDir string) time.Time {
 
 	return cert.NotAfter
 }
+
+// readHeartbeat reads <stateDir>/heartbeat.json written by the transport
+// client. Returns zero time + ok=false when the file is missing/unreadable.
+func readHeartbeat(stateDir string) (time.Time, bool, string) {
+	path := filepath.Join(stateDir, "heartbeat.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return time.Time{}, false, ""
+	}
+	var hb struct {
+		TS  string `json:"ts"`
+		OK  bool   `json:"ok"`
+		Err string `json:"err"`
+	}
+	if err := json.Unmarshal(data, &hb); err != nil {
+		return time.Time{}, false, ""
+	}
+	t, _ := time.Parse(time.RFC3339Nano, hb.TS)
+	return t, hb.OK, hb.Err
+}
+
 
 func readSleepState(stateDir string) (bool, time.Time) {
 	sleepPath := filepath.Join(stateDir, "sleep.json")

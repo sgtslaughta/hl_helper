@@ -354,7 +354,7 @@ async def get_task_result_for_host(
                     f"  containers: {ctr_count}\n"
                     f"  survey_at: {survey_at}\n"
                 )
-                received_at = run.completed_at or run.started_at or datetime.now(timezone.utc)
+                received_at = run.finished_at or run.started_at or datetime.now(timezone.utc)
                 return TaskResultDetail(
                     host_id=host_id,
                     command_id=latest_cmd.id if latest_cmd else "",

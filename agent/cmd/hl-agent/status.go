@@ -88,6 +88,20 @@ func newStatusCmd() *cobra.Command {
 			}
 			tui.Table(cmd.OutOrStdout(), rows)
 
+			tui.Header(cmd.OutOrStdout(), "Connection")
+			connRows := [][2]string{
+				{"server_link", formatConnState(info.HeartbeatAt, info.HeartbeatOK)},
+				{"last_heartbeat", formatHeartbeatAt(info.HeartbeatAt)},
+			}
+			if info.HeartbeatError != "" {
+				connRows = append(connRows, [2]string{"last_error", info.HeartbeatError})
+			}
+			tui.Table(cmd.OutOrStdout(), connRows)
+
+			if info.StateDirError != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "\nnote: %s\n", info.StateDirError)
+			}
+
 			return nil
 		},
 	}
@@ -98,4 +112,37 @@ func newStatusCmd() *cobra.Command {
 	cmd.Flags().Bool("watch", false, "watch live status (TODO)")
 
 	return cmd
+}
+
+func formatConnState(at time.Time, ok bool) string {
+	if at.IsZero() {
+		return "unknown (no heartbeat written yet)"
+	}
+	age := time.Since(at)
+	switch {
+	case !ok:
+		return fmt.Sprintf("disconnected (last attempt %s ago)", roundDur(age))
+	case age <= 90*time.Second:
+		return fmt.Sprintf("connected (%s ago)", roundDur(age))
+	default:
+		return fmt.Sprintf("stale (last heartbeat %s ago)", roundDur(age))
+	}
+}
+
+func formatHeartbeatAt(at time.Time) string {
+	if at.IsZero() {
+		return "—"
+	}
+	return at.Local().Format(time.RFC3339)
+}
+
+func roundDur(d time.Duration) time.Duration {
+	switch {
+	case d < time.Minute:
+		return d.Round(time.Second)
+	case d < time.Hour:
+		return d.Round(time.Second)
+	default:
+		return d.Round(time.Minute)
+	}
 }

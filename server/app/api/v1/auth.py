@@ -70,6 +70,10 @@ class WhoamiResponse(BaseModel):
     email: str
     roles: list[str] = []
     groups: list[str] = []
+    # Effective permissions union across all role bindings. Contains "*"
+    # when the principal holds a universal grant (owner role). UI rbac
+    # helpers gate visibility on this list.
+    permissions: list[str] = []
 
 
 class RefreshResponse(BaseModel):
@@ -477,7 +481,7 @@ async def whoami(
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
         role_rows = (
             await db_session.execute(
-                select(Role.name)
+                select(Role.name, Role.permissions)
                 .join(Binding, Binding.role_id == Role.id)
                 .where(
                     Binding.principal_type == PrincipalType.USER,
@@ -486,12 +490,18 @@ async def whoami(
             )
         ).all()
         roles = sorted({r[0] for r in role_rows})
+        perms_set: set[str] = set()
+        for _name, perms in role_rows:
+            for p in perms or []:
+                perms_set.add(p)
+        permissions = sorted(perms_set)
 
     return WhoamiResponse(
         id=user.id,
         email=user.email,
         roles=roles,
         groups=[],  # TODO(c3-rbac-wire): populate from groups
+        permissions=permissions,
     )
 
 

@@ -174,7 +174,11 @@ async def bootstrap_owner(
                 name="owner",
                 description="Owner role (bootstrap fallback)",
                 built_in=True,
-                permissions=[],
+                # "*" sentinel — RBAC engine treats this as universal grant
+                # (see server/app/rbac/engine.py). Empty list locks the role
+                # out of every action including task:approve, which silently
+                # blocks shell-exec via pending-approval gate.
+                permissions=["*"],
             )
             db_session.add(owner_role)
             await db_session.flush()

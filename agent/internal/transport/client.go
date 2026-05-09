@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -260,9 +261,11 @@ func (c *Client) runOnce(ctx context.Context) error {
 	hbErr := make(chan error, 1)
 	go func() {
 		if err := sendMsg(buildHeartbeat(c.opts.HostID, c.opts.AgentVersion, c.opts.StateDir, netSamp)); err != nil {
+			writeHeartbeatStatus(c.opts.StateDir, false, err.Error())
 			hbErr <- err
 			return
 		}
+		writeHeartbeatStatus(c.opts.StateDir, true, "")
 		for {
 			ivl := time.Duration(intervalS.Load()) * time.Second
 			t := time.NewTimer(ivl)
@@ -275,9 +278,11 @@ func (c *Client) runOnce(ctx context.Context) error {
 				continue
 			case <-t.C:
 				if err := sendMsg(buildHeartbeat(c.opts.HostID, c.opts.AgentVersion, c.opts.StateDir, netSamp)); err != nil {
+					writeHeartbeatStatus(c.opts.StateDir, false, err.Error())
 					hbErr <- err
 					return
 				}
+				writeHeartbeatStatus(c.opts.StateDir, true, "")
 			}
 		}
 	}()
@@ -713,4 +718,33 @@ func buildHeartbeat(hostID, agentVersion, stateDir string, ns *netSampler) *pb.A
 			Heartbeat: hb,
 		},
 	}
+}
+
+// writeHeartbeatStatus persists the most recent heartbeat outcome to
+// <stateDir>/heartbeat.json so `hl-agent status` can report live
+// connection health without poking the network. Best-effort; errors are
+// swallowed because failure here must not affect the heartbeat loop.
+func writeHeartbeatStatus(stateDir string, ok bool, errMsg string) {
+	if stateDir == "" {
+		return
+	}
+	payload := struct {
+		TS  string `json:"ts"`
+		OK  bool   `json:"ok"`
+		Err string `json:"err,omitempty"`
+	}{
+		TS:  time.Now().UTC().Format(time.RFC3339Nano),
+		OK:  ok,
+		Err: errMsg,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	tmp := filepath.Join(stateDir, ".heartbeat.json.tmp")
+	final := filepath.Join(stateDir, "heartbeat.json")
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return
+	}
+	_ = os.Rename(tmp, final)
 }

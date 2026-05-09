@@ -27,6 +27,7 @@ interface WhoamiResponse {
 	email: string;
 	roles: string[];
 	groups: string[];
+	permissions?: string[];
 }
 
 export function useAuth() {
@@ -41,7 +42,13 @@ export function useAuth() {
 			try {
 				const r = await apiFetch<WhoamiResponse>('/v1/auth/whoami');
 				return {
-					user: { id: r.id, email: r.email, roles: r.roles, groups: r.groups },
+					user: {
+						id: r.id,
+						email: r.email,
+						roles: r.roles,
+						groups: r.groups,
+						permissions: r.permissions ?? [],
+					},
 					authenticated: true,
 				};
 			} catch {
