@@ -215,7 +215,7 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
                 )
 
             recv_task = asyncio.create_task(
-                self._recv_loop(host_id, request_iterator)
+                self._recv_loop(host_id, request_iterator, context)
             )
             try:
                 while True:
@@ -288,6 +288,7 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
         self,
         host_id: str,
         request_iterator: AsyncIterable[agent_bridge_pb2.AgentToServer],
+        context: Any,
     ) -> None:
         """Receive and process messages from agent.
 
@@ -300,7 +301,16 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
             Exception: If the stream is closed (normal exit).
         """
         from datetime import datetime, timezone
+        from server.app.grpc.tls import extract_peer_cert_info
 
+        peer_info = extract_peer_cert_info(context)
+        log.info(
+            "mtls.handshake.ok",
+            host_id=host_id,
+            cn=peer_info.get("cn", "?"),
+            serial=peer_info.get("serial", "?"),
+            not_after=peer_info.get("not_after", "?"),
+        )
         log.info("recv_loop.start", host_id=host_id)
         async for msg in request_iterator:
             kind = msg.WhichOneof("msg")
