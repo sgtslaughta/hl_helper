@@ -106,3 +106,107 @@ async def get_host_risk(
         computed_at=row.computed_at,
         inputs_hash=row.inputs_hash,
     )
+
+
+class RiskConfigOut(BaseModel):
+    weights: dict[str, float]
+    scorers: list[dict]
+
+
+class RiskConfigPatch(BaseModel):
+    weights: dict[str, float] | None = None
+    enabled: dict[str, bool] | None = None
+
+
+@router.get("/v1/posture/risk/config", response_model=RiskConfigOut)
+async def get_risk_config(request: Request, _: str = Depends(admin_required)) -> RiskConfigOut:
+    state = get_app_state(request)
+    if state.risk_registry is None:
+        raise HTTPException(status_code=503, detail="risk_registry_unavailable")
+    cfg = state.risk_registry.config()
+    return RiskConfigOut(weights=cfg.weights, scorers=cfg.scorers)
+
+
+@router.patch("/v1/posture/risk/config", response_model=RiskConfigOut)
+async def patch_risk_config(
+    request: Request,
+    body: RiskConfigPatch,
+    _: str = Depends(admin_required),
+) -> RiskConfigOut:
+    state = get_app_state(request)
+    if state.risk_registry is None:
+        raise HTTPException(status_code=503, detail="risk_registry_unavailable")
+    try:
+        state.risk_registry.apply_overrides(
+            weights=body.weights or {},
+            enabled=body.enabled or {},
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    cfg = state.risk_registry.config()
+    return RiskConfigOut(weights=cfg.weights, scorers=cfg.scorers)
+
+
+@router.get("/v1/posture/risk/scorers")
+async def list_scorers(request: Request, _: str = Depends(admin_required)) -> dict:
+    state = get_app_state(request)
+    if state.risk_registry is None:
+        raise HTTPException(status_code=503, detail="risk_registry_unavailable")
+    return {"scorers": state.risk_registry.config().scorers}
+
+
+class SummaryRow(BaseModel):
+    host_id: str
+    score: int | None
+    level: str
+    confidence: float
+
+
+class SummaryResponse(BaseModel):
+    items: list[SummaryRow]
+
+
+@router.get("/v1/posture/risk/summary", response_model=SummaryResponse)
+async def risk_summary(
+    request: Request,
+    level: str | None = None,
+    confidence_min: float = 0.0,
+    _: str = Depends(admin_required),
+) -> SummaryResponse:
+    state = get_app_state(request)
+    from sqlalchemy import select
+
+    from server.app.models.host_risk import HostRisk
+
+    async with state.sessionmaker() as session:
+        stmt = select(HostRisk)
+        if level:
+            stmt = stmt.where(HostRisk.level == level)
+        rows = list((await session.execute(stmt)).scalars().all())
+    return SummaryResponse(
+        items=[
+            SummaryRow(
+                host_id=r.host_id,
+                score=r.score,
+                level=r.level,
+                confidence=r.confidence,
+            )
+            for r in rows
+            if r.confidence >= confidence_min
+        ]
+    )
+
+
+@router.post("/v1/hosts/{host_id}/risk/recompute", status_code=202)
+async def recompute_host_risk(
+    request: Request,
+    host_id: str,
+    _: str = Depends(admin_required),
+) -> dict:
+    state = get_app_state(request)
+    if state.risk_recomputer is None:
+        raise HTTPException(status_code=503, detail="recomputer_unavailable")
+    asyncio.create_task(
+        state.risk_recomputer.recompute(host_id, trigger_reason="manual")
+    )
+    return {"status": "queued"}
