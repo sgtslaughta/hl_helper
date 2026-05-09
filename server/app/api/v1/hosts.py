@@ -148,15 +148,19 @@ async def _emit_dispatch_ticker(
     """Best-effort: publish a ticker event for an action dispatch.
 
     Resolves hostname from the DB; falls back to an id prefix if the host
-    row isn't available. Never raises — ticker failures must not break
-    the dispatch response.
+    row isn't available. Logs (not raises) on failure — ticker emit must
+    never break the dispatch response itself.
     """
+    import logging as _logging
+
+    _log = _logging.getLogger(__name__)
     try:
         from server.app.events.ticker import format_action_dispatch, publish_ticker
 
         state = get_app_state(request)
         bus = getattr(state, "bus", None)
         if bus is None:
+            _log.warning("dispatch_ticker.no_bus", extra={"action": action, "host_id": host_id})
             return
         async with state.sessionmaker() as s:
             host = await s.get(Host, host_id)
@@ -171,8 +175,12 @@ async def _emit_dispatch_ticker(
             detail=detail,
         )
         await publish_ticker(bus, **fmt)  # type: ignore[arg-type]
+        _log.info(
+            "dispatch_ticker.published",
+            extra={"action": action, "host_id": host_id, "task_id": task_id},
+        )
     except Exception:
-        pass
+        _log.exception("dispatch_ticker.failed", extra={"action": action, "host_id": host_id})
 
 
 def _build_host_advisory_out(ha: Any, adv: Any) -> HostAdvisoryOut:

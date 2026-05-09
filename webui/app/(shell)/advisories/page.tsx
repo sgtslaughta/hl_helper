@@ -5,8 +5,9 @@ export const dynamic = 'force-dynamic';
 import { EmptyState } from '@/components/empty-states/empty-state';
 import { Select } from '@/components/primitives/select';
 import { apiFetch } from '@/lib/api-client';
-import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
+import { relTime } from '@/lib/time';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AlertTriangle, ChevronDown, ChevronRight, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 import { Fragment, useMemo, useState } from 'react';
 
@@ -55,6 +56,24 @@ interface HostMin {
 	hostname: string;
 }
 
+interface FeedStatus {
+	feed: string;
+	last_sync_at: string | null;
+	last_count: number;
+	last_error: string | null;
+	next_scheduled_at: string | null;
+	in_progress: boolean;
+}
+
+interface FeedStatusResponse {
+	feeds: FeedStatus[];
+}
+
+interface FeedSyncResponse {
+	status: 'accepted' | 'queue_full' | 'disabled';
+	feeds: string[];
+}
+
 const SEVERITY_BADGE: Record<string, string> = {
 	critical: 'bg-red-500/15 text-red-400 border-red-500/40',
 	high: 'bg-orange-500/15 text-orange-400 border-orange-500/40',
@@ -77,6 +96,22 @@ export default function AdvisoriesPage() {
 	const [sort, setSort] = useState<SortKey>('affected');
 	const [offset, setOffset] = useState(0);
 	const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+	const qc = useQueryClient();
+
+	const feedStatusQ = useQuery<FeedStatusResponse>({
+		queryKey: ['advisories', 'feeds', 'status'],
+		queryFn: () => apiFetch<FeedStatusResponse>('/v1/advisories/feeds/status'),
+		refetchInterval: 5_000,
+	});
+
+	const feedSyncMut = useMutation({
+		mutationFn: () =>
+			apiFetch<FeedSyncResponse>('/v1/advisories/feeds/sync?feed=all', { method: 'POST' }),
+		onSuccess: () => {
+			qc.invalidateQueries({ queryKey: ['advisories', 'feeds', 'status'] });
+		},
+	});
 
 	const hostsQ = useQuery<HostMin[]>({
 		queryKey: ['hosts', 'min'],
@@ -159,13 +194,28 @@ export default function AdvisoriesPage() {
 						current filters.
 					</p>
 				</div>
-				<Link
-					href="/security"
-					className="rounded border border-hairline px-3 py-1.5 text-sm text-text-dim hover:bg-surface-hover"
-				>
-					Posture overview →
-				</Link>
+				<div className="flex items-center gap-2">
+					<button
+						type="button"
+						disabled={feedSyncMut.isPending}
+						onClick={() => feedSyncMut.mutate()}
+						className="flex items-center gap-1.5 rounded border border-accent bg-accent/15 px-3 py-1.5 text-sm font-semibold text-accent hover:bg-accent/25 disabled:opacity-40"
+						title="Trigger advisory feed sync (OSV/EPSS/KEV)"
+					>
+						<RefreshCw size={14} className={feedSyncMut.isPending ? 'animate-spin' : ''} />
+						{feedSyncMut.isPending ? 'Syncing…' : 'Sync feeds'}
+					</button>
+					<Link
+						href="/security"
+						className="rounded border border-hairline px-3 py-1.5 text-sm text-text-dim hover:bg-surface-hover"
+					>
+						Posture overview →
+					</Link>
+				</div>
 			</div>
+
+			{/* Feed status strip */}
+			<FeedStatusStrip feeds={feedStatusQ.data?.feeds ?? []} loading={feedStatusQ.isLoading} />
 
 			{/* Stat strip */}
 			<div className="grid grid-cols-2 gap-3 sm:grid-cols-6">
@@ -442,6 +492,75 @@ export default function AdvisoriesPage() {
 					</div>
 				</div>
 			)}
+		</div>
+	);
+}
+
+function FeedStatusStrip({
+	feeds,
+	loading,
+}: {
+	feeds: FeedStatus[];
+	loading: boolean;
+}) {
+	if (loading && feeds.length === 0) {
+		return (
+			<div className="rounded border border-hairline bg-surface px-3 py-2 text-xs text-text-dim">
+				Loading feed status…
+			</div>
+		);
+	}
+	if (feeds.length === 0) return null;
+
+	return (
+		<div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+			{feeds.map(f => {
+				const tone = f.last_error
+					? 'border-red-500/40 bg-red-500/10'
+					: f.in_progress
+						? 'border-blue-500/40 bg-blue-500/10'
+						: f.last_sync_at
+							? 'border-green-500/40 bg-green-500/10'
+							: 'border-hairline bg-surface';
+				const dotTone = f.last_error
+					? 'bg-red-500'
+					: f.in_progress
+						? 'bg-blue-500 animate-pulse'
+						: f.last_sync_at
+							? 'bg-green-500'
+							: 'bg-text-dim';
+				const stateLabel = f.last_error
+					? 'error'
+					: f.in_progress
+						? 'syncing'
+						: f.last_sync_at
+							? 'synced'
+							: 'never run';
+				return (
+					<div
+						key={f.feed}
+						className={`rounded border px-3 py-2 ${tone}`}
+						title={f.last_error ?? ''}
+					>
+						<div className="flex items-center justify-between">
+							<div className="flex items-center gap-1.5 font-mono text-xs uppercase tracking-wider text-text">
+								<span className={`h-2 w-2 rounded-full ${dotTone}`} />
+								{f.feed}
+							</div>
+							<span className="font-mono text-[10px] uppercase tracking-wider text-text-dim">
+								{stateLabel}
+							</span>
+						</div>
+						<div className="mt-1 flex items-center justify-between text-xs text-text-dim">
+							<span>{f.last_sync_at ? <>last: {relTime(f.last_sync_at)}</> : 'no sync yet'}</span>
+							<span className="font-mono">{f.last_count.toLocaleString()} rec</span>
+						</div>
+						{f.last_error ? (
+							<div className="mt-1 truncate font-mono text-[10px] text-red-400">{f.last_error}</div>
+						) : null}
+					</div>
+				);
+			})}
 		</div>
 	);
 }
