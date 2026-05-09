@@ -53,11 +53,13 @@ class AdvisoryWorker:
         feed_sync_queue_maxsize: int = 4,
         match_queue_maxsize: int = 32,
         event_bus: object | None = None,
+        risk_recomputer: object | None = None,
     ) -> None:
         self._catalog_sm = catalog_sm
         self._fleet_sm = fleet_sm
         self._settings = settings
         self._event_bus = event_bus
+        self._risk_recomputer = risk_recomputer
 
         self.feed_sync_queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue(
             maxsize=feed_sync_queue_maxsize
@@ -152,6 +154,17 @@ class AdvisoryWorker:
                 await self._close_rescan_tasks(host_id, succeeded=ok)
             except Exception:
                 log.warning("advisory_worker.rescan_close_failed", host_id=host_id, exc_info=True)
+            if ok and self._risk_recomputer is not None:
+                try:
+                    await self._risk_recomputer.request(
+                        host_id, trigger_reason="advisory_match"
+                    )
+                except Exception:
+                    log.warning(
+                        "advisory_worker.risk_recompute_request_failed",
+                        host_id=host_id,
+                        exc_info=True,
+                    )
 
     async def _close_rescan_tasks(self, host_id: str, *, succeeded: bool) -> None:
         """Mark RUNNING rescan/resurvey Task rows for this host as terminal.

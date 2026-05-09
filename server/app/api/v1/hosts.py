@@ -183,6 +183,29 @@ async def _emit_dispatch_ticker(
         _log.exception("dispatch_ticker.failed", extra={"action": action, "host_id": host_id})
 
 
+async def _request_risk_recompute(
+    request: "Request",
+    host_id: str,
+    *,
+    trigger_reason: str,
+) -> None:
+    """Best-effort: nudge the recomputer for a host. Never raises."""
+    import logging as _logging
+
+    _log = _logging.getLogger(__name__)
+    try:
+        state = get_app_state(request)
+        rc = getattr(state, "risk_recomputer", None)
+        if rc is None:
+            return
+        await rc.request(host_id, trigger_reason=trigger_reason)
+    except Exception:
+        _log.exception(
+            "risk.request_failed",
+            extra={"host_id": host_id, "trigger_reason": trigger_reason},
+        )
+
+
 def _build_host_advisory_out(ha: Any, adv: Any) -> HostAdvisoryOut:
     """Compose a HostAdvisoryOut from a HostAdvisory row + Advisory row.
 
@@ -407,6 +430,7 @@ async def resurvey_host(
     await _emit_dispatch_ticker(
         request, host_id, "resurvey", actor=actor, task_id=task.id, severity="info"
     )
+    await _request_risk_recompute(request, host_id, trigger_reason="resurvey")
     return {"status": "queued", "task_id": task.id}
 
 
@@ -467,6 +491,7 @@ async def rescan_host(
     await _emit_dispatch_ticker(
         request, host_id, "rescan", actor=actor, task_id=task.id, severity="info"
     )
+    await _request_risk_recompute(request, host_id, trigger_reason="rescan")
     return {"status": "queued", "task_id": task.id}
 
 
@@ -587,6 +612,7 @@ async def reboot_host(
         severity="warn",
         detail=body.reason or None,
     )
+    await _request_risk_recompute(request, host_id, trigger_reason="reboot")
 
     return ActionResponse(
         task_id=result.task_id,
@@ -666,6 +692,7 @@ async def shell_exec_host(
         task_id=result.task_id,
         severity="warn" if body.as_root else "info",
     )
+    await _request_risk_recompute(request, host_id, trigger_reason="shell_exec")
 
     return ActionResponse(
         task_id=result.task_id,
@@ -720,6 +747,7 @@ async def pkg_update_host(
         severity="info",
         detail=", ".join(body.classes) if body.classes else None,
     )
+    await _request_risk_recompute(request, host_id, trigger_reason="pkg_update")
 
     return ActionResponse(
         task_id=result.task_id,

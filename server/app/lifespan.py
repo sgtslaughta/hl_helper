@@ -412,21 +412,8 @@ async def build_app_state(settings: FleetSettings) -> AppState:
 
     advertised_origins = _enumerate_advertised_origins(settings.public_url)
 
-    # Build advisory worker (task started later in app_lifespan once the
-    # gRPC server is up). Bridge service captures the reference at construct
-    # time, so the worker must exist before _start_grpc_server runs.
-    advisory_worker: Any = None
-    if settings.advisory_enabled and catalog_sm is not None:
-        from server.app.advisory.worker import AdvisoryWorker
-
-        advisory_worker = AdvisoryWorker(
-            catalog_sm=catalog_sm,
-            fleet_sm=sm,
-            settings=settings,
-            event_bus=bus,
-        )
-
     # Posture risk pillar registry + recomputer (multi-pillar aggregator).
+    # Constructed early so it can be wired to advisory_worker.
     from server.app.posture.risk.recomputer import RiskRecomputer
     from server.app.posture.risk.registry import ScorerRegistry
     from server.app.posture.risk.scorers.configuration import ConfigurationScorer
@@ -448,6 +435,21 @@ async def build_app_state(settings: FleetSettings) -> AppState:
         bus=bus,
         audit=audit_chain,
     )
+
+    # Build advisory worker (task started later in app_lifespan once the
+    # gRPC server is up). Bridge service captures the reference at construct
+    # time, so the worker must exist before _start_grpc_server runs.
+    advisory_worker: Any = None
+    if settings.advisory_enabled and catalog_sm is not None:
+        from server.app.advisory.worker import AdvisoryWorker
+
+        advisory_worker = AdvisoryWorker(
+            catalog_sm=catalog_sm,
+            fleet_sm=sm,
+            settings=settings,
+            event_bus=bus,
+            risk_recomputer=risk_recomputer,
+        )
 
     return AppState(
         bus=bus,

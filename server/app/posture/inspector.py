@@ -31,6 +31,7 @@ async def run_inspection(
     settings: FleetSettings | None = None,
     catalog_sm: async_sessionmaker[AsyncSession] | None = None,
     event_bus: Any | None = None,
+    risk_recomputer: Any | None = None,
 ) -> list[Finding]:
     """@brief Execute all posture finding functions and persist results.
 
@@ -118,5 +119,15 @@ async def run_inspection(
             )
         except Exception:
             log.warning("posture_inspector_ticker_emit_failed", exc_info=True)
+
+    # Risk pillar recompute — refreshes Configuration/Identity/Hygiene
+    # signals when findings change.
+    if risk_recomputer is not None:
+        host_ids = {f.subject_id for f in findings if getattr(f, "subject_kind", None) == "host" and f.subject_id}
+        for hid in host_ids:
+            try:
+                await risk_recomputer.request(hid, trigger_reason="posture_inspector")
+            except Exception:
+                log.warning("posture_inspector_risk_recompute_failed", host_id=hid, exc_info=True)
 
     return findings
