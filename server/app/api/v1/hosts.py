@@ -135,6 +135,18 @@ class HostAdvisoryListResponse(BaseModel):
     items: list[HostAdvisoryOut]
 
 
+class HostCertOut(BaseModel):
+    """Host certificate lifecycle state."""
+
+    serial: str | None
+    issued_at: datetime | None  # cert_rotated_at OR enrolled_at
+    expires_at: datetime | None
+    rotation_count: int
+    last_rotated_at: datetime | None
+    last_reenroll_at: datetime | None
+    status: str  # healthy | rotating | halted | expired
+
+
 async def _emit_dispatch_ticker(
     request: "Request",
     host_id: str,
@@ -325,6 +337,44 @@ async def get_host(
     if row is None:
         raise HTTPException(status_code=404, detail="host_not_found")
     return HostOut.model_validate(row)
+
+
+@router.get("/{host_id}/cert", response_model=HostCertOut)
+async def get_host_cert(
+    host_id: str,
+    actor: str = Depends(admin_required),
+    session: AsyncSession = Depends(get_session),
+) -> HostCertOut:
+    """Get certificate lifecycle state for a host."""
+    row = await session.get(Host, host_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="host_not_found")
+
+    now = datetime.now(timezone.utc)
+    expires = row.cert_expires_at
+    if expires is not None and expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+
+    if expires is None:
+        status_str = "halted"
+    elif expires < now:
+        status_str = "expired"
+    else:
+        status_str = "healthy"
+
+    issued = row.cert_rotated_at or row.enrolled_at
+    if issued is not None and issued.tzinfo is None:
+        issued = issued.replace(tzinfo=timezone.utc)
+
+    return HostCertOut(
+        serial=row.cert_serial,
+        issued_at=issued,
+        expires_at=expires,
+        rotation_count=row.cert_rotation_count or 0,
+        last_rotated_at=row.cert_rotated_at,
+        last_reenroll_at=row.last_reenroll_at,
+        status=status_str,
+    )
 
 
 @router.patch("/{host_id}", response_model=HostOut)
