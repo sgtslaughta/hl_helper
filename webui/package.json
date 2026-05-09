@@ -4,15 +4,16 @@
 	"description": "hl_helper Web UI — Blueprint Ops control surface",
 	"private": true,
 	"scripts": {
+		"build": "npm run build:wiki && next build",
+		"build:wiki": "tsx ../scripts/build-wiki-index.ts",
 		"dev": "next dev",
-		"build": "next build",
-		"start": "next start",
-		"lint": "biome lint",
 		"format": "biome format --write",
-		"typecheck": "tsc --noEmit",
-		"test:unit": "vitest run",
+		"lint": "biome lint",
+		"start": "next start",
+		"test": "npm run test:unit && npm run test:e2e",
 		"test:e2e": "playwright test",
-		"test": "npm run test:unit && npm run test:e2e"
+		"test:unit": "vitest run",
+		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
 		"@fontsource/inter-tight": "^5.2.7",
@@ -86,6 +87,7 @@
 		"@vitest/ui": "^2.1.0",
 		"jsdom": "^25.0.0",
 		"postcss": "^8.4.45",
+		"tsx": "^4.0.0",
 		"vitest": "^2.1.0"
 	},
 	"engines": {
