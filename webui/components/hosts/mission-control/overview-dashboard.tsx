@@ -1,6 +1,7 @@
 'use client';
 
 import { apiFetch } from '@/lib/api-client';
+import { useHostAdvisories } from '@/lib/api/advisories';
 import type { Host } from '@/lib/api/hosts';
 import { fmtDuration, parseServerTime, relTime } from '@/lib/time';
 import NumberFlow, { type Format as NumberFlowFormat } from '@number-flow/react';
@@ -577,6 +578,39 @@ function PostureRibbon({ hostId, onJump }: { hostId: string; onJump: () => void 
 	);
 }
 
+function AdvisoriesRibbon({ hostId, onJump }: { hostId: string; onJump: () => void }) {
+	const q = useHostAdvisories(hostId, { status: 'open' });
+	const items = q.data?.items ?? [];
+
+	return (
+		<div className="flex flex-col">
+			<RibbonHeader
+				icon={Activity}
+				title="Advisories"
+				count={items.length}
+				onJump={onJump}
+				tone={items.length > 0 ? 'text-danger' : 'text-ok'}
+			/>
+			<div className="mc-bezel flex-1 space-y-1 px-2 py-1.5 font-mono text-[11px]">
+				{q.isLoading ? (
+					<div className="text-text-dim">…loading</div>
+				) : items.length === 0 ? (
+					<div className="text-ok">no advisories</div>
+				) : (
+					items.slice(0, 4).map(a => (
+						<div key={a.id} className="flex items-center gap-1.5 truncate">
+							<span className={`mc-pip ${severityTone(a.severity)} border-current px-1 py-0`}>
+								{a.severity.slice(0, 3).toUpperCase()}
+							</span>
+							<span className="truncate text-text">{a.package_name}</span>
+						</div>
+					))
+				)}
+			</div>
+		</div>
+	);
+}
+
 export function OverviewDashboard({ host, onJump }: Props) {
 	const labels = host.labels ?? {};
 	const labelEntries = Object.entries(labels);
@@ -751,11 +785,12 @@ export function OverviewDashboard({ host, onJump }: Props) {
 				</div>
 			</div>
 
-			{/* Three-column ribbon row */}
-			<div className="grid gap-2 md:grid-cols-3">
+			{/* Four-column ribbon row */}
+			<div className="grid gap-2 md:grid-cols-2 lg:grid-cols-4">
 				<TasksRibbon hostId={host.id} onJump={() => onJump('tasks')} />
 				<PostureRibbon hostId={host.id} onJump={() => onJump('posture')} />
 				<AuditRibbon hostId={host.id} onJump={() => onJump('audit')} />
+				<AdvisoriesRibbon hostId={host.id} onJump={() => onJump('advisories')} />
 			</div>
 		</div>
 	);

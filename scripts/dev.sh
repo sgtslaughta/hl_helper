@@ -178,6 +178,8 @@ start_server() {
 			FLEET_ADMIN_TOKEN=\"$admin_token\" \
 			FLEET_PUBLIC_URL=\"$public_url\" \
 			FLEET_COOKIE_SECURE=false \
+			HL_CI_TOKEN=\"${HL_CI_TOKEN:-dev-ci-token}\" \
+			HL_AGENT_DIST_DIR=\"${HL_AGENT_DIST_DIR:-$DATA_DIR/agent-dist}\" \
 			uv run uvicorn server.app.main:app \
 				--host \"$HOST_BIND\" \
 				--port \"$SERVER_PORT\" \

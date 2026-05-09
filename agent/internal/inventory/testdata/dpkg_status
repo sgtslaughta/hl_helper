@@ -1,0 +1,19 @@
+Package: bash
+Version: 5.1-2+deb11u1
+Architecture: amd64
+Status: install ok installed
+
+Package: vim
+Version: 2:8.2.3455-1+deb11u1
+Architecture: amd64
+Status: install ok installed
+
+Package: removed-pkg
+Version: 1.0.0
+Architecture: amd64
+Status: purge ok not-installed
+
+Package: curl
+Version: 7.74.0-1.3+deb11u1
+Architecture: amd64
+Status: install ok installed

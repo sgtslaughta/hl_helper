@@ -243,6 +243,9 @@ class AppState:
     result_handler: ResultHandler
     revocation_service: RevocationService
     enrollment_service: EnrollmentService
+    catalog_engine: AsyncEngine | None = None
+    catalog_sessionmaker: async_sessionmaker[AsyncSession] | None = None
+    advisory_worker: Any | None = None
     lockout_tracker: Any | None = None
     session_service: Any | None = None
     secrets_broker: Any | None = None
@@ -298,6 +301,21 @@ async def build_app_state(settings: FleetSettings) -> AppState:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_reconcile_added_columns)
     sm = make_sessionmaker(engine)
+
+    # Catalog engine for advisory tables. On Postgres this is the same
+    # connection as `engine`; on SQLite it points at a separate file.
+    from server.app.db.catalog import make_catalog_engine
+    from server.app.models import CatalogBase
+
+    catalog_engine = make_catalog_engine(settings, main_engine=engine)
+    if catalog_engine is not engine:
+        async with catalog_engine.begin() as conn:
+            await conn.run_sync(CatalogBase.metadata.create_all)
+    else:
+        # Single-engine path: catalog tables share the main engine.
+        async with engine.begin() as conn:
+            await conn.run_sync(CatalogBase.metadata.create_all)
+    catalog_sm = make_sessionmaker(catalog_engine)
 
     # Setup event bus (singleton shared across all components)
     bus = Bus()
@@ -392,6 +410,20 @@ async def build_app_state(settings: FleetSettings) -> AppState:
 
     advertised_origins = _enumerate_advertised_origins(settings.public_url)
 
+    # Build advisory worker (task started later in app_lifespan once the
+    # gRPC server is up). Bridge service captures the reference at construct
+    # time, so the worker must exist before _start_grpc_server runs.
+    advisory_worker: Any = None
+    if settings.advisory_enabled and catalog_sm is not None:
+        from server.app.advisory.worker import AdvisoryWorker
+
+        advisory_worker = AdvisoryWorker(
+            catalog_sm=catalog_sm,
+            fleet_sm=sm,
+            settings=settings,
+            event_bus=bus,
+        )
+
     return AppState(
         bus=bus,
         ca=ca,
@@ -404,6 +436,9 @@ async def build_app_state(settings: FleetSettings) -> AppState:
         result_handler=result_handler,
         revocation_service=revocation_service,
         enrollment_service=enrollment_service,
+        catalog_engine=catalog_engine,
+        catalog_sessionmaker=catalog_sm,
+        advisory_worker=advisory_worker,
         lockout_tracker=lockout_tracker,
         session_service=session_service,
         secrets_broker=secrets_broker,
@@ -549,6 +584,8 @@ async def _start_grpc_server(state: AppState, grpc_host: str) -> None:
             revocation=state.revocation_service,
             sessionmaker=state.sessionmaker,
             audit_chain=state.audit_chain,
+            advisory_worker=state.advisory_worker,
+            event_bus=state.bus,
         )
 
         await server.start()
@@ -590,9 +627,24 @@ async def app_lifespan(app: Any) -> AsyncIterator[None]:
     )
     sweeper_task = asyncio.create_task(run_command_sweeper(state.sessionmaker))
 
+    # Spawn the advisory worker task (the worker itself was constructed in
+    # build_app_state so the gRPC bridge could capture the reference).
+    advisory_task = None
+    if state.advisory_worker is not None:
+        advisory_task = asyncio.create_task(state.advisory_worker.run())
+
+    # Host status watcher: flips stale hosts to offline and emits ticker events
+    from server.app.events.host_status_watcher import run_host_status_watcher
+    host_watcher_task = asyncio.create_task(
+        run_host_status_watcher(state.sessionmaker, state.bus)
+    )
+
     yield
 
-    for t in (bridge_task, sweeper_task):
+    tasks_to_cancel = [bridge_task, sweeper_task, host_watcher_task]
+    if advisory_task is not None:
+        tasks_to_cancel.append(advisory_task)
+    for t in tasks_to_cancel:
         t.cancel()
         try:
             await t
@@ -610,3 +662,5 @@ async def app_lifespan(app: Any) -> AsyncIterator[None]:
     if state.session_service:
         await state.session_service.stop()
     await state.engine.dispose()
+    if state.catalog_engine is not None and state.catalog_engine is not state.engine:
+        await state.catalog_engine.dispose()

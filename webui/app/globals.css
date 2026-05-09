@@ -308,6 +308,12 @@ body::before {
 	font-feature-settings: "tnum" 1, "zero" 1;
 }
 
+/* Footer ticker marquee */
+@keyframes ticker-marquee {
+	0% { transform: translateX(0); }
+	100% { transform: translateX(-50%); }
+}
+
 /* Bezel (frame around an instrument cluster) */
 .mc-bezel {
 	border: 1px solid var(--color-hairline);

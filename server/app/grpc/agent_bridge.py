@@ -68,12 +68,29 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
         revocation: RevocationService | None = None,
         sessionmaker: Any | None = None,
         audit_chain: Any | None = None,
+        advisory_worker: Any | None = None,
+        event_bus: Any | None = None,
     ) -> None:
         self._dispatcher = dispatcher
         self._result_handler = result_handler
         self._revocation = revocation
         self._sessionmaker = sessionmaker
         self._audit_chain = audit_chain
+        self._advisory_worker = advisory_worker
+        self._event_bus = event_bus
+
+    async def _enqueue_match(self, host_id: str) -> None:
+        """Best-effort: ask the advisory worker to re-match this host.
+
+        Silently no-op when the worker is not wired (tests / advisory_enabled=false).
+        """
+        worker = self._advisory_worker
+        if worker is None:
+            return
+        try:
+            await worker.enqueue_match(host_id)
+        except Exception:
+            log.warning("agent_bridge.enqueue_match_failed", host_id=host_id, exc_info=True)
 
     async def Stream(
         self,
@@ -269,14 +286,40 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
                         }
                         async with self._sessionmaker() as session:
                             host = await session.get(Host, host_id)
+                            transitioned_to_online = False
+                            host_hostname: str | None = None
                             if host:
                                 now = datetime.now(timezone.utc)
+                                if host.status == "offline":
+                                    transitioned_to_online = True
+                                    host_hostname = host.hostname
                                 host.last_seen_at = now
                                 host.status = "healthy"
                                 host.metrics = metrics_dict
                                 host.metrics_at = now
                             # Persist agent version and update status
                             await _persist_heartbeat(session, host_id, msg.heartbeat)
+                            if transitioned_to_online and self._event_bus is not None:
+                                from server.app.events.after_commit import (
+                                    publish_after_commit,
+                                )
+                                from server.app.events.ticker import (
+                                    TICKER_CHANNEL,
+                                    format_host_status,
+                                    make_ticker_payload,
+                                )
+
+                                fmt = format_host_status(
+                                    host_id=host_id,
+                                    hostname=host_hostname or host_id,
+                                    online=True,
+                                )
+                                publish_after_commit(
+                                    session,
+                                    self._event_bus,
+                                    TICKER_CHANNEL,
+                                    make_ticker_payload(**fmt),  # type: ignore[arg-type]
+                                )
                             await session.commit()
                     except Exception as e:
                         log.warning(
@@ -362,6 +405,48 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
                             "audit.append_failed",
                             host_id=host_id,
                             phase=audit_event.phase,
+                            error=str(e),
+                        )
+            elif kind == "package_inventory":
+                if self._sessionmaker is not None:
+                    from .inventory_servicer import handle_package_inventory
+
+                    try:
+                        await handle_package_inventory(
+                            self._sessionmaker, msg.package_inventory
+                        )
+                        await self._enqueue_match(host_id)
+                    except Exception as e:
+                        log.warning(
+                            "package_inventory.handle_failed",
+                            host_id=host_id,
+                            error=str(e),
+                        )
+            elif kind == "container_inventory":
+                if self._sessionmaker is not None:
+                    from .inventory_servicer import handle_container_inventory
+
+                    try:
+                        await handle_container_inventory(
+                            self._sessionmaker, msg.container_inventory
+                        )
+                        await self._enqueue_match(host_id)
+                    except Exception as e:
+                        log.warning(
+                            "container_inventory.handle_failed",
+                            host_id=host_id,
+                            error=str(e),
+                        )
+            elif kind == "host_facts":
+                if self._sessionmaker is not None:
+                    from .inventory_servicer import handle_host_facts
+
+                    try:
+                        await handle_host_facts(self._sessionmaker, msg.host_facts)
+                    except Exception as e:
+                        log.warning(
+                            "host_facts.handle_failed",
+                            host_id=host_id,
                             error=str(e),
                         )
             else:

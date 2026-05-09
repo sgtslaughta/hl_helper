@@ -3,6 +3,7 @@ import datetime
 from google.protobuf import timestamp_pb2 as _timestamp_pb2
 from fleet.v1 import envelope_pb2 as _envelope_pb2
 from fleet.v1 import results_pb2 as _results_pb2
+from fleet.v1 import inventory_pb2 as _inventory_pb2
 from google.protobuf.internal import containers as _containers
 from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
 from google.protobuf import descriptor as _descriptor
@@ -89,6 +90,16 @@ class RunSurvey(_message.Message):
     REASON_FIELD_NUMBER: _ClassVar[int]
     reason: str
     def __init__(self, reason: _Optional[str] = ...) -> None: ...
+
+class RunInventory(_message.Message):
+    __slots__ = ("reason", "include_lang", "lang_roots")
+    REASON_FIELD_NUMBER: _ClassVar[int]
+    INCLUDE_LANG_FIELD_NUMBER: _ClassVar[int]
+    LANG_ROOTS_FIELD_NUMBER: _ClassVar[int]
+    reason: str
+    include_lang: bool
+    lang_roots: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, reason: _Optional[str] = ..., include_lang: bool = ..., lang_roots: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class HostMetrics(_message.Message):
     __slots__ = ("load_1", "load_5", "load_15", "mem_used_pct", "disk_used_pct", "uptime_seconds", "net_rx_bps", "net_tx_bps")
@@ -235,7 +246,7 @@ class AgentAuditEvent(_message.Message):
     def __init__(self, timestamp: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., task_id: _Optional[str] = ..., binary: _Optional[str] = ..., args: _Optional[_Iterable[str]] = ..., elevator: _Optional[str] = ..., reason: _Optional[str] = ..., phase: _Optional[str] = ..., exit_code: _Optional[int] = ..., error: _Optional[str] = ...) -> None: ...
 
 class AgentToServer(_message.Message):
-    __slots__ = ("heartbeat", "result", "resume", "cap_req", "cert_rotate", "decom_ack", "host_survey", "audit")
+    __slots__ = ("heartbeat", "result", "resume", "cap_req", "cert_rotate", "decom_ack", "host_survey", "audit", "package_inventory", "container_inventory", "host_facts")
     HEARTBEAT_FIELD_NUMBER: _ClassVar[int]
     RESULT_FIELD_NUMBER: _ClassVar[int]
     RESUME_FIELD_NUMBER: _ClassVar[int]
@@ -244,6 +255,9 @@ class AgentToServer(_message.Message):
     DECOM_ACK_FIELD_NUMBER: _ClassVar[int]
     HOST_SURVEY_FIELD_NUMBER: _ClassVar[int]
     AUDIT_FIELD_NUMBER: _ClassVar[int]
+    PACKAGE_INVENTORY_FIELD_NUMBER: _ClassVar[int]
+    CONTAINER_INVENTORY_FIELD_NUMBER: _ClassVar[int]
+    HOST_FACTS_FIELD_NUMBER: _ClassVar[int]
     heartbeat: Heartbeat
     result: _results_pb2.ResultEnvelope
     resume: ResumeRequest
@@ -252,10 +266,13 @@ class AgentToServer(_message.Message):
     decom_ack: DecommissionAck
     host_survey: HostSurvey
     audit: AgentAuditEvent
-    def __init__(self, heartbeat: _Optional[_Union[Heartbeat, _Mapping]] = ..., result: _Optional[_Union[_results_pb2.ResultEnvelope, _Mapping]] = ..., resume: _Optional[_Union[ResumeRequest, _Mapping]] = ..., cap_req: _Optional[_Union[CapabilityRequest, _Mapping]] = ..., cert_rotate: _Optional[_Union[CertRotateRequest, _Mapping]] = ..., decom_ack: _Optional[_Union[DecommissionAck, _Mapping]] = ..., host_survey: _Optional[_Union[HostSurvey, _Mapping]] = ..., audit: _Optional[_Union[AgentAuditEvent, _Mapping]] = ...) -> None: ...
+    package_inventory: _inventory_pb2.PackageInventory
+    container_inventory: _inventory_pb2.ContainerInventory
+    host_facts: _inventory_pb2.HostFacts
+    def __init__(self, heartbeat: _Optional[_Union[Heartbeat, _Mapping]] = ..., result: _Optional[_Union[_results_pb2.ResultEnvelope, _Mapping]] = ..., resume: _Optional[_Union[ResumeRequest, _Mapping]] = ..., cap_req: _Optional[_Union[CapabilityRequest, _Mapping]] = ..., cert_rotate: _Optional[_Union[CertRotateRequest, _Mapping]] = ..., decom_ack: _Optional[_Union[DecommissionAck, _Mapping]] = ..., host_survey: _Optional[_Union[HostSurvey, _Mapping]] = ..., audit: _Optional[_Union[AgentAuditEvent, _Mapping]] = ..., package_inventory: _Optional[_Union[_inventory_pb2.PackageInventory, _Mapping]] = ..., container_inventory: _Optional[_Union[_inventory_pb2.ContainerInventory, _Mapping]] = ..., host_facts: _Optional[_Union[_inventory_pb2.HostFacts, _Mapping]] = ...) -> None: ...
 
 class ServerToAgent(_message.Message):
-    __slots__ = ("command", "hb_ack", "cert_issue", "manifest", "decom", "hb_config", "run_survey")
+    __slots__ = ("command", "hb_ack", "cert_issue", "manifest", "decom", "hb_config", "run_survey", "run_inventory")
     COMMAND_FIELD_NUMBER: _ClassVar[int]
     HB_ACK_FIELD_NUMBER: _ClassVar[int]
     CERT_ISSUE_FIELD_NUMBER: _ClassVar[int]
@@ -263,6 +280,7 @@ class ServerToAgent(_message.Message):
     DECOM_FIELD_NUMBER: _ClassVar[int]
     HB_CONFIG_FIELD_NUMBER: _ClassVar[int]
     RUN_SURVEY_FIELD_NUMBER: _ClassVar[int]
+    RUN_INVENTORY_FIELD_NUMBER: _ClassVar[int]
     command: _envelope_pb2.CommandEnvelope
     hb_ack: HeartbeatAck
     cert_issue: CertIssueResponse
@@ -270,4 +288,5 @@ class ServerToAgent(_message.Message):
     decom: Decommission
     hb_config: HeartbeatConfig
     run_survey: RunSurvey
-    def __init__(self, command: _Optional[_Union[_envelope_pb2.CommandEnvelope, _Mapping]] = ..., hb_ack: _Optional[_Union[HeartbeatAck, _Mapping]] = ..., cert_issue: _Optional[_Union[CertIssueResponse, _Mapping]] = ..., manifest: _Optional[_Union[ManifestUpdate, _Mapping]] = ..., decom: _Optional[_Union[Decommission, _Mapping]] = ..., hb_config: _Optional[_Union[HeartbeatConfig, _Mapping]] = ..., run_survey: _Optional[_Union[RunSurvey, _Mapping]] = ...) -> None: ...
+    run_inventory: RunInventory
+    def __init__(self, command: _Optional[_Union[_envelope_pb2.CommandEnvelope, _Mapping]] = ..., hb_ack: _Optional[_Union[HeartbeatAck, _Mapping]] = ..., cert_issue: _Optional[_Union[CertIssueResponse, _Mapping]] = ..., manifest: _Optional[_Union[ManifestUpdate, _Mapping]] = ..., decom: _Optional[_Union[Decommission, _Mapping]] = ..., hb_config: _Optional[_Union[HeartbeatConfig, _Mapping]] = ..., run_survey: _Optional[_Union[RunSurvey, _Mapping]] = ..., run_inventory: _Optional[_Union[RunInventory, _Mapping]] = ...) -> None: ...

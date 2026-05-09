@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict
@@ -276,7 +276,17 @@ async def get_task_result_for_host(
     host_id: str,
     _: str = Depends(admin_required),
 ) -> TaskResultDetail:
-    """Return the latest captured stdout/stderr/exit_code for a host on a task."""
+    """Return the latest captured stdout/stderr/exit_code for a host on a task.
+
+    Inventory-style tasks (``resurvey``/``rescan``) don't produce stdout — the
+    agent answers with HostSurvey + PackageInventory + ContainerInventory
+    envelopes that update host/package/container tables directly. For those,
+    synthesize a summary using the latest collected counts so the UI shows
+    something useful instead of a 404.
+    """
+    from server.app.models.host import Host
+    from server.app.models.host_container import HostContainer
+    from server.app.models.host_package import HostPackage
     from server.app.models.result import Result
 
     sm = _sessionmaker(request)
@@ -300,18 +310,63 @@ async def get_task_result_for_host(
                 .limit(1)
             )
         ).scalar_one_or_none()
-        if latest_cmd is None:
-            raise HTTPException(status_code=404, detail="command_not_found")
+        latest_result = None
+        if latest_cmd is not None:
+            latest_result = (
+                await session.execute(
+                    select(Result)
+                    .where(Result.command_id == latest_cmd.id)
+                    .order_by(Result.sequence.desc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
 
-        latest_result = (
-            await session.execute(
-                select(Result)
-                .where(Result.command_id == latest_cmd.id)
-                .order_by(Result.sequence.desc())
-                .limit(1)
-            )
-        ).scalar_one_or_none()
         if latest_result is None:
+            # Inventory tasks don't write Result rows — synthesize from snapshot.
+            task = await session.get(Task, task_id)
+            payload = task.payload if task is not None else {}
+            action = (payload or {}).get("action") if isinstance(payload, dict) else None
+            if action in ("resurvey", "rescan"):
+                host = await session.get(Host, host_id)
+                from sqlalchemy import func as _func
+                pkg_count = int(
+                    (
+                        await session.execute(
+                            select(_func.count(HostPackage.id)).where(
+                                HostPackage.host_id == host_id
+                            )
+                        )
+                    ).scalar_one()
+                )
+                ctr_count = int(
+                    (
+                        await session.execute(
+                            select(_func.count(HostContainer.id)).where(
+                                HostContainer.host_id == host_id
+                            )
+                        )
+                    ).scalar_one()
+                )
+                survey_at = host.survey_at.isoformat() if host and host.survey_at else "—"
+                summary = (
+                    f"Inventory collected\n"
+                    f"  packages: {pkg_count}\n"
+                    f"  containers: {ctr_count}\n"
+                    f"  survey_at: {survey_at}\n"
+                )
+                received_at = run.completed_at or run.started_at or datetime.now(timezone.utc)
+                return TaskResultDetail(
+                    host_id=host_id,
+                    command_id=latest_cmd.id if latest_cmd else "",
+                    status=str(run.status),
+                    exit_code=0 if str(run.status).lower().endswith("succeeded") else None,
+                    received_at=received_at,
+                    stdout=summary,
+                    stdout_truncated=False,
+                    stderr="",
+                    stderr_truncated=False,
+                    rejection_reason=None,
+                )
             raise HTTPException(status_code=404, detail="result_not_found")
 
     stdout, stdout_trunc = _decode_blob(latest_result.stdout_blob)

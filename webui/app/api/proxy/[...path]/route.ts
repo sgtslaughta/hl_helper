@@ -42,8 +42,9 @@ async function handler(req: NextRequest, ctx: { params: Promise<{ path: string[]
 			body,
 		});
 
-		const clonedResponse = response.clone();
-		return new NextResponse(clonedResponse.body, {
+		// No clone — for streaming responses (SSE), clone() forces buffering
+		// which starves the dev server fetch pool and inflates page latency.
+		return new NextResponse(response.body, {
 			status: response.status,
 			statusText: response.statusText,
 			headers: response.headers,

@@ -52,8 +52,22 @@ def _registry() -> list[Callable[..., Awaitable["Finding | None"]]]:
     ]
 
 
-# Eagerly populate the registry on package import.
+def _list_registry() -> list[Callable[..., Awaitable[list["Finding"]]]]:
+    # Lazy import to avoid circular imports at package init.
+    from server.app.posture import (
+        findings_advisory as _adv,
+        findings_misconfig as _misc,
+    )
+
+    return [
+        _adv.collect_advisory_findings,
+        _misc.collect_misconfig_findings,
+    ]
+
+
+# Eagerly populate the registries on package import.
 ALL_FINDINGS: list[Callable[..., Awaitable["Finding | None"]]] = _registry()
+ALL_LIST_FINDINGS: list[Callable[..., Awaitable[list["Finding"]]]] = _list_registry()
 
 
-__all__ = ["Finding", "PostureFindingRow", "Severity", "ALL_FINDINGS", "SEVERITY_ORDER"]
+__all__ = ["Finding", "PostureFindingRow", "Severity", "ALL_FINDINGS", "ALL_LIST_FINDINGS", "SEVERITY_ORDER"]

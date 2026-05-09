@@ -53,7 +53,7 @@ const config: Config = {
 			},
 		},
 	},
-	plugins: [require('@tailwindcss/container-queries')],
+	plugins: [],
 };
 
 export default config;

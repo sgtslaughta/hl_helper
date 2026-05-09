@@ -321,3 +321,56 @@ async def test_shell_exec_as_root_dispatches_with_reason(
     data = response.json()
     assert "task_id" in data
     assert data["dispatched"] == ["test-host-1"]
+
+
+@pytest.mark.asyncio
+async def test_rescan_host_409_when_offline(client: httpx.AsyncClient, async_session_maker):
+    """POST /v1/hosts/{id}/rescan returns 409 when no live agent stream."""
+    async with async_session_maker() as session:
+        session.add(Host(id="rh-1", hostname="r.example.com", agent_pubkey=b"x" * 32, cert_serial="r1"))
+        await session.commit()
+
+    # No agent connected → push_control returns False → 409
+    resp = await client.post(
+        "/v1/hosts/rh-1/rescan",
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
+    assert resp.status_code == 409
+    assert "host_not_connected" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_rescan_host_404_for_unknown_host(client: httpx.AsyncClient):
+    resp = await client.post(
+        "/v1/hosts/missing/rescan",
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_rescan_host_202_when_pushed(client: httpx.AsyncClient, async_session_maker, monkeypatch):
+    """POST rescan returns 202 + task_id when push_control accepts the message."""
+    async with async_session_maker() as session:
+        session.add(Host(id="rh-2", hostname="r2.example.com", agent_pubkey=b"x" * 32, cert_serial="r2"))
+        await session.commit()
+
+    pushed: list[tuple[str, object]] = []
+
+    def fake_push(host_id, msg):  # type: ignore[no-untyped-def]
+        pushed.append((host_id, msg))
+        return True
+
+    monkeypatch.setattr("server.app.grpc.agent_bridge.push_control", fake_push)
+
+    resp = await client.post(
+        "/v1/hosts/rh-2/rescan",
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
+    assert resp.status_code == 202
+    body = resp.json()
+    assert body["status"] == "queued"
+    assert body["task_id"]
+    assert pushed and pushed[0][0] == "rh-2"
+    # Pushed msg must carry RunInventory oneof
+    assert pushed[0][1].WhichOneof("msg") == "run_inventory"

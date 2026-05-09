@@ -332,6 +332,7 @@ class ResultHandler:
 
             # 7. Publish result event if bus is set
             if self._event_bus is not None:
+                status_str = _result_status_to_string(env.status)
                 publish_after_commit(
                     session,
                     self._event_bus,
@@ -340,10 +341,33 @@ class ResultHandler:
                         "event": "command.result",
                         "command_id": env.command_id,
                         "host_id": expected_host_id,
-                        "status": _result_status_to_string(env.status),
-                        "exit_code": env.exit_code if _result_status_to_string(env.status) in ("ok", "fail") else None,
+                        "status": status_str,
+                        "exit_code": env.exit_code if status_str in ("ok", "fail") else None,
                     },
                 )
+                # Ticker: success/failure surface in UI footer
+                if status_str in ("ok", "fail"):
+                    from server.app.events.ticker import (
+                        TICKER_CHANNEL,
+                        format_task_result,
+                        make_ticker_payload,
+                    )
+
+                    host_row = await session.get(Host, expected_host_id)
+                    hostname = host_row.hostname if host_row is not None else expected_host_id
+                    fmt = format_task_result(
+                        command_id=env.command_id,
+                        host_id=expected_host_id,
+                        hostname=hostname,
+                        success=(status_str == "ok"),
+                        exit_code=env.exit_code if status_str in ("ok", "fail") else None,
+                    )
+                    publish_after_commit(
+                        session,
+                        self._event_bus,
+                        TICKER_CHANNEL,
+                        make_ticker_payload(**fmt),  # type: ignore[arg-type]
+                    )
 
             await session.commit()
             return result

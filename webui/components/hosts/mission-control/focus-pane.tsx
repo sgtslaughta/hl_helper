@@ -1,5 +1,6 @@
 'use client';
 
+import { HostAdvisoriesPanel } from '@/components/hosts/host-advisories-panel';
 import { HostAuditPanel } from '@/components/hosts/host-audit-panel';
 import { HostPosturePanel } from '@/components/hosts/host-posture-panel';
 import { HostTasksPanel } from '@/components/hosts/host-tasks-panel';
@@ -82,7 +83,8 @@ export function FocusPane({ host, mode, onModeChange }: Props) {
 					{tabMode === 'posture' ? <HostPosturePanel hostId={host.id} /> : null}
 					{tabMode === 'audit' ? <HostAuditPanel hostId={host.id} /> : null}
 					{tabMode === 'tasks' ? <HostTasksPanel hostId={host.id} host={host} /> : null}
-					{tabMode === 'advisories' || tabMode === 'labels' || tabMode === 'files' ? (
+					{tabMode === 'advisories' ? <HostAdvisoriesPanel hostId={host.id} /> : null}
+					{tabMode === 'labels' || tabMode === 'files' ? (
 						<div className="font-mono text-xs uppercase tracking-wider text-text-dim">
 							{tabMode} view (placeholder).
 						</div>

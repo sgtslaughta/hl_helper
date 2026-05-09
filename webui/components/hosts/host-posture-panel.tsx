@@ -4,7 +4,8 @@ import { EmptyState } from '@/components/empty-states/empty-state';
 import { Disclosure } from '@/components/primitives/disclosure';
 import { BlueprintSkeleton } from '@/components/skeletons/blueprint-skeleton';
 import { apiFetch } from '@/lib/api-client';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
 
 interface Finding {
 	id: string;
@@ -33,6 +34,8 @@ const SEVERITY_COLORS: Record<string, string> = {
 };
 
 export function HostPosturePanel({ hostId }: { hostId: string }) {
+	const qc = useQueryClient();
+	const [scanMsg, setScanMsg] = useState<string | null>(null);
 	const q = useQuery<PostureResponse>({
 		queryKey: ['hosts', hostId, 'posture'],
 		queryFn: () =>
@@ -41,12 +44,51 @@ export function HostPosturePanel({ hostId }: { hostId: string }) {
 			),
 	});
 
-	if (q.isLoading) return <BlueprintSkeleton rows={4} />;
-	if (q.isError) return <EmptyState title="Failed to load posture" description="Try again." />;
+	const scan = useMutation({
+		mutationFn: () =>
+			apiFetch<{ status: string; task_id: string }>(
+				`/v1/hosts/${encodeURIComponent(hostId)}/rescan`,
+				{ method: 'POST' },
+			),
+		onSuccess: () => {
+			setScanMsg('Scan queued — refreshing in ~5s');
+			setTimeout(() => {
+				qc.invalidateQueries({ queryKey: ['hosts', hostId, 'posture'] });
+				qc.invalidateQueries({ queryKey: ['hosts', hostId, 'advisories'] });
+				setScanMsg(null);
+			}, 5000);
+		},
+		onError: (e: Error) => setScanMsg(`Scan failed: ${e.message}`),
+	});
+
+	const ScanBar = (
+		<div className="mb-3 flex items-center justify-between rounded border border-hairline bg-surface px-3 py-2">
+			<div className="text-xs text-text-dim">
+				{scanMsg ?? 'Trigger fresh inventory + advisory match on this host.'}
+			</div>
+			<button
+				type="button"
+				onClick={() => scan.mutate()}
+				disabled={scan.isPending}
+				className="rounded border border-hairline bg-bg-2 px-3 py-1 font-mono text-xs text-text hover:bg-bg-3 disabled:opacity-50"
+			>
+				{scan.isPending ? '…scanning' : 'Run Posture Scan'}
+			</button>
+		</div>
+	);
+
+	if (q.isLoading) return <>{ScanBar}<BlueprintSkeleton rows={4} /></>;
+	if (q.isError)
+		return <>{ScanBar}<EmptyState title="Failed to load posture" description="Try again." /></>;
 
 	const findings = q.data?.findings ?? [];
 	if (findings.length === 0)
-		return <EmptyState title="No findings" description="This host has no open posture issues." />;
+		return (
+			<>
+				{ScanBar}
+				<EmptyState title="No findings" description="This host has no open posture issues." />
+			</>
+		);
 
 	const counts = findings.reduce<Record<string, number>>((a, f) => {
 		a[f.severity] = (a[f.severity] ?? 0) + 1;
@@ -55,6 +97,7 @@ export function HostPosturePanel({ hostId }: { hostId: string }) {
 
 	return (
 		<div className="space-y-4">
+			{ScanBar}
 			<div className="rounded border border-hairline bg-surface p-4">
 				<h3 className="mb-2 text-h4 font-semibold text-text">Posture summary</h3>
 				<div className="flex flex-wrap gap-3 text-sm">

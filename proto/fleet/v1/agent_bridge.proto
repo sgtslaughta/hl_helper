@@ -7,6 +7,7 @@ import "google/protobuf/timestamp.proto";
 
 import "fleet/v1/envelope.proto";
 import "fleet/v1/results.proto";
+import "fleet/v1/inventory.proto";
 
 message Disk {
   string device = 1;
@@ -50,6 +51,12 @@ message HeartbeatConfig {
 
 message RunSurvey {
   string reason = 1;
+}
+
+message RunInventory {
+  string reason = 1;
+  bool include_lang = 2;       // opt-in language pkg scan (pip/npm/cargo)
+  repeated string lang_roots = 3;  // optional override roots; empty => agent defaults
 }
 
 message HostMetrics {
@@ -147,6 +154,9 @@ message AgentToServer {
     DecommissionAck decom_ack = 6;
     HostSurvey host_survey = 7;
     AgentAuditEvent audit = 8;
+    PackageInventory package_inventory = 9;
+    ContainerInventory container_inventory = 10;
+    HostFacts host_facts = 11;
   }
 }
 
@@ -159,6 +169,7 @@ message ServerToAgent {
     Decommission decom = 5;
     HeartbeatConfig hb_config = 6;
     RunSurvey run_survey = 7;
+    RunInventory run_inventory = 8;
   }
 }
 

@@ -4,7 +4,7 @@
 	"description": "hl_helper Web UI — Blueprint Ops control surface",
 	"private": true,
 	"scripts": {
-		"dev": "next dev",
+		"dev": "next dev --turbopack",
 		"build": "next build",
 		"start": "next start",
 		"lint": "biome lint",

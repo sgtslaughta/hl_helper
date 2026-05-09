@@ -23,6 +23,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/hlhelper/hl-agent/internal/executor"
+	"github.com/hlhelper/hl-agent/internal/inventory"
 	"github.com/hlhelper/hl-agent/internal/keystore"
 	"github.com/hlhelper/hl-agent/internal/outbox"
 	"github.com/hlhelper/hl-agent/internal/sleep"
@@ -386,6 +387,22 @@ func (c *Client) runOnce(ctx context.Context) error {
 						Msg: &pb.AgentToServer_HostSurvey{HostSurvey: s},
 					})
 				}(m.RunSurvey.Reason)
+			case *pb.ServerToAgent_RunInventory:
+				log.Printf("inventory: RunInventory received reason=%q includeLang=%v", m.RunInventory.Reason, m.RunInventory.IncludeLang)
+				go func(includeLang bool, langRoots []string) {
+					msgs := inventory.BuildMessages(ctx, c.opts.HostID, includeLang, langRoots)
+					log.Printf("inventory: built %d envelopes", len(msgs))
+					for i, env := range msgs {
+						if env == nil {
+							continue
+						}
+						if err := sendMsg(env); err != nil {
+							log.Printf("inventory: send envelope %d failed: %v", i, err)
+						} else {
+							log.Printf("inventory: sent envelope %d", i)
+						}
+					}
+				}(m.RunInventory.IncludeLang, m.RunInventory.LangRoots)
 			}
 		}
 	}()

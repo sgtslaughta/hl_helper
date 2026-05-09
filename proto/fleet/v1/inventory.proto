@@ -1,0 +1,45 @@
+syntax = "proto3";
+package fleet.v1;
+
+option go_package = "github.com/hlhelper/hl-agent/proto/fleet/v1";
+
+import "google/protobuf/timestamp.proto";
+
+message PackageInventory {
+  message Pkg {
+    string ecosystem = 1;   // dpkg, rpm, pacman, apk, zypper, pip, npm, cargo, go, gem, ...
+    string name      = 2;
+    string version   = 3;
+    string source    = 4;   // package manager identifier
+    string arch      = 5;
+  }
+  string host_id = 1;
+  google.protobuf.Timestamp at = 2;
+  repeated Pkg added   = 3;
+  repeated Pkg removed = 4;
+  bool full_snapshot   = 5;   // true => server should treat this as a full replace
+}
+
+message ContainerInventory {
+  message Container {
+    string id           = 1;  // engine container id
+    string name         = 2;
+    string image_ref    = 3;  // e.g. nginx:1.18
+    string image_digest = 4;  // sha256:...
+    string state        = 5;  // running, exited, paused, ...
+    string engine       = 6;  // docker | podman
+  }
+  string host_id = 1;
+  google.protobuf.Timestamp at = 2;
+  repeated Container containers = 3;
+  bool full_snapshot = 4;
+}
+
+message HostFacts {
+  string host_id = 1;
+  google.protobuf.Timestamp at = 2;
+  map<string,string> sshd          = 3;  // key/value from sshd_config
+  map<string,string> sysctl        = 4;
+  repeated string mounts           = 5;  // raw lines from /proc/mounts
+  map<string,string> fs_perms      = 6;  // path -> mode (e.g. "/etc/shadow" -> "0640")
+}

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any, AsyncIterator
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,7 +18,9 @@ from server.app.dispatcher.dispatcher import (
     PkgUpdatePayload,
 )
 from server.app.dispatcher.targets import HostListSelector
+from server.app.models.advisory import Advisory
 from server.app.models.host import Host
+from server.app.models.host_advisory import HostAdvisory
 from server.app.rbac.provider import Principal
 from server.app.revocation.service import (
     HostAlreadyRevokedError,
@@ -94,6 +96,93 @@ class ActionResponse(BaseModel):
     dispatched: list[str]
     denied: list[str]
     pending_approval_ids: list[str]
+
+
+class HostAdvisoryOut(BaseModel):
+    """Host advisory with embedded advisory details.
+
+    Field naming is duplicated (e.g. ``severity`` and ``advisory_severity``)
+    so the JSON shape matches the webui's HostAdvisory interface while
+    older callers reading ``advisory_*`` keep working.
+    """
+
+    id: int
+    host_id: str
+    advisory_id: str
+    package: str
+    ecosystem: str
+    current_version: str
+    fixed_version: str | None = None
+    status: str
+    suppressed_until: datetime | None = None
+    suppressed_by: str | None = None
+    suppressed_reason: str | None = None
+    advisory_severity: str
+    advisory_summary: str
+    advisory_kev: bool
+    advisory_epss: float | None
+    # ---- aliases consumed by the webui ----
+    severity: str
+    summary: str
+    package_name: str
+    epss: float | None
+    kev: bool
+
+
+class HostAdvisoryListResponse(BaseModel):
+    """Response wrapper for host advisory list."""
+
+    items: list[HostAdvisoryOut]
+
+
+def _build_host_advisory_out(ha: Any, adv: Any) -> HostAdvisoryOut:
+    """Compose a HostAdvisoryOut from a HostAdvisory row + Advisory row.
+
+    Tolerates a missing Advisory (split-DB race / orphaned ID) by falling
+    back to placeholder values.
+    """
+    severity = adv.severity if adv else "unknown"
+    if adv is not None:
+        summary = (adv.summary or "").strip()
+        if not summary and getattr(adv, "description_md", None):
+            for _line in (adv.description_md or "").splitlines():
+                _line = _line.strip().lstrip("# ").strip()
+                if _line:
+                    summary = _line[:500]
+                    break
+    else:
+        summary = ""
+    epss = adv.epss if adv else None
+    kev = bool(adv.kev) if adv else False
+    return HostAdvisoryOut(
+        id=ha.id,
+        host_id=ha.host_id,
+        advisory_id=ha.advisory_id,
+        package=ha.package,
+        ecosystem=ha.ecosystem,
+        current_version=ha.current_version,
+        fixed_version=ha.fixed_version,
+        status=ha.status,
+        suppressed_until=ha.suppressed_until,
+        suppressed_by=ha.suppressed_by,
+        suppressed_reason=ha.suppressed_reason,
+        advisory_severity=severity,
+        advisory_summary=summary,
+        advisory_kev=kev,
+        advisory_epss=epss,
+        severity=severity,
+        summary=summary,
+        package_name=ha.package,
+        epss=epss,
+        kev=kev,
+    )
+
+
+class SuppressHostAdvisoryRequest(BaseModel):
+    """Request to suppress a host advisory."""
+
+    reason: str
+    expires_at: datetime
 
 
 # ===== Dependency providers (can be overridden in tests) =====
@@ -252,6 +341,62 @@ async def resurvey_host(
         created_by=actor,
         status=TaskStatus.RUNNING,
         payload={"action": "resurvey", "host_id": host_id},
+        target_selector={"host_ids": [host_id]},
+        risk=TaskRisk.LOW,
+        requires_approval=False,
+    )
+    run = TaskRun(
+        id=str(uuid4()),
+        task_id=task.id,
+        host_id=host_id,
+        status=TaskRunStatus.RUNNING,
+        started_at=datetime.now(timezone.utc),
+    )
+    session.add(task)
+    session.add(run)
+    await session.commit()
+    return {"status": "queued", "task_id": task.id}
+
+
+@router.post("/{host_id}/rescan", status_code=202)
+async def rescan_host(
+    host_id: str,
+    actor: str = Depends(admin_required),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, str]:
+    """Request a fresh inventory + posture scan from the connected agent.
+
+    Pushes RunInventory to the agent (packages, containers, host facts);
+    advisory matcher fires server-side after ingest. Creates a Task + TaskRun
+    so the rescan appears in the host task list. 202 if queued, 409 if the
+    agent has no live stream.
+    """
+    from uuid import uuid4
+
+    from server.app.grpc import agent_bridge as _ab
+    from server.app.grpc._pb.fleet.v1 import agent_bridge_pb2
+    from server.app.models.task import Task, TaskKind, TaskRisk, TaskStatus
+    from server.app.models.task_run import TaskRun, TaskRunStatus
+
+    host = await session.get(Host, host_id)
+    if host is None:
+        raise HTTPException(status_code=404, detail="host_not_found")
+
+    msg = agent_bridge_pb2.ServerToAgent(
+        run_inventory=agent_bridge_pb2.RunInventory(
+            reason="manual",
+            include_lang=False,
+        )
+    )
+    if not _ab.push_control(host_id, msg):
+        raise HTTPException(status_code=409, detail="host_not_connected")
+
+    task = Task(
+        id=str(uuid4()),
+        kind=TaskKind.CUSTOM,
+        created_by=actor,
+        status=TaskStatus.RUNNING,
+        payload={"action": "rescan", "host_id": host_id},
         target_selector={"host_ids": [host_id]},
         risk=TaskRisk.LOW,
         requires_approval=False,
@@ -497,3 +642,103 @@ async def pkg_update_host(
         denied=result.denied,
         pending_approval_ids=result.pending_approval_ids,
     )
+
+# ===== Host Advisories =====
+
+
+@router.get("/{host_id}/advisories", response_model=HostAdvisoryListResponse)
+async def list_host_advisories(
+    request: Request,
+    host_id: str,
+    status: str = Query("open"),
+    severity: str | None = Query(None),
+    _: str = Depends(admin_required),
+) -> HostAdvisoryListResponse:
+    """List advisories for a host. Joins host_advisories (fleet) with the
+    Advisory rows from the catalog DB in a second query so the same code path
+    works for SQLite split files and a unified Postgres deployment."""
+    app_state = get_app_state(request)
+
+    async with app_state.sessionmaker() as session:
+        q = select(HostAdvisory).where(HostAdvisory.host_id == host_id)
+        if status:
+            q = q.where(HostAdvisory.status == status)
+        host_advisories = list((await session.execute(q)).scalars().all())
+
+    if not host_advisories:
+        return HostAdvisoryListResponse(items=[])
+
+    advisory_ids = list({ha.advisory_id for ha in host_advisories})
+    catalog_sm = app_state.catalog_sessionmaker or app_state.sessionmaker
+    async with catalog_sm() as cat_session:
+        q_adv = select(Advisory).where(Advisory.id.in_(advisory_ids))
+        if severity:
+            q_adv = q_adv.where(Advisory.severity == severity)
+        adv_rows = list((await cat_session.execute(q_adv)).scalars().all())
+    by_id = {a.id: a for a in adv_rows}
+
+    items = []
+    for ha in host_advisories:
+        adv = by_id.get(ha.advisory_id)
+        if adv is None and severity:
+            # severity filter excluded this advisory — drop the host_advisory too
+            continue
+        items.append(_build_host_advisory_out(ha, adv))
+    return HostAdvisoryListResponse(items=items)
+
+
+@router.post("/{host_id}/advisories/{id}/suppress", response_model=HostAdvisoryOut)
+async def suppress_host_advisory(
+    request: Request,
+    host_id: str,
+    id: int,
+    body: SuppressHostAdvisoryRequest,
+    actor: str = Depends(admin_required),
+) -> HostAdvisoryOut:
+    """Suppress a host advisory."""
+    app_state = get_app_state(request)
+    async with app_state.sessionmaker() as session:
+        ha = await session.get(HostAdvisory, id)
+        if not ha or ha.host_id != host_id:
+            raise HTTPException(status_code=404, detail="Host advisory not found")
+
+        ha.status = "suppressed"
+        ha.suppressed_until = body.expires_at
+        ha.suppressed_by = actor
+        ha.suppressed_reason = body.reason
+        await session.commit()
+
+    # Fetch advisory for response from the catalog DB.
+    catalog_sm = app_state.catalog_sessionmaker or app_state.sessionmaker
+    async with catalog_sm() as cat_session:
+        adv = await cat_session.get(Advisory, ha.advisory_id)
+
+    return _build_host_advisory_out(ha, adv)
+
+
+@router.post("/{host_id}/advisories/{id}/unsuppress", response_model=HostAdvisoryOut)
+async def unsuppress_host_advisory(
+    request: Request,
+    host_id: str,
+    id: int,
+    _: str = Depends(admin_required),
+) -> HostAdvisoryOut:
+    """Unsuppress a host advisory."""
+    app_state = get_app_state(request)
+    async with app_state.sessionmaker() as session:
+        ha = await session.get(HostAdvisory, id)
+        if not ha or ha.host_id != host_id:
+            raise HTTPException(status_code=404, detail="Host advisory not found")
+
+        ha.status = "open"
+        ha.suppressed_until = None
+        ha.suppressed_by = None
+        ha.suppressed_reason = None
+        await session.commit()
+
+    # Fetch advisory for response from the catalog DB.
+    catalog_sm = app_state.catalog_sessionmaker or app_state.sessionmaker
+    async with catalog_sm() as cat_session:
+        adv = await cat_session.get(Advisory, ha.advisory_id)
+
+    return _build_host_advisory_out(ha, adv)

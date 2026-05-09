@@ -45,6 +45,9 @@ class AppStateProtocol(Protocol):
     result_handler: ResultHandler
     revocation_service: RevocationService
     enrollment_service: EnrollmentService
+    catalog_engine: AsyncEngine | None
+    catalog_sessionmaker: async_sessionmaker[AsyncSession] | None
+    advisory_worker: Any | None  # AdvisoryWorker, lazy-typed to avoid circular import
     lockout_tracker: Any | None  # LockoutTrackerPersistent | None
     session_service: Any | None  # SessionService | None, but lazily imported to avoid circular deps
     secrets_broker: SecretsBackend | None

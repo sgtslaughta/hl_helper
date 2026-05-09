@@ -15,10 +15,13 @@ from pydantic import BaseModel, Field
 
 from server.app.api.middleware.admin_auth import admin_required
 from server.app.api.state import get_app_state
+from server.app.models.advisory import Advisory
+from server.app.models.host_advisory import HostAdvisory
 from server.app.posture.inspector import run_inspection
 from server.app.posture.model import PostureFindingRow
 from server.app.posture.store import list_findings, suppress_finding, unsuppress_finding
 from server.app.settings.config import load_settings
+from sqlalchemy import func, select, and_
 
 log = structlog.get_logger(__name__)
 
@@ -62,6 +65,15 @@ class UnsuppressRequest(BaseModel):
     """@brief Request body for unsuppressing a finding."""
 
     finding_id: str
+
+
+class PostureSummaryOut(BaseModel):
+    """@brief Fleet posture summary."""
+
+    totals: dict[str, int]
+    kev_count: int
+    stale_update_hosts: int = 0
+    feed_sources: list = Field(default_factory=list)
 
 
 def _row_to_out(row: PostureFindingRow) -> FindingOut:
@@ -115,6 +127,8 @@ async def get_posture(
         app_state.sessionmaker,
         broker=app_state.secrets_broker,
         settings=settings,
+        catalog_sm=app_state.catalog_sessionmaker,
+        event_bus=app_state.bus,
     )
 
     suppressed_filter = None if include_suppressed else False
@@ -173,3 +187,50 @@ async def unsuppress_posture_finding(
     if row is None:
         raise HTTPException(status_code=404, detail="Finding not found")
     return _row_to_out(row)
+
+
+@router.get("/summary", response_model=PostureSummaryOut)
+async def get_posture_summary(
+    request: Request,
+    _: str = Depends(admin_required),
+) -> PostureSummaryOut:
+    """@brief Fleet posture summary: severity counts, KEV count, stale hosts.
+
+    @param request The incoming HTTP request.
+    @return PostureSummaryOut with aggregated metrics.
+    """
+    app_state = get_app_state(request)
+    severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    kev_count = 0
+
+    # Step 1: pull every open host_advisory's advisory_id from the fleet DB.
+    async with app_state.sessionmaker() as session:
+        stmt = select(HostAdvisory.advisory_id).where(HostAdvisory.status == "open")
+        adv_ids = list((await session.execute(stmt)).scalars().all())
+
+    if adv_ids:
+        # Step 2: look up severity + kev in the catalog DB. Group with a single
+        # IN-list query, then count locally — works on SQLite split files and
+        # Postgres unified deployments without cross-engine JOINs.
+        unique_ids = list(set(adv_ids))
+        catalog_sm = app_state.catalog_sessionmaker or app_state.sessionmaker
+        async with catalog_sm() as cat_session:
+            stmt_adv = select(Advisory.id, Advisory.severity, Advisory.kev).where(
+                Advisory.id.in_(unique_ids)
+            )
+            adv_rows = list((await cat_session.execute(stmt_adv)).all())
+
+        by_id = {row.id: (row.severity, bool(row.kev)) for row in adv_rows}
+        for aid in adv_ids:
+            sev, kev = by_id.get(aid, ("unknown", False))
+            if sev in severity_counts:
+                severity_counts[sev] += 1
+            if kev:
+                kev_count += 1
+
+    return PostureSummaryOut(
+        totals=severity_counts,
+        kev_count=kev_count,
+        stale_update_hosts=0,
+        feed_sources=[],
+    )

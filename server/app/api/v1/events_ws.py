@@ -1,13 +1,16 @@
-"""WebSocket endpoint for real-time event streaming."""
+"""WebSocket + SSE endpoints for real-time event streaming."""
 
 from __future__ import annotations
 
 import asyncio
+import json
 import secrets
-from typing import Any
+from typing import Any, AsyncIterator
 
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, status
+from fastapi.responses import StreamingResponse
 
+from server.app.api.middleware.admin_auth import admin_required
 from server.app.api.state import get_app_state
 from server.app.events.bus import Bus, Event
 from server.app.events.ws_filter import event_visible
@@ -16,11 +19,12 @@ from server.app.settings.config import load_settings
 router = APIRouter(prefix="/v1", tags=["events"])
 
 # Allowed channels for subscription
-ALLOWED_CHANNELS = {"commands", "audit", "hosts.status"}
+ALLOWED_CHANNELS = {"commands", "audit", "hosts.status", "ticker"}
 BACKPRESSURE_CHANNELS = {
     "_backpressure.commands",
     "_backpressure.audit",
     "_backpressure.hosts.status",
+    "_backpressure.ticker",
 }
 
 
@@ -264,3 +268,134 @@ async def events_ws(
                 await task
             except asyncio.CancelledError:
                 pass
+
+
+# ----------------------------------------------------------------------------
+# SSE variant — works through the Next.js HTTP proxy (which can't upgrade WS).
+# ----------------------------------------------------------------------------
+
+
+def _sse_format(payload: str, *, event: str | None = None) -> bytes:
+    """Encode one SSE message frame."""
+    lines = []
+    if event is not None:
+        lines.append(f"event: {event}")
+    # data may contain newlines — split per spec
+    for line in payload.splitlines() or [""]:
+        lines.append(f"data: {line}")
+    lines.append("")  # terminating blank line
+    lines.append("")
+    return ("\n".join(lines)).encode("utf-8")
+
+
+async def _sse_stream(
+    request: Request,
+    bus: Bus,
+    principal: str,
+    channels: list[str],
+    since_sequence: int | None,
+    keepalive_s: float = 15.0,
+) -> AsyncIterator[bytes]:
+    """Multiplex one bus subscription per channel into a single SSE stream."""
+    subs = [
+        bus.subscribe(ch, since_sequence=since_sequence, max_queue=1024)
+        for ch in channels
+    ]
+
+    queue: asyncio.Queue[Event | None] = asyncio.Queue()
+
+    async def pump(sub: Any) -> None:
+        try:
+            async for ev in sub:
+                await queue.put(ev)
+        except (asyncio.CancelledError, Exception):
+            pass
+
+    pump_tasks = [asyncio.create_task(pump(s)) for s in subs]
+
+    try:
+        # Initial comment so the proxy flushes headers immediately.
+        yield b": connected\n\n"
+
+        last_keepalive = asyncio.get_event_loop().time()
+        disconnect_check_at = 0.0
+        while True:
+            now = asyncio.get_event_loop().time()
+            if now - disconnect_check_at >= 5.0:
+                disconnect_check_at = now
+                try:
+                    if await request.is_disconnected():
+                        return
+                except Exception:
+                    pass
+            try:
+                ev = await asyncio.wait_for(queue.get(), timeout=1.0)
+            except asyncio.TimeoutError:
+                if now - last_keepalive >= keepalive_s:
+                    yield b": keep-alive\n\n"
+                    last_keepalive = now
+                continue
+            if ev is None:
+                continue
+            if not event_visible(principal, ev):
+                continue
+            payload = json.dumps(
+                {
+                    "type": "event",
+                    "sequence": ev.sequence,
+                    "channel": ev.channel,
+                    "payload": dict(ev.payload),
+                    "timestamp": ev.timestamp.isoformat(),
+                },
+                separators=(",", ":"),
+                default=str,
+            )
+            yield _sse_format(payload)
+    finally:
+        for t in pump_tasks:
+            t.cancel()
+        for s in subs:
+            try:
+                await s.close()
+            except Exception:
+                pass
+
+
+@router.get("/events/sse")
+async def events_sse(
+    request: Request,
+    channels: str = Query("ticker", description="Comma-separated channel allowlist"),
+    since_sequence: int | None = Query(None),
+    principal: str = Depends(admin_required),
+) -> StreamingResponse:
+    """Server-Sent Events stream — proxy-friendly alternative to /v1/events.
+
+    Auth: admin via Bearer token OR session cookie (admin_required).
+    Channels must be in ALLOWED_CHANNELS allowlist; default = "ticker".
+    """
+    requested = [c.strip() for c in channels.split(",") if c.strip()]
+    if not requested:
+        requested = ["ticker"]
+    bad = [c for c in requested if c not in ALLOWED_CHANNELS]
+    if bad:
+        raise HTTPException(
+            status_code=400,
+            detail=f"invalid channels {bad}; allowed={sorted(ALLOWED_CHANNELS)}",
+        )
+
+    state = get_app_state(request)
+    bus = state.bus if state.bus is not None else Bus()
+    if state.bus is None:
+        request.app.state.bus = bus
+
+    headers = {
+        "Cache-Control": "no-cache, no-transform",
+        "Connection": "keep-alive",
+        # Disable nginx buffering if present (FastAPI/Uvicorn ignores).
+        "X-Accel-Buffering": "no",
+    }
+    return StreamingResponse(
+        _sse_stream(request, bus, principal, requested, since_sequence),
+        media_type="text/event-stream",
+        headers=headers,
+    )

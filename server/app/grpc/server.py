@@ -31,6 +31,8 @@ def make_grpc_server(
     revocation: RevocationService | None = None,
     sessionmaker: Any | None = None,
     audit_chain: Any | None = None,
+    advisory_worker: Any | None = None,
+    event_bus: Any | None = None,
 ) -> tuple[Server, str, CommandDispatcher]:
     """Build configured async gRPC server with mTLS + servicer wired.
 
@@ -57,6 +59,8 @@ def make_grpc_server(
             revocation=revocation,
             sessionmaker=sessionmaker,
             audit_chain=audit_chain,
+            advisory_worker=advisory_worker,
+            event_bus=event_bus,
         ),
         server,
     )

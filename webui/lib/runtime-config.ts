@@ -29,7 +29,9 @@ export async function getRuntimeConfig(): Promise<RuntimeConfig> {
 
 	cached = {
 		apiBase: `${basePath}/api/proxy`,
-		wsBase: `${wsProtocol}//${host}${basePath}/api/proxy/v1/events`,
+		// Origin only (no path). Callers append their own ws path, e.g.
+		// `${wsBase}/api/proxy/v1/agents/<id>/terminal`.
+		wsBase: `${wsProtocol}//${host}${basePath}`,
 		basePath: basePath || '/',
 	};
 	return cached;

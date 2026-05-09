@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from server.app.models._catalog_base import CatalogBase
+from server.app.models.advisory import Advisory, AffectedPackage, FeedStatus
 from server.app.models.agent_release import AgentRelease, ReleaseChannel, ReleaseStatus
 from server.app.models.api_key import ApiKey
 from server.app.models.approval import Approval
@@ -14,6 +16,9 @@ from server.app.models.enrollment_token import EnrollmentToken
 from server.app.models.group import Group
 from server.app.models.group_membership import GroupMembership
 from server.app.models.host import Host
+from server.app.models.host_advisory import HostAdvisory
+from server.app.models.host_container import HostContainer
+from server.app.models.host_package import HostPackage
 from server.app.models.host_sequence import HostSequence
 from server.app.models.lockout import LockoutRecord
 from server.app.models.maintenance_window import MaintenanceWindow
@@ -40,12 +45,19 @@ from server.app.models.webhook import Webhook
 from server.app.posture.model import PostureFindingRow
 
 __all__ = [
+    "CatalogBase",
+    "Advisory",
+    "AffectedPackage",
+    "FeedStatus",
     "AgentRelease",
     "ReleaseChannel",
     "ReleaseStatus",
     "Base",
     "Host",
     "HostSequence",
+    "HostAdvisory",
+    "HostContainer",
+    "HostPackage",
     "EnrollmentToken",
     "Command",
     "Result",

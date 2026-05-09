@@ -21,7 +21,7 @@ from server.app.crypto.signing import FileBackend
 from server.app.db.session import make_engine, make_sessionmaker
 from server.app.grpc.dispatcher import CommandDispatcher
 from server.app.grpc.server import make_grpc_server
-from server.app.models import Base, Host
+from server.app.models import Base, CatalogBase, Host
 from server.app.models.agent_release import AgentRelease, ReleaseChannel, ReleaseStatus
 
 
@@ -144,6 +144,7 @@ async def engine() -> AsyncGenerator[AsyncEngine, None]:
     e = make_engine("sqlite+aiosqlite:///:memory:")
     async with e.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(CatalogBase.metadata.create_all)
     yield e
     await e.dispose()
 

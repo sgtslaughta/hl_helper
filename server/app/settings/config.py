@@ -1,11 +1,19 @@
 from __future__ import annotations
+import json
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 import yaml
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict, PydanticBaseSettingsSource
 from .scope import SettingScope
+
+
+# Default language ecosystems always pulled (small, broadly relevant) when
+# advisory_always_include_languages is True. Values match OSV ecosystem strings.
+DEFAULT_LANGUAGE_ECOSYSTEMS: tuple[str, ...] = (
+    "PyPI", "npm", "crates.io", "Go", "RubyGems", "Maven", "Packagist",
+)
 
 # Fields that should be treated as secrets and redacted in effective_config.
 SECRET_FIELDS: frozenset[str] = frozenset({
@@ -123,6 +131,37 @@ class FleetSettings(BaseSettings):
     # If enabled, RBAC defaults to fail-open. Must not be set via env var.
     allow_permissive_rbac: bool = Field(default=False)
 
+    # ---- Advisory / posture catalog ----
+    advisory_enabled: bool = Field(default=True)
+    advisory_catalog_database_url: str | None = Field(default=None)
+    advisory_sync_on_startup: bool = Field(default=False)
+    advisory_sync_intervals: dict[str, int] = Field(
+        default_factory=lambda: {"osv": 21600, "epss": 86400, "kev": 86400}
+    )
+    advisory_ecosystems: list[str] | Literal["auto"] = Field(default="auto")
+    advisory_always_include_languages: bool = Field(default=True)
+    advisory_pi_mode: bool = Field(default=False)
+
+    @field_validator("advisory_sync_intervals", mode="before")
+    @classmethod
+    def _coerce_sync_intervals(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            return json.loads(v)
+        return v
+
+    @field_validator("advisory_ecosystems", mode="before")
+    @classmethod
+    def _coerce_ecosystems(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            stripped = v.strip()
+            if stripped == "auto":
+                return "auto"
+            if stripped.startswith("["):
+                return json.loads(stripped)
+            if "," in stripped:
+                return [s.strip() for s in stripped.split(",") if s.strip()]
+        return v
+
     # Origin tracking — populated by load_settings()
     # key -> "env" | "file" | "default"
     sources_: dict[str, str] = Field(default_factory=dict, exclude=True)
@@ -203,7 +242,31 @@ def load_settings(
             sources_dict[field_name] = "default"
 
     s.sources_ = sources_dict
+    _apply_pi_mode_preset(s, env_keys_lower, file_data)
     return s
+
+
+def _apply_pi_mode_preset(
+    s: FleetSettings,
+    env_keys_lower: dict[str, str],
+    file_data: dict[str, Any],
+) -> None:
+    """If advisory_pi_mode is True, flip defaults toward Pi-friendly values.
+
+    Only overrides fields the user did NOT set explicitly (env or file).
+    """
+    if not s.advisory_pi_mode:
+        return
+
+    def _was_explicit(field: str) -> bool:
+        return f"fleet_{field}" in env_keys_lower or field in file_data
+
+    if not _was_explicit("advisory_sync_on_startup"):
+        s.advisory_sync_on_startup = False
+    if not _was_explicit("advisory_sync_intervals"):
+        s.advisory_sync_intervals = {"osv": 86400, "epss": 86400, "kev": 86400}
+    if not _was_explicit("advisory_always_include_languages"):
+        s.advisory_always_include_languages = True
 
 
 def effective_config(s: FleetSettings, *, redact_secrets: bool = True) -> dict[str, Any]:

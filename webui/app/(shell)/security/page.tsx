@@ -5,11 +5,13 @@ export const dynamic = 'force-dynamic';
 import { EmptyState } from '@/components/empty-states/empty-state';
 import { Input } from '@/components/primitives/input';
 import { Select } from '@/components/primitives/select';
+import { FeedHealthCard } from '@/components/security/feed-health-card';
 import { PostureFindingCard } from '@/components/security/posture-finding-card';
 import { apiFetch } from '@/lib/api-client';
+import { usePostureSummary } from '@/lib/api/advisories';
 import { useCan } from '@/lib/rbac-helpers';
 import { useQuery } from '@tanstack/react-query';
-import { ShieldCheck } from 'lucide-react';
+import { AlertTriangle, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
 
 interface Finding {
@@ -32,6 +34,7 @@ export default function SecurityPage() {
 	const [severityFilter, setSeverityFilter] = useState<string>('all');
 	const [ruleSearch, setRuleSearch] = useState('');
 	const canView = useCan('security:read');
+	const postureSummary = usePostureSummary();
 
 	const { data, isLoading } = useQuery<PostureResponse>({
 		queryKey: ['posture', { severityFilter, ruleSearch }],
@@ -76,6 +79,64 @@ export default function SecurityPage() {
 				<h1 className="text-h1 text-text">Security Posture</h1>
 				<p className="mt-2 text-text-dim">Fleet vulnerability and compliance findings</p>
 			</div>
+
+			<FeedHealthCard />
+
+			{/* CVE Roll-up Section */}
+			{postureSummary.isLoading ? (
+				<div className="text-text-dim">Loading advisories summary...</div>
+			) : postureSummary.isError ? (
+				<div className="text-danger">Failed to load advisories summary</div>
+			) : postureSummary.data ? (
+				<div className="rounded border border-hairline bg-surface p-6">
+					<div className="mb-4 flex items-center gap-2">
+						<AlertTriangle className="h-5 w-5 text-danger" />
+						<h2 className="text-h2 font-semibold text-text">CVE Summary</h2>
+					</div>
+					<div className="grid auto-cols-max gap-4 grid-flow-col">
+						<div className="rounded border border-hairline bg-canvas p-4 text-center">
+							<div className="text-2xl font-semibold text-danger">
+								{postureSummary.data.totals.critical}
+							</div>
+							<div className="text-tiny text-text-dim">Critical</div>
+						</div>
+						<div className="rounded border border-hairline bg-canvas p-4 text-center">
+							<div className="text-2xl font-semibold text-orange-400">
+								{postureSummary.data.totals.high}
+							</div>
+							<div className="text-tiny text-text-dim">High</div>
+						</div>
+						<div className="rounded border border-hairline bg-canvas p-4 text-center">
+							<div className="text-2xl font-semibold text-yellow-400">
+								{postureSummary.data.totals.medium}
+							</div>
+							<div className="text-tiny text-text-dim">Medium</div>
+						</div>
+						<div className="rounded border border-hairline bg-canvas p-4 text-center">
+							<div className="text-2xl font-semibold text-blue-400">
+								{postureSummary.data.totals.low}
+							</div>
+							<div className="text-tiny text-text-dim">Low</div>
+						</div>
+						{postureSummary.data.kev_count > 0 && (
+							<div className="rounded border border-danger/40 bg-danger/10 p-4 text-center">
+								<div className="text-2xl font-semibold text-danger">
+									{postureSummary.data.kev_count}
+								</div>
+								<div className="text-tiny text-danger">KEV</div>
+							</div>
+						)}
+						{postureSummary.data.stale_update_hosts > 0 && (
+							<div className="rounded border border-warn/40 bg-warn/10 p-4 text-center">
+								<div className="text-2xl font-semibold text-warn">
+									{postureSummary.data.stale_update_hosts}
+								</div>
+								<div className="text-tiny text-warn">Stale Updates</div>
+							</div>
+						)}
+					</div>
+				</div>
+			) : null}
 
 			<div className="grid auto-cols-max gap-4 grid-flow-col">
 				<div className="rounded border border-hairline bg-surface p-4 text-center">
