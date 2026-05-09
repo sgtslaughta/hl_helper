@@ -8,6 +8,7 @@ import "google/protobuf/timestamp.proto";
 import "fleet/v1/envelope.proto";
 import "fleet/v1/results.proto";
 import "fleet/v1/inventory.proto";
+import "fleet/v1/exposure.proto";
 
 message Disk {
   string device = 1;
@@ -63,6 +64,24 @@ message RunCertRotate {
   string reason = 1;  // "operator-initiated"|"policy-initiated"
 }
 
+message NetInterface {
+  string name = 1;
+  uint64 rx_bps = 2;
+  uint64 tx_bps = 3;
+  uint64 rx_errors = 4;
+  uint64 tx_errors = 5;
+  bool up = 6;
+  uint64 mtu = 7;
+  string mac = 8;
+  repeated string ipv4 = 9;
+  repeated string ipv6 = 10;
+  bool since_boot = 11;
+}
+
+message RunExposureScan {
+  string reason = 1;
+}
+
 message HostMetrics {
   float load_1 = 1;
   float load_5 = 2;
@@ -72,6 +91,7 @@ message HostMetrics {
   uint64 uptime_seconds = 6;
   uint64 net_rx_bps = 7;  // bytes/sec received, averaged over heartbeat interval
   uint64 net_tx_bps = 8;  // bytes/sec transmitted, averaged over heartbeat interval
+  repeated NetInterface interfaces = 9;
 }
 
 message Heartbeat {
@@ -163,6 +183,7 @@ message AgentToServer {
     PackageInventory package_inventory = 9;
     ContainerInventory container_inventory = 10;
     HostFacts host_facts = 11;
+    RuntimeExposure runtime_exposure = 12;
   }
 }
 
@@ -177,6 +198,7 @@ message ServerToAgent {
     RunSurvey run_survey = 7;
     RunInventory run_inventory = 8;
     RunCertRotate run_cert_rotate = 9;
+    RunExposureScan run_exposure_scan = 10;
   }
 }
 
