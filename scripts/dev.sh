@@ -6,13 +6,15 @@
 # hot reload, full source maps, and Python autoreload.
 #
 # Usage:
-#   scripts/dev.sh up      # start (default if no arg)
-#   scripts/dev.sh down    # stop both
-#   scripts/dev.sh logs    # tail both logs
-#   scripts/dev.sh status  # PID + port check
-#   scripts/dev.sh reset   # nuke .dev/, server data, webui caches
-#   scripts/dev.sh server  # only server
-#   scripts/dev.sh webui   # only webui
+#   scripts/dev.sh up              # start (default if no arg)
+#   scripts/dev.sh down            # stop both
+#   scripts/dev.sh logs            # tail both logs
+#   scripts/dev.sh status          # PID + port check
+#   scripts/dev.sh reset           # wipe logs, pids, token, .next (keep DB)
+#   scripts/dev.sh reset --full    # nuke entire .dev/, server data, webui caches
+#   scripts/dev.sh server          # only server
+#   scripts/dev.sh webui           # only webui
+#   scripts/dev.sh agent-publish   # build + register local agent binary
 #
 # State lives in .dev/ (PID files, logs, sqlite DB, signing CA).
 
@@ -355,6 +357,8 @@ cmd_up() {
   Status: scripts/dev.sh status
   Stop:   scripts/dev.sh down
 
+  Hint: scripts/dev.sh agent-publish to enable install.sh
+
 EOF
 }
 
@@ -385,28 +389,119 @@ cmd_status() {
 }
 
 cmd_reset() {
+	local full="${1:-}"
 	cmd_down
-	log "wiping $DEV_DIR"
-	rm -rf "$DEV_DIR"
-	rm -rf "$REPO/webui/.next"
-	mkdir -p "$DEV_DIR" "$DATA_DIR"
-	log "reset complete"
+	if [[ "$full" == "--full" ]]; then
+		local skip_prompt="${2:-}"
+		if [[ "$skip_prompt" != "--yes" ]]; then
+			echo ""
+			printf '\033[33m[dev] WARNING: --full will delete all development data including fleet.db\033[0m\n' >&2
+			printf '\033[33m[dev] This cannot be undone. Continue? (y/N) \033[0m' >&2
+			local resp
+			read -r resp
+			if [[ "$resp" != "y" && "$resp" != "Y" ]]; then
+				log "reset cancelled"
+				return
+			fi
+		fi
+		log "wiping entire $DEV_DIR"
+		rm -rf "$DEV_DIR"
+		rm -rf "$REPO/webui/.next"
+		mkdir -p "$DEV_DIR" "$DATA_DIR"
+		log "full reset complete"
+	else
+		log "wiping logs, pids, token, webui cache (keeping $DATA_DIR)"
+		rm -f "$LOG_SERVER" "$LOG_WEBUI" "$PID_SERVER" "$PID_WEBUI" "$ADMIN_TOKEN_FILE"
+		rm -rf "$REPO/webui/.next"
+		mkdir -p "$DEV_DIR" "$DATA_DIR"
+		log "reset complete (data preserved)"
+	fi
 }
 
 cmd_bootstrap() { bootstrap_owner "${1:-}" "${2:-}"; }
 
+cmd_agent_publish() {
+	require_cmd go
+	require_cmd curl
+	require_cmd sha256sum
+	ensure_admin_token
+
+	# Detect current platform
+	local os arch
+	os=$(go env GOOS)
+	arch=$(go env GOARCH)
+	log "building agent for $os/$arch"
+
+	# Build binary
+	local bin_path="$DATA_DIR/agent-dist/hl-agent-$os-$arch"
+	mkdir -p "$(dirname "$bin_path")"
+	if ! (cd "$REPO/agent" && go build -o "$bin_path" ./cmd/hl-agent); then
+		err "agent build failed"
+		return 1
+	fi
+	log "built: $bin_path"
+
+	# Compute SHA256
+	local sha256
+	sha256=$(sha256sum "$bin_path" | cut -d' ' -f1)
+	log "sha256: $sha256"
+
+	# Read admin token
+	local admin_token
+	admin_token=$(cat "$ADMIN_TOKEN_FILE")
+
+	# POST to endpoint
+	# Endpoint expects multipart: binary file + metadata (version, channel, os, arch)
+	# We use a dev version string based on commit + timestamp
+	local version="dev-$(git -C "$REPO" rev-parse --short HEAD)-$(date +%s)"
+	log "registering version: $version"
+
+	# Use curl -F for multipart upload
+	local endpoint="http://localhost:$SERVER_PORT/v1/agent-releases"
+	local response
+	response=$(curl -sS -w '\n%{http_code}' \
+		-H "Authorization: Bearer ${HL_CI_TOKEN:-dev-ci-token}" \
+		-F "binary=@$bin_path" \
+		-F "version=$version" \
+		-F "channel=dev" \
+		-F "os=$os" \
+		-F "arch=$arch" \
+		"$endpoint") || {
+		err "curl request failed"
+		return 1
+	}
+
+	local http_code
+	http_code=$(echo "$response" | tail -n1)
+	local body
+	body=$(echo "$response" | sed '$d')
+
+	if [[ "$http_code" != "201" ]]; then
+		err "upload failed (HTTP $http_code): $body"
+		return 1
+	fi
+
+	log "agent published successfully"
+	log "version: $version"
+	log "path: $bin_path"
+	log "sha256: $sha256"
+	echo ""
+	log "hint: install.sh can now download this agent from install endpoints"
+}
+
 case "${1:-up}" in
-	up)        cmd_up ;;
-	down|stop) cmd_down ;;
-	logs|tail) cmd_logs ;;
-	status|ps) cmd_status ;;
-	reset)     cmd_reset ;;
-	server)    start_server ;;
-	webui)     start_webui ;;
-	bootstrap) shift; cmd_bootstrap "$@" ;;
-	restart)   cmd_down; cmd_up ;;
+	up)              cmd_up ;;
+	down|stop)       cmd_down ;;
+	logs|tail)       cmd_logs ;;
+	status|ps)       cmd_status ;;
+	reset)           shift; cmd_reset "$@" ;;
+	server)          start_server ;;
+	webui)           start_webui ;;
+	bootstrap)       shift; cmd_bootstrap "$@" ;;
+	agent-publish)   cmd_agent_publish ;;
+	restart)         cmd_down; cmd_up ;;
 	*)
-		err "usage: $0 {up|down|logs|status|reset|server|webui|bootstrap|restart}"
+		err "usage: $0 {up|down|logs|status|reset|server|webui|bootstrap|agent-publish|restart}"
 		exit 1
 		;;
 esac
