@@ -149,6 +149,14 @@ class HostCertOut(BaseModel):
     status: str  # healthy | rotating | halted | expired
 
 
+class HostExposureOut(BaseModel):
+    """Exposure summary for a host."""
+
+    last_scan_at: datetime | None
+    counts: dict[str, int]  # tier → count
+    advisories: list[dict]   # [{advisory_id, exposure_tier, evidence}]
+
+
 async def _emit_dispatch_ticker(
     request: "Request",
     host_id: str,
@@ -449,6 +457,62 @@ async def mint_reenroll_token(
         "expires_at": tok.expires_at.isoformat(),
         "install_command": install_command,
     }
+
+
+@router.get("/{host_id}/exposure", response_model=HostExposureOut)
+async def get_host_exposure(
+    host_id: str,
+    actor: str = Depends(admin_required),
+    session: AsyncSession = Depends(get_session),
+) -> HostExposureOut:
+    """Fetch exposure summary for a host."""
+    import json
+    from server.app.models.host_advisory_exposure import HostAdvisoryExposure
+
+    row = await session.get(Host, host_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="host_not_found")
+
+    rows = (
+        await session.execute(
+            select(HostAdvisoryExposure)
+            .where(HostAdvisoryExposure.host_id == host_id)
+            .order_by(HostAdvisoryExposure.scanned_at.desc())
+        )
+    ).scalars().all()
+
+    counts: dict[str, int] = {
+        "NETWORK_EXPOSED": 0, "ACTIVE": 0, "INSTALLED_ONLY": 0,
+    }
+    advisories = []
+    for r in rows:
+        counts[r.exposure_tier] = counts.get(r.exposure_tier, 0) + 1
+        advisories.append(
+            {
+                "advisory_id": r.advisory_id,
+                "exposure_tier": r.exposure_tier,
+                "evidence": json.loads(r.evidence_json),
+            }
+        )
+    last = rows[0].scanned_at if rows else None
+    return HostExposureOut(
+        last_scan_at=last, counts=counts, advisories=advisories
+    )
+
+
+@router.post("/{host_id}/exposure/rescan", status_code=202)
+async def rescan_exposure(
+    host_id: str,
+    actor: str = Depends(admin_required),
+    session: AsyncSession = Depends(get_session),
+    bridge=Depends(lambda req: get_app_state(req).agent_bridge),
+):
+    """Request a runtime exposure scan for a host."""
+    row = await session.get(Host, host_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="host_not_found")
+    delivered = await bridge.push_run_exposure_scan(host_id, reason="operator-initiated")
+    return {"delivered": bool(delivered)}
 
 
 @router.patch("/{host_id}", response_model=HostOut)
