@@ -33,6 +33,7 @@ def make_grpc_server(
     audit_chain: Any | None = None,
     advisory_worker: Any | None = None,
     event_bus: Any | None = None,
+    rotation_orchestrator: Any | None = None,
 ) -> tuple[Server, str, CommandDispatcher]:
     """Build configured async gRPC server with mTLS + servicer wired.
 
@@ -61,6 +62,7 @@ def make_grpc_server(
             audit_chain=audit_chain,
             advisory_worker=advisory_worker,
             event_bus=event_bus,
+            rotation_orchestrator=rotation_orchestrator,
         ),
         server,
     )

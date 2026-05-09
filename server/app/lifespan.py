@@ -603,6 +603,19 @@ async def _start_grpc_server(state: AppState, grpc_host: str) -> None:
         # Build cert chain (leaf + intermediate)
         cert_chain_pem = server_cert_pem + int_crt_pem
 
+        # Build rotation orchestrator
+        from server.app.grpc.cert_rotate_policy import (
+            RotationOrchestrator,
+            RotationRateLimiter,
+        )
+
+        rotation_orchestrator = RotationOrchestrator(
+            session_factory=state.sessionmaker,
+            ca=state.ca,
+            rate_limiter=RotationRateLimiter(window_seconds=3600),
+            ttl_days=int(os.environ.get("HL_CERT_TTL_DAYS", "7")),
+        )
+
         # Create and start gRPC server
         server, bound_addr, _ = make_grpc_server(
             server_cert_chain_pem=cert_chain_pem,
@@ -616,6 +629,7 @@ async def _start_grpc_server(state: AppState, grpc_host: str) -> None:
             audit_chain=state.audit_chain,
             advisory_worker=state.advisory_worker,
             event_bus=state.bus,
+            rotation_orchestrator=rotation_orchestrator,
         )
 
         await server.start()

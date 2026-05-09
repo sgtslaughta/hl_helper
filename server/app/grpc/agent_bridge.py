@@ -63,13 +63,14 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
 
     def __init__(
         self,
-        dispatcher: CommandDispatcher,
+        dispatcher: CommandDispatcher | None = None,
         result_handler: ResultHandler | None = None,
         revocation: RevocationService | None = None,
         sessionmaker: Any | None = None,
         audit_chain: Any | None = None,
         advisory_worker: Any | None = None,
         event_bus: Any | None = None,
+        rotation_orchestrator: Any | None = None,
     ) -> None:
         self._dispatcher = dispatcher
         self._result_handler = result_handler
@@ -78,6 +79,7 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
         self._audit_chain = audit_chain
         self._advisory_worker = advisory_worker
         self._event_bus = event_bus
+        self._rotation_orchestrator = rotation_orchestrator
 
     async def _enqueue_match(self, host_id: str) -> None:
         """Best-effort: ask the advisory worker to re-match this host.
@@ -91,6 +93,36 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
             await worker.enqueue_match(host_id)
         except Exception:
             log.warning("agent_bridge.enqueue_match_failed", host_id=host_id, exc_info=True)
+
+    async def handle_cert_rotate_for_test(
+        self,
+        *,
+        host_id: str,
+        csr_pem: bytes,
+        signing_pubkey: bytes,
+        prev_serial: str,
+        peer_ip: str,
+        push,
+    ):
+        """Test-only entrypoint mirroring the recv_loop cert_rotate branch."""
+        from server.app.grpc.cert_rotate_policy import RotationContext
+
+        resp = await self._rotation_orchestrator.rotate(
+            RotationContext(
+                host_id=host_id,
+                csr_pem=csr_pem,
+                signing_pubkey=signing_pubkey,
+                prev_serial=prev_serial,
+                peer_ip=peer_ip,
+            )
+        )
+        out = agent_bridge_pb2.ServerToAgent(
+            cert_issue=agent_bridge_pb2.CertIssueResponse(
+                cert_chain_pem=resp.cert_chain_pem,
+            )
+        )
+        out.cert_issue.not_after.FromDatetime(resp.not_after)
+        push(out)
 
     async def Stream(
         self,
@@ -449,6 +481,46 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
                             host_id=host_id,
                             error=str(e),
                         )
+            elif kind == "cert_rotate":
+                if self._rotation_orchestrator is None:
+                    log.warning("cert_rotate.no_orchestrator", host_id=host_id)
+                    continue
+                try:
+                    from server.app.grpc.cert_rotate_policy import (
+                        PolicyDeniedError,
+                        RateLimitedError,
+                        RotationContext,
+                    )
+
+                    resp = await self._rotation_orchestrator.rotate(
+                        RotationContext(
+                            host_id=host_id,
+                            csr_pem=msg.cert_rotate.csr_pem,
+                            signing_pubkey=msg.cert_rotate.signing_pubkey,
+                            prev_serial=msg.cert_rotate.prev_serial,
+                            peer_ip="",
+                        )
+                    )
+                    out = agent_bridge_pb2.ServerToAgent(
+                        cert_issue=agent_bridge_pb2.CertIssueResponse(
+                            cert_chain_pem=resp.cert_chain_pem,
+                        )
+                    )
+                    out.cert_issue.not_after.FromDatetime(resp.not_after)
+                    # Push via control queue (this method used in tests)
+                    control_q.put_nowait(out)
+                except RateLimitedError as e:
+                    log.warning(
+                        "cert_rotate.rate_limited", host_id=host_id, error=str(e)
+                    )
+                except PolicyDeniedError as e:
+                    log.warning(
+                        "cert_rotate.denied", host_id=host_id, error=str(e)
+                    )
+                except Exception as e:
+                    log.exception(
+                        "cert_rotate.unhandled", host_id=host_id, error=str(e)
+                    )
             else:
                 log.warning("agent.unknown_message", host_id=host_id, kind=kind)
 
