@@ -36,10 +36,10 @@ _BASE: dict[str, float] = {
 _DECAY_DENOM = 50.0
 
 DEFAULT_EXPOSURE_MULTIPLIERS = {
-    "NETWORK_EXPOSED": 2.0,
-    "ACTIVE": 1.5,
-    "INSTALLED_ONLY": 0.5,
-    "UNKNOWN": 1.0,
+    "NETWORK_EXPOSED": 2.0,   # internet-facing listener: amplify
+    "ACTIVE": 1.5,            # process running / lib loaded
+    "INSTALLED_ONLY": 0.1,    # dormant pkg: heavily dampen
+    "UNKNOWN": 0.6,           # no scan yet: lean low (don't oversell unscanned hosts)
 }
 
 
