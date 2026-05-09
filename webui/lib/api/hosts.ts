@@ -170,3 +170,32 @@ export function updateHeartbeatInterval(id: string, intervalS: number): Promise<
 		body: JSON.stringify({ heartbeat_interval_s: intervalS }),
 	});
 }
+
+export type HostCert = {
+	serial: string | null;
+	issued_at: string | null;
+	expires_at: string | null;
+	rotation_count: number;
+	last_rotated_at: string | null;
+	last_reenroll_at: string | null;
+	status: 'healthy' | 'rotating' | 'halted' | 'expired';
+};
+
+export function getHostCert(hostId: string): Promise<HostCert> {
+	return apiFetch<HostCert>(`/v1/hosts/${encodeURIComponent(hostId)}/cert`);
+}
+
+export function rotateCertNow(hostId: string): Promise<{ delivered: boolean }> {
+	return apiFetch<{ delivered: boolean }>(`/v1/hosts/${encodeURIComponent(hostId)}/cert/rotate-now`, { method: 'POST' });
+}
+
+export type ReenrollMint = {
+	token_id: string;
+	token: string;
+	expires_at: string;
+	install_command: string;
+};
+
+export function mintReenrollToken(hostId: string): Promise<ReenrollMint> {
+	return apiFetch<ReenrollMint>(`/v1/hosts/${encodeURIComponent(hostId)}/reenroll-token`, { method: 'POST' });
+}
