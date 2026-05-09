@@ -257,7 +257,7 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
                 )
 
             recv_task = asyncio.create_task(
-                self._recv_loop(host_id, request_iterator, context)
+                self._recv_loop(host_id, request_iterator, context, control_q)
             )
             try:
                 while True:
@@ -331,6 +331,7 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
         host_id: str,
         request_iterator: AsyncIterable[agent_bridge_pb2.AgentToServer],
         context: Any,
+        control_q: asyncio.Queue[agent_bridge_pb2.ServerToAgent],
     ) -> None:
         """Receive and process messages from agent.
 
