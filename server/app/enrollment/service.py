@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -18,6 +19,17 @@ from server.app.models.enrollment_token import EnrollmentToken
 from server.app.models.host import Host
 
 from .tokens import build_token, hash_token
+
+
+def default_cert_ttl() -> timedelta:
+    """TTL for issued host certs. Configurable via HL_CERT_TTL_DAYS env."""
+    raw = os.environ.get("HL_CERT_TTL_DAYS")
+    if raw is None:
+        return timedelta(days=7)
+    try:
+        return timedelta(days=float(raw))
+    except (ValueError, TypeError):
+        return timedelta(days=7)
 
 
 class EnrollmentError(Exception):
@@ -71,13 +83,13 @@ class EnrollmentService:
         signing_backend: SigningBackend,
         *,
         grpc_endpoint: str,
-        cert_ttl: timedelta = timedelta(hours=24),
+        cert_ttl: timedelta | None = None,
     ) -> None:
         """Initialize enrollment service."""
         self.ca = ca
         self.signing_backend = signing_backend
         self.grpc_endpoint = grpc_endpoint
-        self.cert_ttl = cert_ttl
+        self.cert_ttl = cert_ttl if cert_ttl is not None else default_cert_ttl()
 
     async def issue_token(
         self,
