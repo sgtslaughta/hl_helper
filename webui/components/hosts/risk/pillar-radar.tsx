@@ -22,6 +22,38 @@ function trunc(s: string, n: number): string {
 	return s.length > n ? `${s.slice(0, n - 1)}…` : s;
 }
 
+/** Split a label into up to two lines on whitespace. Single-word labels
+ *  return as one line, with truncation applied. Multi-word labels split
+ *  at the closest-to-middle space so both lines are roughly balanced. */
+function splitLabel(s: string, perLine = 12): string[] {
+	const words = s.split(/\s+/).filter(Boolean);
+	if (words.length <= 1) return [trunc(s, perLine)];
+	// Find split index closest to balancing line lengths.
+	let best = 1;
+	let bestDiff = Number.POSITIVE_INFINITY;
+	for (let i = 1; i < words.length; i++) {
+		const a = words.slice(0, i).join(' ').length;
+		const b = words.slice(i).join(' ').length;
+		const diff = Math.abs(a - b);
+		if (diff < bestDiff) {
+			bestDiff = diff;
+			best = i;
+		}
+	}
+	return [
+		trunc(words.slice(0, best).join(' '), perLine),
+		trunc(words.slice(best).join(' '), perLine),
+	];
+}
+
+/** Score → color band, same palette as RiskPillarBar. */
+function pillarColor(score: number): string {
+	if (score > 65) return 'var(--color-danger)';
+	if (score > 35) return 'var(--color-warn)';
+	if (score > 0) return 'var(--color-accent)';
+	return 'var(--color-ok)';
+}
+
 export function RiskPillarRadar({ pillars }: { pillars: PillarOut[] }) {
 	if (pillars.length < 3) {
 		return (
@@ -109,14 +141,18 @@ export function RiskPillarRadar({ pillars }: { pillars: PillarOut[] }) {
 						/>
 					);
 				})}
-				{/* Axis labels — anchor by side so left/right labels hug their
-				    edge and don't overflow the card. Top/bottom stay centered. */}
+				{/* Axis labels — multi-word labels wrap to a second line so we
+				    avoid truncation; single-word labels render on one line.
+				    Color matches the pillar's score band so the radar
+				    doubles as a status legend. */}
 				{sorted.map((p, i) => {
 					const ang = (i / n) * Math.PI * 2 - Math.PI / 2;
-					const lx = CX + (R + 8) * Math.cos(ang);
-					const ly = CY + (R + 10) * Math.sin(ang);
+					const lx = CX + (R + 6) * Math.cos(ang);
+					const ly = CY + (R + 8) * Math.sin(ang);
 					const cosA = Math.cos(ang);
 					const anchor = cosA > 0.3 ? 'start' : cosA < -0.3 ? 'end' : 'middle';
+					const lines = splitLabel(p.label, 12);
+					const color = pillarColor(p.score);
 					return (
 						<text
 							key={`label-${p.name}`}
@@ -125,10 +161,19 @@ export function RiskPillarRadar({ pillars }: { pillars: PillarOut[] }) {
 							textAnchor={anchor}
 							dominantBaseline="middle"
 							className="font-mono"
-							fontSize="7"
-							fill="var(--color-text-dim)"
+							fontSize="6.5"
+							fill={color}
+							fontWeight="600"
 						>
-							{trunc(p.label, 10)}
+							{lines.map((line, idx) => (
+								<tspan
+									key={`${p.name}-line-${idx}`}
+									x={lx}
+									dy={idx === 0 ? -((lines.length - 1) * 4) : 8}
+								>
+									{line}
+								</tspan>
+							))}
 						</text>
 					);
 				})}
