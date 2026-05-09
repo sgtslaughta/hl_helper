@@ -25,3 +25,8 @@ graph LR
 - **gRPC Bridge** -- bidirectional streaming connection between server and agents
 - **Go Agent** -- lightweight binary running on each managed host
 - **PostgreSQL** -- persistent storage for hosts, audit log, and configuration
+
+## Subsystems
+
+- [Transport](./transport.md) — mTLS 1.3, Ed25519 signing, replay protection, bootstrap-token enrollment, certificate rotation
+- [Agent core](./agent.md) — Go binary, command pipeline, SQLite state, heartbeat, plugin sandbox, privilege model
