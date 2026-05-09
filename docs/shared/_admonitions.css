@@ -1,0 +1,23 @@
+.admonition.planned {
+  border-left: 4px solid #f5a623;
+  background: rgba(245, 166, 35, 0.08);
+}
+.admonition.planned > .admonition-title::before {
+  content: "🚧 ";
+}
+.admonition.planned > .admonition-title {
+  background: rgba(245, 166, 35, 0.15);
+  color: #b76e00;
+  font-weight: 600;
+}
+.status-badge {
+  display: inline-block;
+  padding: 0.1em 0.5em;
+  border-radius: 0.5em;
+  font-size: 0.75em;
+  font-weight: 600;
+  margin-left: 0.5em;
+}
+.status-badge.planned { background: #f5a623; color: #fff; }
+.status-badge.partial { background: #6b7280; color: #fff; }
+.status-badge.stable { display: none; }
