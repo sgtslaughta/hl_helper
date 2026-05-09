@@ -277,21 +277,28 @@ Every permission check (allow or deny) is logged:
 
 ---
 
-## RBAC Matrix (Example)
+## Role × permission matrix (abbreviated)
 
-Abbreviated matrix; full list in catalog:
+| Permission category | viewer | operator | admin | owner |
+|---|:-:|:-:|:-:|:-:|
+| host:read | ✓ | ✓ | ✓ | ✓ |
+| host:exec | — | ✓ | ✓ | ✓ |
+| host:enroll | — | — | ✓ | ✓ |
+| host:revoke | — | — | ✓ | ✓ |
+| task:create | — | ✓ | ✓ | ✓ |
+| task:approve | — | — | ✓ | ✓ |
+| update:trigger | — | ✓ | ✓ | ✓ |
+| update:approve | — | — | ✓ | ✓ |
+| container:exec | — | — | ✓ | ✓ |
+| secret:write | — | — | ✓ | ✓ |
+| user:write | — | — | ✓ | ✓ |
+| user:impersonate | — | — | — | ✓ |
+| audit:read | ✓ | ✓ | ✓ | ✓ |
+| docs:read | ✓ | ✓ | ✓ | ✓ |
+| role:write | — | — | ✓ | ✓ |
+| setting:write | — | — | ✓ | ✓ |
 
-|  | Viewer | Operator | Admin | Owner |
-|---|---|---|---|---|
-| **host:read** | ✓ | ✓ | ✓ | ✓ |
-| **host:exec** | | ✓ | ✓ | ✓ |
-| **host:revoke** | | | ✓ | ✓ |
-| **secret:read** | | | ✓ | ✓ |
-| **secret:write** | | | ✓ | ✓ |
-| **user:write** | | | ✓ | ✓ |
-| **role:write** | | | ✓ | ✓ |
-| **user:impersonate** | | | | ✓ |
-| **audit:read** | | ✓ | ✓ | ✓ |
+`✓` = allowed, `—` = denied. See `server/app/rbac/catalog.py` for the canonical full list.
 
 ---
 

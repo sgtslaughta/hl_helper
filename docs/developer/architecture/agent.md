@@ -293,6 +293,28 @@ All files are mode 0600 (read/write by hl-agent only). Binary is at `/usr/local/
 
 ---
 
+## Command dispatch sequence
+
+```mermaid
+sequenceDiagram
+  participant UI
+  participant API as Server API
+  participant DISP as Dispatcher
+  participant AGT as Agent
+  UI->>API: POST /commands
+  API->>DISP: enqueue(cmd, host_id)
+  DISP->>AGT: gRPC SendCommand
+  AGT->>AGT: verify sig + seq + nonce
+  AGT->>AGT: spawn worker w/ capability bounds
+  AGT-->>DISP: ack
+  AGT->>AGT: collect result
+  AGT->>DISP: gRPC ReportResult
+  DISP->>API: persist + notify
+  API-->>UI: SSE update
+```
+
+---
+
 ## References
 
 - **Agent Privilege Model**: `docs/developer/secure-dev/agent-privilege-model.md` (detailed sudoers, systemd hardening, TPM sealing).
