@@ -1,7 +1,5 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useReducedMotion } from 'framer-motion';
 import {
 	isNewEvent,
 	loadTickerPrefs,
@@ -10,10 +8,12 @@ import {
 } from '@/hooks/use-ticker-stream';
 import {
 	DEFAULT_TICKER_PREFS,
+	TICKER_NEW_WINDOW_MS,
 	type TickerEvent,
 	type TickerPrefs,
-	TICKER_NEW_WINDOW_MS,
 } from '@/lib/ticker-types';
+import { useReducedMotion } from 'framer-motion';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { TickerControls } from './ticker-controls';
 import { TickerMessage } from './ticker-message';
 
@@ -29,10 +29,7 @@ function getSseUrl(): string | null {
 	return '/api/proxy/v1/events/sse?channels=ticker';
 }
 
-function filterEvents(
-	events: TickerEvent[],
-	prefs: TickerPrefs,
-): TickerEvent[] {
+function filterEvents(events: TickerEvent[], prefs: TickerPrefs): TickerEvent[] {
 	return events.filter(e => {
 		if (prefs.types.length > 0 && !prefs.types.includes(e.type)) return false;
 		if (prefs.severities.length > 0 && !prefs.severities.includes(e.severity)) return false;
@@ -48,14 +45,32 @@ export function FooterTicker() {
 	const { events, connected } = useTickerStream({ url: sseUrl });
 	const trackRef = useRef<HTMLDivElement | null>(null);
 
+	// Track when each event id first appeared in this session so the "new"
+	// LED only fires for events that arrived AFTER the page mounted, not for
+	// any event whose timestamp happens to be < 5min old. Without this, every
+	// recent event in the buffer shows the amber LED on first render.
+	const firstSeenRef = useRef<Map<string, number>>(new Map());
+	const mountTimeRef = useRef<number>(Date.now());
+
 	useEffect(() => {
 		setPrefs(loadTickerPrefs());
 	}, []);
 
+	// Tighter cadence so the amber LED fades out within the new-window
+	// (currently 60s, see ticker-types.ts) instead of lingering for minutes.
 	useEffect(() => {
-		const id = setInterval(() => setNow(Date.now()), 30_000);
+		const id = setInterval(() => setNow(Date.now()), 5_000);
 		return () => clearInterval(id);
 	}, []);
+
+	// Stamp first-seen time for any event id we haven't seen yet.
+	useEffect(() => {
+		const map = firstSeenRef.current;
+		const t = Date.now();
+		for (const e of events) {
+			if (!map.has(e.id)) map.set(e.id, t);
+		}
+	}, [events]);
 
 	const visible = useMemo(() => filterEvents(events, prefs), [events, prefs]);
 
@@ -68,11 +83,7 @@ export function FooterTicker() {
 	const duration = SPEED_DURATION_S[prefs.speed] ?? 60;
 
 	const placeholder =
-		visible.length === 0
-			? connected
-				? 'Awaiting system events…'
-				: 'Connecting…'
-			: null;
+		visible.length === 0 ? (connected ? 'Awaiting system events…' : 'Connecting…') : null;
 
 	return (
 		<footer
@@ -100,13 +111,20 @@ export function FooterTicker() {
 							animationPlayState: motionPaused ? 'paused' : 'running',
 						}}
 					>
-						{[...visible, ...visible].map((e, i) => (
-							<TickerMessage
-								key={`${e.id}-${i}`}
-								event={e}
-								isNew={isNewEvent(e, now, TICKER_NEW_WINDOW_MS)}
-							/>
-						))}
+						{[...visible, ...visible].map((e, i) => {
+							// "new" only when:
+							//  - id was first seen AFTER mount (i.e. arrived live, not from
+							//    initial buffer)
+							//  - first-seen-at is within the new-window
+							//  - event timestamp itself is also within the window (server
+							//    may replay older events on reconnect; don't flash those)
+							const firstSeen = firstSeenRef.current.get(e.id);
+							const liveArrival = firstSeen != null && firstSeen >= mountTimeRef.current;
+							const recentlyArrived = firstSeen != null && now - firstSeen < TICKER_NEW_WINDOW_MS;
+							const isNew =
+								liveArrival && recentlyArrived && isNewEvent(e, now, TICKER_NEW_WINDOW_MS);
+							return <TickerMessage key={`${e.id}-${i}`} event={e} isNew={isNew} />;
+						})}
 					</div>
 				)}
 			</div>

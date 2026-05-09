@@ -29,4 +29,4 @@ export const DEFAULT_TICKER_PREFS: TickerPrefs = {
 	severities: [],
 };
 
-export const TICKER_NEW_WINDOW_MS = 5 * 60 * 1000;
+export const TICKER_NEW_WINDOW_MS = 60 * 1000;

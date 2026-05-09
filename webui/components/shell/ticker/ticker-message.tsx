@@ -1,8 +1,8 @@
 'use client';
 
-import Link from 'next/link';
-import type { TickerEvent } from '@/lib/ticker-types';
 import { resolveLink } from '@/lib/ticker-links';
+import type { TickerEvent } from '@/lib/ticker-types';
+import Link from 'next/link';
 
 interface Props {
 	event: TickerEvent;
@@ -22,8 +22,10 @@ function formatTime(ts: string): string {
 
 export function TickerMessage({ event, isNew }: Props) {
 	const href = resolveLink(event);
+	// Group-hover bumps each child's opacity to 1 so the entire message
+	// pops on hover. Filter brightness adds a second-stage glow on top.
 	const body = (
-		<span className="inline-flex items-center gap-2 px-3 py-1 whitespace-nowrap text-[10px]">
+		<span className="group inline-flex items-center gap-2 px-3 py-1 whitespace-nowrap text-[10px] transition-[filter] duration-150 hover:brightness-150">
 			{isNew && (
 				<span
 					className="mc-led mc-led-pulse"
@@ -32,13 +34,13 @@ export function TickerMessage({ event, isNew }: Props) {
 				/>
 			)}
 			<span
-				className="mc-readout"
+				className="mc-readout transition-opacity duration-150 group-hover:opacity-100"
 				style={{ color: 'var(--color-text-dim)', opacity: 0.65 }}
 			>
 				{formatTime(event.ts)}
 			</span>
 			<span
-				className="mc-pip"
+				className="mc-pip transition-opacity duration-150 group-hover:opacity-100"
 				style={{
 					color: 'var(--color-text-dim)',
 					opacity: 0.55,
@@ -48,16 +50,17 @@ export function TickerMessage({ event, isNew }: Props) {
 			>
 				{event.type}
 			</span>
-			<span style={{ color: 'var(--color-text-dim)', opacity: 0.85 }}>{event.text}</span>
+			<span
+				className="transition-opacity duration-150 group-hover:opacity-100"
+				style={{ color: 'var(--color-text-dim)', opacity: 0.85 }}
+			>
+				{event.text}
+			</span>
 		</span>
 	);
 
 	return href ? (
-		<Link
-			href={href}
-			className="hover:text-accent transition-colors"
-			data-testid="ticker-message"
-		>
+		<Link href={href} className="transition-colors hover:text-accent" data-testid="ticker-message">
 			{body}
 		</Link>
 	) : (
