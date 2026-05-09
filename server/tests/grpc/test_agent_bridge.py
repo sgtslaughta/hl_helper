@@ -322,11 +322,13 @@ async def test_stream_persists_audit_event(
 
         # Create mock context
         from unittest.mock import MagicMock
+        import asyncio
         mock_context = MagicMock()
         mock_context.auth_context.return_value = {}
+        control_q = asyncio.Queue()
 
         # Call _recv_loop (which processes messages)
-        await service._recv_loop(host_id, async_iter(), mock_context)
+        await service._recv_loop(host_id, async_iter(), mock_context, control_q)
 
         # Verify entry was written
         async with sm() as session:
