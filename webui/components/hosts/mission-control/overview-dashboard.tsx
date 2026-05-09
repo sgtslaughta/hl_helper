@@ -3,7 +3,7 @@
 import { apiFetch } from '@/lib/api-client';
 import { useHostAdvisories } from '@/lib/api/advisories';
 import { type Host, updateHeartbeatInterval } from '@/lib/api/hosts';
-import { type HostRiskOut, useHostRisk } from '@/lib/api/posture-risk';
+import { type HostRiskOut, useHostRisk, useRiskRecompute } from '@/lib/api/posture-risk';
 import {
 	type AuditUserLookup,
 	auditActionHref,
@@ -28,6 +28,7 @@ import {
 	MemoryStick,
 	Minus,
 	Network,
+	RotateCw,
 	ScrollText,
 	Server,
 	Timer,
@@ -980,6 +981,7 @@ function RiskInfographic({
 	// Disclaimer popover open state — when true, suppress the hover panel
 	// so the two layers don't fight for attention.
 	const [disclaimerOpen, setDisclaimerOpen] = useState(false);
+	const recompute = useRiskRecompute();
 	const containerRef = useRef<HTMLDivElement | null>(null);
 	const handleMove = (e: React.MouseEvent) => {
 		setMouse({ x: e.clientX, y: e.clientY });
@@ -1030,6 +1032,23 @@ function RiskInfographic({
 			tabIndex={0}
 			aria-label={`Open advisories for this host — risk ${displayedScore} of 100, ${label}`}
 		>
+			{/* Recompute button — sits left of the disclaimer ⓘ. Stops click
+			    propagation so the gauge's parent onClick (open advisories)
+			    doesn't fire. */}
+			<button
+				type="button"
+				onClick={ev => {
+					ev.stopPropagation();
+					recompute.mutate(hostId);
+				}}
+				disabled={recompute.isPending}
+				title="Recompute risk score now"
+				aria-label="Recompute risk score"
+				className="absolute right-7 top-0.5 z-10 flex h-6 w-6 items-center justify-center rounded text-text-dim hover:bg-surface-2 hover:text-text disabled:opacity-50"
+			>
+				<RotateCw size={11} className={recompute.isPending ? 'animate-spin' : ''} />
+			</button>
+
 			{/* Disclaimer popover — click ⓘ to open. Bigger hit-target than a
 			    title-attr-only tooltip; persists until dismissed. */}
 			<Popover.Root open={disclaimerOpen} onOpenChange={setDisclaimerOpen}>
