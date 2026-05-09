@@ -109,23 +109,26 @@ export function RiskPillarRadar({ pillars }: { pillars: PillarOut[] }) {
 						/>
 					);
 				})}
-				{/* Axis labels */}
+				{/* Axis labels — anchor by side so left/right labels hug their
+				    edge and don't overflow the card. Top/bottom stay centered. */}
 				{sorted.map((p, i) => {
 					const ang = (i / n) * Math.PI * 2 - Math.PI / 2;
-					const lx = CX + (R + 14) * Math.cos(ang);
-					const ly = CY + (R + 14) * Math.sin(ang);
+					const lx = CX + (R + 8) * Math.cos(ang);
+					const ly = CY + (R + 10) * Math.sin(ang);
+					const cosA = Math.cos(ang);
+					const anchor = cosA > 0.3 ? 'start' : cosA < -0.3 ? 'end' : 'middle';
 					return (
 						<text
 							key={`label-${p.name}`}
 							x={lx}
 							y={ly}
-							textAnchor="middle"
+							textAnchor={anchor}
 							dominantBaseline="middle"
 							className="font-mono"
-							fontSize="9"
+							fontSize="7"
 							fill="var(--color-text-dim)"
 						>
-							{trunc(p.label, 14)}
+							{trunc(p.label, 10)}
 						</text>
 					);
 				})}
