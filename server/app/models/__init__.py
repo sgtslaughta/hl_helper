@@ -19,6 +19,7 @@ from server.app.models.host import Host
 from server.app.models.host_advisory import HostAdvisory
 from server.app.models.host_container import HostContainer
 from server.app.models.host_package import HostPackage
+from server.app.models.host_risk import HostRisk
 from server.app.models.host_sequence import HostSequence
 from server.app.models.lockout import LockoutRecord
 from server.app.models.maintenance_window import MaintenanceWindow
@@ -58,6 +59,7 @@ __all__ = [
     "HostAdvisory",
     "HostContainer",
     "HostPackage",
+    "HostRisk",
     "EnrollmentToken",
     "Command",
     "Result",
