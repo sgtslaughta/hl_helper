@@ -29,7 +29,13 @@ type ReenrollClient struct {
 	Server   ReenrollServerCaller
 }
 
+// Run performs a complete re-enrollment flow.
 func (c *ReenrollClient) Run(ctx context.Context) error {
+	return c.ReEnroll(ctx)
+}
+
+// ReEnroll implements rotator.ReEnroller interface.
+func (c *ReenrollClient) ReEnroll(ctx context.Context) error {
 	pub := c.Keystore.SigningPub()
 
 	nonce, err := c.Server.Challenge(ctx, c.HostID, pub)
