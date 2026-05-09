@@ -1,0 +1,26 @@
+# webui-specific dockerignore. Overrides the repo-root .dockerignore.
+# We need docs/ and scripts/build-wiki-index.ts to ship the embedded /wiki bundle.
+
+.git
+.github
+.gitlab-ci.yml
+.venv
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.mypy_cache
+.ruff_cache
+node_modules
+site
+proto
+tests
+server
+agent
+*.db
+*.sqlite
+*.sqlite3
+.env
+.env.*
+.coverage
+coverage.xml
