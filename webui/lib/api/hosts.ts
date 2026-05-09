@@ -19,6 +19,17 @@ export interface HostSurvey {
 	collected_at: string;
 }
 
+export interface NetInterface {
+	name: string;
+	rx_bps: number;
+	tx_bps: number;
+	rx_errors: number;
+	tx_errors: number;
+	up: boolean;
+	ipv4?: string[];
+	ipv6?: string[];
+}
+
 export interface HostMetrics {
 	load_1: number;
 	load_5: number;
@@ -28,6 +39,7 @@ export interface HostMetrics {
 	uptime_seconds: number;
 	net_rx_bps?: number;
 	net_tx_bps?: number;
+	interfaces?: NetInterface[];
 }
 
 export interface Host {
