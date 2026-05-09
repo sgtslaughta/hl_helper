@@ -129,6 +129,7 @@ async def get_posture(
         settings=settings,
         catalog_sm=app_state.catalog_sessionmaker,
         event_bus=app_state.bus,
+        risk_recomputer=getattr(app_state, "risk_recomputer", None),
     )
 
     suppressed_filter = None if include_suppressed else False
