@@ -17,7 +17,7 @@ export function RiskHoverPanel({ risk }: { risk: HostRiskOut }) {
 				))}
 			</div>
 			<div className="mt-1.5 border-t border-hairline pt-1 font-mono text-[9px] text-text-dim/70">
-				Click gauge to open advisories →
+				Click gauge to open risk dashboard →
 			</div>
 		</>
 	);

@@ -1016,21 +1016,21 @@ function RiskInfographic({
 				const t = e.target as HTMLElement;
 				if (t.closest('[data-radix-popover-trigger], [data-radix-popover-content]')) return;
 				if (typeof window !== 'undefined') {
-					window.location.href = `/advisories?host_id=${encodeURIComponent(hostId)}`;
+					window.location.href = `/hosts/${encodeURIComponent(hostId)}/risk`;
 				}
 			}}
 			onKeyDown={e => {
 				if (e.key === 'Enter' || e.key === ' ') {
 					e.preventDefault();
 					if (typeof window !== 'undefined') {
-						window.location.href = `/advisories?host_id=${encodeURIComponent(hostId)}`;
+						window.location.href = `/hosts/${encodeURIComponent(hostId)}/risk`;
 					}
 				}
 			}}
 			// biome-ignore lint/a11y/useSemanticElements: contains nested Radix Popover.Trigger button — nesting <button> in <button> is invalid HTML
 			role="button"
 			tabIndex={0}
-			aria-label={`Open advisories for this host — risk ${displayedScore} of 100, ${label}`}
+			aria-label={`Open risk dashboard — risk ${displayedScore} of 100, ${label}`}
 		>
 			{/* Recompute button — sits left of the disclaimer ⓘ. Stops click
 			    propagation so the gauge's parent onClick (open advisories)
@@ -1198,8 +1198,8 @@ function RiskInfographic({
 				/>
 			</div>
 
-			<a className="sr-only" href={`/advisories?host_id=${encodeURIComponent(hostId)}`}>
-				Open advisories for this host
+			<a className="sr-only" href={`/hosts/${encodeURIComponent(hostId)}/risk`}>
+				Open risk dashboard for this host
 			</a>
 
 			{/* Mouse-tracked hover panel — portaled to body so it sits above
