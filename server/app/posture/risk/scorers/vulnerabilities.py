@@ -85,6 +85,12 @@ class VulnerabilitiesScorer:
     async def score(self, ctx: ScoreContext) -> SubScore:
         advs = [a for a in ctx.advisories if getattr(a, "status", "open") == "open"]
 
+        exposures = getattr(ctx, "host_advisory_exposure", None) or []
+        multipliers = (
+            getattr(ctx, "exposure_multipliers", None) or DEFAULT_EXPOSURE_MULTIPLIERS
+        )
+        scan_interval = getattr(ctx, "scan_interval_seconds", 6 * 3600)
+
         contributions: list[tuple[float, Any]] = []
         raw = 0.0
         for a in advs:
@@ -95,7 +101,15 @@ class VulnerabilitiesScorer:
             epss = max(0.0, min(1.0, float(getattr(a, "epss", 0.0) or 0.0)))
             kev = bool(getattr(a, "kev", False))
             mult = 1.0 + (4.0 if kev else 0.0) + 3.0 * epss
-            c = base * mult
+            tier = _resolve_tier(
+                advisory_id=getattr(a, "advisory_id", ""),
+                exposures=exposures,
+                now=ctx.now,
+                scan_interval_seconds=scan_interval,
+            )
+            c = _apply_exposure_weight(
+                base=base * mult, tier=tier, multipliers=multipliers
+            )
             raw += c
             contributions.append((c, a))
 
