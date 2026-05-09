@@ -50,3 +50,29 @@ func TestScannerPropagatesTruncatedFlag(t *testing.T) {
 		t.Error("expected Truncated=true")
 	}
 }
+
+func TestScannerEnrichesProcessesWithPkg(t *testing.T) {
+	ctx := context.Background()
+	c := &fakeCollector{res: CollectorResult{
+		Processes: []*pb.Process{
+			{Pid: 1, ExePath: "/usr/sbin/nginx", LoadedLibs: []string{"/lib/libssl.so.3"}},
+		},
+	}}
+	s := &Scanner{
+		Collectors: []Collector{c},
+		HostID:     "h-1",
+		Timeout:    time.Second,
+		Resolver: &fakeResolver{mapping: map[string]PathPkg{
+			"/usr/sbin/nginx":  {Pkg: "nginx", Version: "1.24"},
+			"/lib/libssl.so.3": {Pkg: "openssl", Version: "3.0.11"},
+		}},
+	}
+	out := s.Scan(ctx)
+	p := out.Processes[0]
+	if p.Pkg != "nginx" {
+		t.Errorf("Pkg = %q, want nginx", p.Pkg)
+	}
+	if p.PkgVersion != "1.24" {
+		t.Errorf("PkgVersion = %q", p.PkgVersion)
+	}
+}
