@@ -30,6 +30,7 @@ from server.app.api.v1.oidc import router as oidc_router
 from server.app.api.v1 import policies
 from server.app.api.v1.plugins import router as plugins_router
 from server.app.api.v1.posture import router as posture_router
+from server.app.api.v1.posture_risk import router as posture_risk_router
 from server.app.observability.health import router as health_router
 from server.app.observability.prom_endpoint import router as prom_router
 from server.app.api.v1.roles import router as roles_router
@@ -99,6 +100,7 @@ def create_app() -> FastAPI:
     app.include_router(maintenance_window_router)
     app.include_router(plugins_router)
     app.include_router(posture_router)
+    app.include_router(posture_risk_router)
     app.include_router(health_router)
     app.include_router(prom_router)
     app.include_router(roles_router)
