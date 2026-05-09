@@ -199,3 +199,23 @@ export type ReenrollMint = {
 export function mintReenrollToken(hostId: string): Promise<ReenrollMint> {
 	return apiFetch<ReenrollMint>(`/v1/hosts/${encodeURIComponent(hostId)}/reenroll-token`, { method: 'POST' });
 }
+
+export type ExposureTier = 'NETWORK_EXPOSED' | 'ACTIVE' | 'INSTALLED_ONLY' | 'UNKNOWN';
+
+export type HostExposureSummary = {
+	last_scan_at: string | null;
+	counts: Record<ExposureTier, number>;
+	advisories: Array<{
+		advisory_id: string;
+		exposure_tier: ExposureTier;
+		evidence: string[];
+	}>;
+};
+
+export function getHostExposure(hostId: string): Promise<HostExposureSummary> {
+	return apiFetch<HostExposureSummary>(`/v1/hosts/${encodeURIComponent(hostId)}/exposure`);
+}
+
+export function rescanExposure(hostId: string): Promise<{ delivered: boolean }> {
+	return apiFetch<{ delivered: boolean }>(`/v1/hosts/${encodeURIComponent(hostId)}/exposure/rescan`, { method: 'POST' });
+}
