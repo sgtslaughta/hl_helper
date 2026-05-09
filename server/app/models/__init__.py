@@ -17,6 +17,7 @@ from server.app.models.group import Group
 from server.app.models.group_membership import GroupMembership
 from server.app.models.host import Host
 from server.app.models.host_advisory import HostAdvisory
+from server.app.models.host_advisory_exposure import HostAdvisoryExposure
 from server.app.models.host_container import HostContainer
 from server.app.models.host_package import HostPackage
 from server.app.models.host_risk import HostRisk
@@ -57,6 +58,7 @@ __all__ = [
     "Host",
     "HostSequence",
     "HostAdvisory",
+    "HostAdvisoryExposure",
     "HostContainer",
     "HostPackage",
     "HostRisk",
