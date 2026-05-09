@@ -135,6 +135,46 @@ class HostAdvisoryListResponse(BaseModel):
     items: list[HostAdvisoryOut]
 
 
+async def _emit_dispatch_ticker(
+    request: "Request",
+    host_id: str,
+    action: str,
+    *,
+    actor: str | None = None,
+    task_id: str | None = None,
+    severity: str = "info",
+    detail: str | None = None,
+) -> None:
+    """Best-effort: publish a ticker event for an action dispatch.
+
+    Resolves hostname from the DB; falls back to an id prefix if the host
+    row isn't available. Never raises — ticker failures must not break
+    the dispatch response.
+    """
+    try:
+        from server.app.events.ticker import format_action_dispatch, publish_ticker
+
+        state = get_app_state(request)
+        bus = getattr(state, "bus", None)
+        if bus is None:
+            return
+        async with state.sessionmaker() as s:
+            host = await s.get(Host, host_id)
+            hostname = host.hostname if host else host_id[:8]
+        fmt = format_action_dispatch(
+            action=action,
+            host_id=host_id,
+            hostname=hostname,
+            actor=actor,
+            task_id=task_id,
+            severity=severity,  # type: ignore[arg-type]
+            detail=detail,
+        )
+        await publish_ticker(bus, **fmt)  # type: ignore[arg-type]
+    except Exception:
+        pass
+
+
 def _build_host_advisory_out(ha: Any, adv: Any) -> HostAdvisoryOut:
     """Compose a HostAdvisoryOut from a HostAdvisory row + Advisory row.
 
@@ -307,6 +347,7 @@ async def patch_host(
 
 @router.post("/{host_id}/resurvey", status_code=202)
 async def resurvey_host(
+    request: Request,
     host_id: str,
     actor: str = Depends(admin_required),
     session: AsyncSession = Depends(get_session),
@@ -355,11 +396,15 @@ async def resurvey_host(
     session.add(task)
     session.add(run)
     await session.commit()
+    await _emit_dispatch_ticker(
+        request, host_id, "resurvey", actor=actor, task_id=task.id, severity="info"
+    )
     return {"status": "queued", "task_id": task.id}
 
 
 @router.post("/{host_id}/rescan", status_code=202)
 async def rescan_host(
+    request: Request,
     host_id: str,
     actor: str = Depends(admin_required),
     session: AsyncSession = Depends(get_session),
@@ -411,6 +456,9 @@ async def rescan_host(
     session.add(task)
     session.add(run)
     await session.commit()
+    await _emit_dispatch_ticker(
+        request, host_id, "rescan", actor=actor, task_id=task.id, severity="info"
+    )
     return {"status": "queued", "task_id": task.id}
 
 
@@ -522,6 +570,16 @@ async def reboot_host(
     )
     await session.commit()
 
+    await _emit_dispatch_ticker(
+        request,
+        host_id,
+        "reboot",
+        actor=f"user:{principal.user_id}",
+        task_id=result.task_id,
+        severity="warn",
+        detail=body.reason or None,
+    )
+
     return ActionResponse(
         task_id=result.task_id,
         dispatched=result.dispatched,
@@ -592,6 +650,15 @@ async def shell_exec_host(
             # Audit failure must not break the dispatch response.
             pass
 
+    await _emit_dispatch_ticker(
+        request,
+        host_id,
+        "privileged shell command" if body.as_root else "shell command",
+        actor=f"user:{principal.user_id}",
+        task_id=result.task_id,
+        severity="warn" if body.as_root else "info",
+    )
+
     return ActionResponse(
         task_id=result.task_id,
         dispatched=result.dispatched,
@@ -635,6 +702,16 @@ async def pkg_update_host(
         idempotency_key=idempotency_key,
     )
     await session.commit()
+
+    await _emit_dispatch_ticker(
+        request,
+        host_id,
+        "package update",
+        actor=f"user:{principal.user_id}",
+        task_id=result.task_id,
+        severity="info",
+        detail=", ".join(body.classes) if body.classes else None,
+    )
 
     return ActionResponse(
         task_id=result.task_id,

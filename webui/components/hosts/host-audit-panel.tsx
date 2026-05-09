@@ -6,6 +6,7 @@ import { apiFetch } from '@/lib/api-client';
 import { type Host, getHost } from '@/lib/api/hosts';
 import {
 	type AuditUserLookup,
+	auditActionHref,
 	auditActorLabel,
 	extractActorUserId,
 	humanizeAuditAction,
@@ -21,8 +22,10 @@ import {
 	ChevronRight,
 	ChevronsLeft,
 	ChevronsRight,
+	ExternalLink,
 	Search,
 } from 'lucide-react';
+import Link from 'next/link';
 import { useMemo, useState } from 'react';
 
 interface AuditEntryOut {
@@ -315,26 +318,42 @@ export function HostAuditPanel({ hostId }: { hostId: string }) {
 								</td>
 							</tr>
 						) : (
-							pageItems.map((e, i) => (
-								<tr
-									key={e.raw.sequence}
-									className={`border-b border-hairline transition-colors ${
-										i % 2 === 0 ? 'hover:bg-surface-2' : 'bg-bezel/20 hover:bg-surface-2'
-									}`}
-								>
-									<td
-										className="px-3 py-2 text-text-dim text-[11px] whitespace-nowrap"
-										title={new Date(e.raw.timestamp).toLocaleString()}
+							pageItems.map((e, i) => {
+								const href = auditActionHref(e.raw.action, e.raw.payload);
+								return (
+									<tr
+										key={e.raw.sequence}
+										className={`border-b border-hairline transition-colors ${
+											i % 2 === 0 ? 'hover:bg-surface-2' : 'bg-bezel/20 hover:bg-surface-2'
+										} ${href ? 'cursor-pointer' : ''}`}
 									>
-										{relTime(e.raw.timestamp)}
-									</td>
-									<td className="px-3 py-2 text-text">{e.actorDisplay}</td>
-									<td className="px-3 py-2 text-text">{e.actionDisplay}</td>
-									<td className="px-3 py-2 text-text-dim text-[11px]" title={e.raw.subject ?? ''}>
-										{e.targetDisplay}
-									</td>
-								</tr>
-							))
+										<td
+											className="px-3 py-2 text-text-dim text-[11px] whitespace-nowrap"
+											title={new Date(e.raw.timestamp).toLocaleString()}
+										>
+											{relTime(e.raw.timestamp)}
+										</td>
+										<td className="px-3 py-2 text-text">{e.actorDisplay}</td>
+										<td className="px-3 py-2 text-text">
+											{href ? (
+												<Link
+													href={href}
+													className="inline-flex items-center gap-1 text-accent hover:underline"
+													title="Open associated action"
+												>
+													{e.actionDisplay}
+													<ExternalLink size={10} className="opacity-60" />
+												</Link>
+											) : (
+												e.actionDisplay
+											)}
+										</td>
+										<td className="px-3 py-2 text-text-dim text-[11px]" title={e.raw.subject ?? ''}>
+											{e.targetDisplay}
+										</td>
+									</tr>
+								);
+							})
 						)}
 					</tbody>
 				</table>

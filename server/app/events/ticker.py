@@ -173,6 +173,43 @@ def format_posture_scan(
     }
 
 
+def format_action_dispatch(
+    *,
+    action: str,
+    host_id: str,
+    hostname: str,
+    actor: str | None = None,
+    task_id: str | None = None,
+    severity: TickerSeverity = "info",
+    detail: str | None = None,
+) -> TickerEvent:
+    """Format a "<actor> ran <action> on <hostname>" dispatch message.
+
+    ``action`` is the human-friendly verb phrase (e.g. ``"shell command"``,
+    ``"privileged shell command"``, ``"reboot"``, ``"resurvey"``).
+    ``actor`` is an optional principal label; when provided the prefix is
+    "<actor>: ", otherwise just "Dispatched".
+    """
+    actor_prefix = f"{actor}: " if actor else "Dispatched "
+    body = f"{action} on {hostname}"
+    if detail:
+        body = f"{body} — {detail}"
+    text = f"{actor_prefix}{body}".rstrip()
+    meta: dict[str, Any] = {"host_id": host_id, "action": action}
+    if task_id:
+        meta["task_id"] = task_id
+    if actor:
+        meta["actor"] = actor
+    link = f"/tasks/{task_id}" if task_id else f"/hosts/{host_id}"
+    return {
+        "type": "task",
+        "severity": severity,
+        "text": text,
+        "link": link,
+        "meta": meta,
+    }
+
+
 def format_task_result(
     *,
     command_id: str,

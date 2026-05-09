@@ -5,6 +5,7 @@ import { useHostAdvisories } from '@/lib/api/advisories';
 import { type Host, updateHeartbeatInterval } from '@/lib/api/hosts';
 import {
 	type AuditUserLookup,
+	auditActionHref,
 	auditActorLabel,
 	extractActorUserId,
 	humanizeAuditAction,
@@ -33,6 +34,7 @@ import {
 	TrendingUp,
 	X,
 } from 'lucide-react';
+import Link from 'next/link';
 import { type ComponentType, type ReactNode, useEffect, useRef, useState } from 'react';
 
 export type FocusMode =
@@ -298,6 +300,7 @@ function Gauge({
 	pct,
 	sub,
 	numeric,
+	staticTraceColor,
 	tick,
 	neutral,
 }: {
@@ -316,6 +319,9 @@ function Gauge({
 	tick?: string | number;
 	// Suppress direction arrow + force neutral text tone (e.g. UPTIME).
 	neutral?: boolean;
+	// Override the auto slope-based sparkline color with a constant CSS
+	// color (e.g. NET should always be neon blue regardless of trend).
+	staticTraceColor?: string;
 }) {
 	const sign = useDeltaSign(numeric ?? pct, tick);
 	const valueTone = neutral ? 'text-text' : deltaTone(sign);
@@ -324,7 +330,7 @@ function Gauge({
 	// window across the full buffer. Picks status color from the slope
 	// rather than the absolute pct, so a calm-but-rising metric goes
 	// red even before it crosses 75% / 90% thresholds.
-	const trendTone = neutral ? undefined : trendStatusVar(samples);
+	const trendTone = neutral ? undefined : (staticTraceColor ?? trendStatusVar(samples));
 	return (
 		<div
 			className="mc-bezel relative flex items-center gap-2.5 overflow-hidden px-2.5 pt-2"
@@ -718,19 +724,36 @@ function AuditRibbon({ hostId, onJump }: { hostId: string; onJump: () => void })
 				) : items.length === 0 ? (
 					<div className="text-text-dim">no entries</div>
 				) : (
-					previewItems.map(e => (
-						<div
-							key={e.sequence}
-							className="flex items-center gap-1.5 truncate"
-							title={`${new Date(e.timestamp).toLocaleString()} · ${e.action}`}
-						>
-							<span className="text-text-dim/60 shrink-0">{relTime(e.timestamp)}</span>
-							<span className="truncate text-text-dim">
-								<span className="text-text">{auditActorLabel(e.actor, userMap)}</span>{' '}
-								{humanizeAuditAction(e.action)}
-							</span>
-						</div>
-					))
+					previewItems.map(e => {
+						const href = auditActionHref(e.action, e.payload);
+						const ts = relTime(e.timestamp);
+						const actor = auditActorLabel(e.actor, userMap);
+						const verb = humanizeAuditAction(e.action);
+						const ttl = `${new Date(e.timestamp).toLocaleString()} · ${e.action}`;
+						const cls = 'flex items-center gap-1.5 truncate px-1 -mx-1 rounded-sm';
+						return href ? (
+							<Link
+								key={e.sequence}
+								href={href}
+								onClick={ev => ev.stopPropagation()}
+								className={`${cls} hover:bg-surface-2`}
+								title={`${ttl} · open detail`}
+							>
+								<span className="text-text-dim/60 shrink-0">{ts}</span>
+								<span className="truncate text-text-dim">
+									<span className="text-text">{actor}</span>{' '}
+									<span className="text-accent">{verb}</span>
+								</span>
+							</Link>
+						) : (
+							<div key={e.sequence} className={cls} title={ttl}>
+								<span className="text-text-dim/60 shrink-0">{ts}</span>
+								<span className="truncate text-text-dim">
+									<span className="text-text">{actor}</span> {verb}
+								</span>
+							</div>
+						);
+					})
 				)}
 			</div>
 		</div>
@@ -931,6 +954,9 @@ export function OverviewDashboard({ host, onJump }: Props) {
 					icon={Network}
 					iconTone="text-accent"
 					label="NET"
+					// NET trace stays neon blue regardless of trend slope —
+					// reads as "throughput" not "alert" since spikes here are normal.
+					staticTraceColor="var(--color-accent)"
 					value={(() => {
 						if (netRxBps == null || netTxBps == null) return <span>—</span>;
 						const [n, unit, frac] = scaleBps(netRxBps + netTxBps);
