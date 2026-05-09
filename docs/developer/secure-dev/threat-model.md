@@ -128,6 +128,47 @@ The web interface is **never trusted** for authorization decisions. All checks a
 
 ---
 
+## Component Diagram
+
+```mermaid
+graph TB
+  subgraph cp["Trust: control-plane"]
+    UI["Web UI"]
+    API["FastAPI"]
+    DB["SQLite/Postgres"]
+    KMS["Vault / KMS"]
+  end
+  subgraph hst["Trust: per-host"]
+    AGT["Agent"]
+    PLG["Plugins"]
+  end
+  UI -->|HTTPS+Session| API
+  API -->|signed gRPC| AGT
+  AGT -->|sandbox| PLG
+  API --> DB
+  API --> KMS
+```
+
+## RBAC Matrix
+
+Full RBAC details are documented in `docs/developer/design/rbac.md`. Summary of role permissions:
+
+| Permission | Viewer | Operator | Admin | Owner |
+|---|---|---|---|---|
+| **host:read** | ✓ | ✓ | ✓ | ✓ |
+| **host:exec** | | ✓ | ✓ | ✓ |
+| **host:revoke** | | | ✓ | ✓ |
+| **secret:read** | | | ✓ | ✓ |
+| **secret:write** | | | ✓ | ✓ |
+| **user:write** | | | ✓ | ✓ |
+| **role:write** | | | ✓ | ✓ |
+| **user:impersonate** | | | | ✓ |
+| **audit:read** | | ✓ | ✓ | ✓ |
+
+High-risk permissions (host:exec, secret:write, user:impersonate, etc.) require MFA step-up and optional approval gates. See `docs/developer/design/rbac.md` for the complete matrix and Cedar policy extension.
+
+---
+
 ## Verification
 
 hl_helper's threat model is tested continuously:
