@@ -81,10 +81,14 @@ export function FocusPane({ host, mode, onModeChange }: Props) {
 							<HardwarePanel host={host} />
 							<AgentConfig host={host} />
 							<HostCertPanel hostId={host.id} />
-							<HostExposurePanel hostId={host.id} />
 						</div>
 					) : null}
-					{tabMode === 'posture' ? <HostPosturePanel hostId={host.id} /> : null}
+					{tabMode === 'posture' ? (
+						<div className="flex flex-col gap-3">
+							<HostExposurePanel hostId={host.id} />
+							<HostPosturePanel hostId={host.id} />
+						</div>
+					) : null}
 					{tabMode === 'audit' ? <HostAuditPanel hostId={host.id} /> : null}
 					{tabMode === 'tasks' ? <HostTasksPanel hostId={host.id} host={host} /> : null}
 					{tabMode === 'advisories' ? <HostAdvisoriesPanel hostId={host.id} /> : null}

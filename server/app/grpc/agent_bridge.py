@@ -72,6 +72,7 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
         event_bus: Any | None = None,
         rotation_orchestrator: Any | None = None,
         exposure_handler: Any | None = None,
+        risk_recomputer: Any | None = None,
     ) -> None:
         self._dispatcher = dispatcher
         self._result_handler = result_handler
@@ -82,6 +83,7 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
         self._event_bus = event_bus
         self._rotation_orchestrator = rotation_orchestrator
         self._exposure_handler = exposure_handler
+        self._risk_recomputer = risk_recomputer
 
     async def _enqueue_match(self, host_id: str) -> None:
         """Best-effort: ask the advisory worker to re-match this host.
@@ -638,11 +640,28 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
                     from server.app.posture.exposure.derive import derive_exposure
 
                     derived = derive_exposure(scan_dict, host_packages, advisories)
+                    procs = scan_dict.get("processes") or []
+                    procs_with_pkg = sum(1 for p in procs if p.get("pkg"))
+                    log.info(
+                        "runtime_exposure.derive",
+                        host_id=host_id,
+                        procs=len(procs),
+                        procs_with_pkg=procs_with_pkg,
+                        listeners=len(scan_dict.get("listeners") or []),
+                        services=len(scan_dict.get("services") or []),
+                        host_packages=len(host_packages),
+                        advisories=len(advisories),
+                        derived_rows=len(derived),
+                    )
                     await self._exposure_handler.ingest(
                         host_id=host_id,
                         scanned_at=msg.runtime_exposure.scanned_at.ToDatetime(),
                         derived=derived,
                     )
+                    if self._risk_recomputer is not None:
+                        await self._risk_recomputer.request(
+                            host_id, trigger_reason="exposure_scan"
+                        )
                 except Exception as e:
                     log.exception(
                         "runtime_exposure.handle_failed", host_id=host_id, error=str(e)

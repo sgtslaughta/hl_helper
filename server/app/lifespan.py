@@ -637,6 +637,7 @@ async def _start_grpc_server(state: AppState, grpc_host: str) -> None:
             event_bus=state.bus,
             rotation_orchestrator=rotation_orchestrator,
             exposure_handler=exposure_handler,
+            risk_recomputer=state.risk_recomputer,
         )
 
         await server.start()

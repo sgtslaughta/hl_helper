@@ -660,6 +660,15 @@ async def rescan_host(
     if not _ab.push_control(host_id, msg):
         raise HTTPException(status_code=409, detail="host_not_connected")
 
+    # Also kick off a runtime exposure scan so risk reflects current
+    # processes/sockets/services. Best-effort: ignore push failure.
+    _ab.push_control(
+        host_id,
+        agent_bridge_pb2.ServerToAgent(
+            run_exposure_scan=agent_bridge_pb2.RunExposureScan(reason="manual_rescan")
+        ),
+    )
+
     task = Task(
         id=str(uuid4()),
         kind=TaskKind.CUSTOM,
