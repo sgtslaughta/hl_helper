@@ -1,10 +1,19 @@
 package keystore_test
 
 import (
+	"bytes"
+	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"go.uber.org/goleak"
 
@@ -389,4 +398,256 @@ func TestRootCAPEMReturnsNilNilWhenAbsent(t *testing.T) {
 	if data != nil {
 		t.Fatalf("expected nil data when root.crt absent, got %v", data)
 	}
+}
+
+func TestRotateTLSGeneratesFreshKeypair(t *testing.T) {
+	dir := t.TempDir()
+	ks, err := keystore.OpenFile(dir)
+	if err != nil {
+		t.Fatalf("OpenFile: %v", err)
+	}
+	if err := ks.GenerateSigning(); err != nil {
+		t.Fatalf("GenerateSigning: %v", err)
+	}
+	if err := ks.GenerateTLS(); err != nil {
+		t.Fatalf("GenerateTLS: %v", err)
+	}
+
+	csr1, pub1, priv1, err := ks.RotateTLS("h-1")
+	if err != nil {
+		t.Fatalf("RotateTLS: %v", err)
+	}
+	if len(csr1) == 0 || len(pub1) == 0 || len(priv1) == 0 {
+		t.Fatal("expected non-empty outputs")
+	}
+
+	csr2, pub2, _, err := ks.RotateTLS("h-1")
+	if err != nil {
+		t.Fatalf("RotateTLS#2: %v", err)
+	}
+	if bytes.Equal(pub1, pub2) {
+		t.Fatal("expected distinct keypairs")
+	}
+	if bytes.Equal(csr1, csr2) {
+		t.Fatal("expected distinct CSRs")
+	}
+}
+
+func TestStageTLSWritesDotNewFiles(t *testing.T) {
+	dir := t.TempDir()
+	ks, err := keystore.OpenFile(dir)
+	if err != nil {
+		t.Fatalf("OpenFile: %v", err)
+	}
+
+	if err := ks.StageTLS([]byte("CHAIN"), []byte("KEY")); err != nil {
+		t.Fatalf("StageTLS: %v", err)
+	}
+
+	chainPath := filepath.Join(dir, "tls.crt.new")
+	keyPath := filepath.Join(dir, "tls.key.new")
+	for _, p := range []string{chainPath, keyPath} {
+		fi, err := os.Stat(p)
+		if err != nil {
+			t.Fatalf("stat %s: %v", p, err)
+		}
+		if fi.Mode().Perm() != 0o600 {
+			t.Errorf("%s mode = %v, want 0600", p, fi.Mode().Perm())
+		}
+	}
+}
+
+func TestRollbackStagedTLSRemovesDotNew(t *testing.T) {
+	dir := t.TempDir()
+	ks, err := keystore.OpenFile(dir)
+	if err != nil {
+		t.Fatalf("OpenFile: %v", err)
+	}
+	if err := ks.StageTLS([]byte("CHAIN"), []byte("KEY")); err != nil {
+		t.Fatalf("StageTLS: %v", err)
+	}
+	if err := ks.RollbackStagedTLS(); err != nil {
+		t.Fatalf("RollbackStagedTLS: %v", err)
+	}
+	for _, name := range []string{"tls.crt.new", "tls.key.new"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+			t.Errorf("expected %s removed", name)
+		}
+	}
+}
+
+func TestVerifyStagedTLSAcceptsValid(t *testing.T) {
+	dir := t.TempDir()
+	ks, err := keystore.OpenFile(dir)
+	if err != nil {
+		t.Fatalf("OpenFile: %v", err)
+	}
+	rootPEM, intPEM, leafPEM, leafKeyPEM := mkTestChain(t, "h-1")
+
+	// Pin root via StoreEnrollmentBundle (existing API)
+	if err := ks.StoreEnrollmentBundle(leafPEM, intPEM, rootPEM); err != nil {
+		t.Fatalf("StoreEnrollmentBundle: %v", err)
+	}
+	chain := append(append([]byte{}, leafPEM...), intPEM...)
+	if err := ks.StageTLS(chain, leafKeyPEM); err != nil {
+		t.Fatalf("StageTLS: %v", err)
+	}
+	if err := ks.VerifyStagedTLS(); err != nil {
+		t.Fatalf("VerifyStagedTLS: %v", err)
+	}
+}
+
+func TestVerifyStagedTLSRejectsKeyMismatch(t *testing.T) {
+	dir := t.TempDir()
+	ks, err := keystore.OpenFile(dir)
+	if err != nil {
+		t.Fatalf("OpenFile: %v", err)
+	}
+	rootPEM, intPEM, leafPEM, _ := mkTestChain(t, "h-1")
+	_, _, _, otherKey := mkTestChain(t, "h-2")
+	if err := ks.StoreEnrollmentBundle(leafPEM, intPEM, rootPEM); err != nil {
+		t.Fatalf("StoreEnrollmentBundle: %v", err)
+	}
+	chain := append(append([]byte{}, leafPEM...), intPEM...)
+	if err := ks.StageTLS(chain, otherKey); err != nil {
+		t.Fatalf("StageTLS: %v", err)
+	}
+	if err := ks.VerifyStagedTLS(); err == nil {
+		t.Fatal("expected error: key mismatch")
+	}
+}
+
+func TestVerifyStagedTLSRejectsBadChain(t *testing.T) {
+	dir := t.TempDir()
+	ks, err := keystore.OpenFile(dir)
+	if err != nil {
+		t.Fatalf("OpenFile: %v", err)
+	}
+	rootPEM, _, _, _ := mkTestChain(t, "h-1")
+	otherRoot, otherInt, otherLeaf, otherKey := mkTestChain(t, "h-2")
+	_ = otherRoot
+	if err := ks.StoreEnrollmentBundle(otherLeaf, otherInt, rootPEM); err != nil {
+		// pin against `rootPEM` (different root) so chain won't validate
+		t.Fatalf("StoreEnrollmentBundle: %v", err)
+	}
+	chain := append(append([]byte{}, otherLeaf...), otherInt...)
+	if err := ks.StageTLS(chain, otherKey); err != nil {
+		t.Fatalf("StageTLS: %v", err)
+	}
+	if err := ks.VerifyStagedTLS(); err == nil {
+		t.Fatal("expected error: chain doesn't validate")
+	}
+}
+
+func TestCommitTLSAtomicSwap(t *testing.T) {
+	dir := t.TempDir()
+	ks, err := keystore.OpenFile(dir)
+	if err != nil {
+		t.Fatalf("OpenFile: %v", err)
+	}
+	// Seed existing tls.crt + tls.key
+	if err := os.WriteFile(filepath.Join(dir, "tls.crt"), []byte("OLDCHAIN"), 0o600); err != nil {
+		t.Fatalf("seed crt: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "tls.key"), []byte("OLDKEY"), 0o600); err != nil {
+		t.Fatalf("seed key: %v", err)
+	}
+	if err := ks.StageTLS([]byte("NEWCHAIN"), []byte("NEWKEY")); err != nil {
+		t.Fatalf("StageTLS: %v", err)
+	}
+	if err := ks.CommitTLS(); err != nil {
+		t.Fatalf("CommitTLS: %v", err)
+	}
+
+	got, _ := os.ReadFile(filepath.Join(dir, "tls.crt"))
+	if string(got) != "NEWCHAIN" {
+		t.Errorf("crt = %q, want NEWCHAIN", got)
+	}
+	got, _ = os.ReadFile(filepath.Join(dir, "tls.key"))
+	if string(got) != "NEWKEY" {
+		t.Errorf("key = %q, want NEWKEY", got)
+	}
+	prev, err := os.ReadFile(filepath.Join(dir, "tls.crt.prev"))
+	if err != nil {
+		t.Fatalf("expected tls.crt.prev: %v", err)
+	}
+	if string(prev) != "OLDCHAIN" {
+		t.Errorf("prev = %q, want OLDCHAIN", prev)
+	}
+}
+
+func TestCommitTLSFailsWithoutStaged(t *testing.T) {
+	dir := t.TempDir()
+	ks, err := keystore.OpenFile(dir)
+	if err != nil {
+		t.Fatalf("OpenFile: %v", err)
+	}
+	if err := ks.CommitTLS(); err == nil {
+		t.Fatal("expected error: no staged files")
+	}
+}
+
+// mkTestChain creates a self-signed root + intermediate + leaf for cn.
+// Returns PEM of root, intermediate, leaf, and leaf private key (PKCS8 PEM).
+func mkTestChain(t *testing.T, cn string) (rootPEM, intPEM, leafPEM, leafKeyPEM []byte) {
+	t.Helper()
+
+	// Root CA
+	rootKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("root key: %v", err)
+	}
+	rootTmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "test-root"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+	rootDER, err := x509.CreateCertificate(rand.Reader, rootTmpl, rootTmpl, &rootKey.PublicKey, rootKey)
+	if err != nil {
+		t.Fatalf("root cert: %v", err)
+	}
+	rootCert, _ := x509.ParseCertificate(rootDER)
+	rootPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: rootDER})
+
+	// Intermediate
+	intKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	intTmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(2),
+		Subject:               pkix.Name{CommonName: "test-int"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+	intDER, err := x509.CreateCertificate(rand.Reader, intTmpl, rootCert, &intKey.PublicKey, rootKey)
+	if err != nil {
+		t.Fatalf("int cert: %v", err)
+	}
+	intCert, _ := x509.ParseCertificate(intDER)
+	intPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: intDER})
+
+	// Leaf
+	leafKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	leafTmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(3),
+		Subject:      pkix.Name{CommonName: cn},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
+	}
+	leafDER, err := x509.CreateCertificate(rand.Reader, leafTmpl, intCert, &leafKey.PublicKey, intKey)
+	if err != nil {
+		t.Fatalf("leaf cert: %v", err)
+	}
+	leafPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leafDER})
+
+	leafKeyDER, _ := x509.MarshalPKCS8PrivateKey(leafKey)
+	leafKeyPEM = pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: leafKeyDER})
+	return
 }
