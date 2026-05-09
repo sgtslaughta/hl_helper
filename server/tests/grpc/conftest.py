@@ -230,6 +230,7 @@ def agent_bridge_servicer(sm, fake_ca):
         RotationOrchestrator,
         RotationRateLimiter,
     )
+    from server.app.grpc.exposure_handler import ExposureHandler
 
     orch = RotationOrchestrator(
         session_factory=sm,
@@ -240,4 +241,5 @@ def agent_bridge_servicer(sm, fake_ca):
     return AgentBridgeService(
         dispatcher=None,
         rotation_orchestrator=orch,
+        exposure_handler=ExposureHandler(sm),
     )

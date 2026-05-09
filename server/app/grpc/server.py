@@ -34,6 +34,7 @@ def make_grpc_server(
     advisory_worker: Any | None = None,
     event_bus: Any | None = None,
     rotation_orchestrator: Any | None = None,
+    exposure_handler: Any | None = None,
 ) -> tuple[Server, str, CommandDispatcher, AgentBridgeService]:
     """Build configured async gRPC server with mTLS + servicer wired.
 
@@ -62,6 +63,7 @@ def make_grpc_server(
         advisory_worker=advisory_worker,
         event_bus=event_bus,
         rotation_orchestrator=rotation_orchestrator,
+        exposure_handler=exposure_handler,
     )
     agent_bridge_pb2_grpc.add_AgentBridgeServicer_to_server(
         agent_bridge,

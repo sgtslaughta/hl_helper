@@ -71,6 +71,7 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
         advisory_worker: Any | None = None,
         event_bus: Any | None = None,
         rotation_orchestrator: Any | None = None,
+        exposure_handler: Any | None = None,
     ) -> None:
         self._dispatcher = dispatcher
         self._result_handler = result_handler
@@ -80,6 +81,7 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
         self._advisory_worker = advisory_worker
         self._event_bus = event_bus
         self._rotation_orchestrator = rotation_orchestrator
+        self._exposure_handler = exposure_handler
 
     async def _enqueue_match(self, host_id: str) -> None:
         """Best-effort: ask the advisory worker to re-match this host.
@@ -151,6 +153,46 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
             self._test_pushers[host_id](msg)
             return True
         return push_control(host_id, msg)
+
+    async def handle_runtime_exposure_for_test(
+        self, *, host_id, scanned_at, scan, host_packages, advisories
+    ):
+        """Test-only entrypoint for runtime_exposure ingestion."""
+        from server.app.posture.exposure.derive import derive_exposure
+
+        derived = derive_exposure(scan, host_packages, advisories)
+        await self._exposure_handler.ingest(
+            host_id=host_id, scanned_at=scanned_at, derived=derived
+        )
+
+    async def push_run_exposure_scan(self, host_id: str, reason: str) -> bool:
+        """Send RunExposureScan to a connected agent. Returns False if not connected."""
+        msg = agent_bridge_pb2.ServerToAgent(
+            run_exposure_scan=agent_bridge_pb2.RunExposureScan(reason=reason)
+        )
+        if hasattr(self, "_test_pushers") and host_id in self._test_pushers:
+            self._test_pushers[host_id](msg)
+            return True
+        return push_control(host_id, msg)
+
+    async def _load_host_packages(self, host_id: str) -> list[dict]:
+        """Load installed packages for derive_exposure."""
+        from sqlalchemy import select
+        from server.app.models.host_package import HostPackage
+
+        async with self._sessionmaker() as session:
+            rows = (
+                await session.execute(
+                    select(HostPackage).where(HostPackage.host_id == host_id)
+                )
+            ).scalars().all()
+        return [{"name": r.name, "version": r.version} for r in rows]
+
+    async def _load_advisories_for_host(self, host_id: str) -> list[dict]:
+        """Load advisories matched to this host's packages. Stub for first cut."""
+        # MINIMAL CUT: return empty list. Real wiring depends on existing
+        # advisory-matching pipeline (server/app/advisory/...).
+        return []
 
     async def Stream(
         self,
@@ -558,6 +600,31 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
                 except Exception as e:
                     log.exception(
                         "cert_rotate.unhandled", host_id=host_id, error=str(e)
+                    )
+            elif kind == "runtime_exposure":
+                if self._exposure_handler is None:
+                    log.warning("runtime_exposure.no_handler", host_id=host_id)
+                    continue
+                try:
+                    from google.protobuf.json_format import MessageToDict
+
+                    scan_dict = MessageToDict(
+                        msg.runtime_exposure, preserving_proto_field_name=True
+                    )
+                    # Load host packages + advisories
+                    host_packages = await self._load_host_packages(host_id)
+                    advisories = await self._load_advisories_for_host(host_id)
+                    from server.app.posture.exposure.derive import derive_exposure
+
+                    derived = derive_exposure(scan_dict, host_packages, advisories)
+                    await self._exposure_handler.ingest(
+                        host_id=host_id,
+                        scanned_at=msg.runtime_exposure.scanned_at.ToDatetime(),
+                        derived=derived,
+                    )
+                except Exception as e:
+                    log.exception(
+                        "runtime_exposure.handle_failed", host_id=host_id, error=str(e)
                     )
             else:
                 log.warning("agent.unknown_message", host_id=host_id, kind=kind)

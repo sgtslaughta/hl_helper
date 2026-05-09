@@ -618,6 +618,10 @@ async def _start_grpc_server(state: AppState, grpc_host: str) -> None:
             ttl_days=int(os.environ.get("HL_CERT_TTL_DAYS", "7")),
         )
 
+        from server.app.grpc.exposure_handler import ExposureHandler
+
+        exposure_handler = ExposureHandler(state.sessionmaker)
+
         # Create and start gRPC server
         server, bound_addr, _, agent_bridge = make_grpc_server(
             server_cert_chain_pem=cert_chain_pem,
@@ -632,6 +636,7 @@ async def _start_grpc_server(state: AppState, grpc_host: str) -> None:
             advisory_worker=state.advisory_worker,
             event_bus=state.bus,
             rotation_orchestrator=rotation_orchestrator,
+            exposure_handler=exposure_handler,
         )
 
         await server.start()
