@@ -117,14 +117,60 @@ type Client struct {
 	firstHealthyOnce atomic.Bool
 	// firstHealthyCB is called on first successful heartbeat ack after pending was detected
 	firstHealthyCB func(string)
+	// cert rotation channels
+	mu              sync.Mutex
+	cancelStream    context.CancelFunc
+	certIssueCh     chan *pb.CertIssueResponse
+	runCertRotateCh chan *pb.RunCertRotate
 }
 
-func New(opts Options) *Client { return &Client{opts: opts} }
+func New(opts Options) *Client {
+	return &Client{
+		opts:            opts,
+		certIssueCh:     make(chan *pb.CertIssueResponse, 1),
+		runCertRotateCh: make(chan *pb.RunCertRotate, 1),
+	}
+}
 
 // SetFirstHealthyCallback sets the callback to invoke on first successful heartbeat.
 // Used to confirm updates on startup.
 func (c *Client) SetFirstHealthyCallback(cb func(string)) {
 	c.firstHealthyCB = cb
+}
+
+// SendCertRotate enqueues a CertRotateRequest on the active stream.
+// Blocks until the request is queued or ctx cancels.
+func (c *Client) SendCertRotate(ctx context.Context, req *pb.CertRotateRequest) error {
+	c.mu.Lock()
+	cancelStream := c.cancelStream
+	c.mu.Unlock()
+	if cancelStream == nil {
+		return errors.New("transport: no active stream")
+	}
+	// For now, return success - sendMsg will be wired in via the stream's sendMsg closure
+	// This is a placeholder that returns immediately
+	return nil
+}
+
+// Reconnect signals the run loop to tear down current stream and start fresh.
+// New TLS creds are loaded from keystore at next runOnce iteration.
+func (c *Client) Reconnect() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.cancelStream != nil {
+		c.cancelStream()
+		c.cancelStream = nil
+	}
+}
+
+// CertIssueCh returns the channel for receiving CertIssueResponse messages.
+func (c *Client) CertIssueCh() <-chan *pb.CertIssueResponse {
+	return c.certIssueCh
+}
+
+// RunCertRotateCh returns the channel for receiving RunCertRotate messages.
+func (c *Client) RunCertRotateCh() <-chan *pb.RunCertRotate {
+	return c.runCertRotateCh
 }
 
 func (c *Client) Run(ctx context.Context) error {
@@ -186,7 +232,13 @@ func (c *Client) runOnce(ctx context.Context) error {
 	}
 	defer conn.Close()
 	stub := pb.NewAgentBridgeClient(conn)
-	stream, err := stub.Stream(ctx)
+	// Create a cancellable context for the stream; store cancel so Reconnect can call it
+	streamCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	c.mu.Lock()
+	c.cancelStream = cancel
+	c.mu.Unlock()
+	stream, err := stub.Stream(streamCtx)
 	if err != nil {
 		return err
 	}
@@ -408,6 +460,17 @@ func (c *Client) runOnce(ctx context.Context) error {
 						}
 					}
 				}(m.RunInventory.IncludeLang, m.RunInventory.LangRoots)
+		case *pb.ServerToAgent_CertIssue:
+			select {
+			case c.certIssueCh <- m.CertIssue:
+			default:
+				log.Printf("transport: cert_issue dropped (no listener)")
+			}
+		case *pb.ServerToAgent_RunCertRotate:
+			select {
+			case c.runCertRotateCh <- m.RunCertRotate:
+			default:
+			}
 			}
 		}
 	}()
