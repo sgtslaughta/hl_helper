@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
 	"os"
 	"time"
 )
@@ -54,4 +55,18 @@ func SaveState(path string, s State) error {
 		return fmt.Errorf("write tmp: %w", err)
 	}
 	return os.Rename(tmp, path)
+}
+
+// ComputeRotateAfter returns the absolute time at which rotation should be
+// attempted. Default: 50% of (notBefore..notAfter) elapsed, with optional
+// jitter as a fraction (e.g. 0.10 = ±10%) applied to the half-life.
+func ComputeRotateAfter(notBefore, notAfter, now time.Time, jitterFrac float64) time.Time {
+	span := notAfter.Sub(notBefore)
+	half := span / 2
+	if jitterFrac > 0 {
+		// Jitter in range [-jitterFrac*half, +jitterFrac*half].
+		delta := time.Duration((rand.Float64()*2 - 1) * float64(half) * jitterFrac)
+		half += delta
+	}
+	return notBefore.Add(half)
 }
