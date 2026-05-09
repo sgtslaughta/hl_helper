@@ -602,9 +602,36 @@ Document findings. Update runbooks.
 
 ---
 
+## NIST Incident Response Framework
+
+This runbook uses NIST IR phases:
+
+1. **Detection**: Symptom recognition
+2. **Containment**: Stop the bleeding (decommission, isolate, revoke)
+3. **Eradication**: Fix root cause (restore from backup, rotate keys)
+4. **Recovery**: Bring services back online
+5. **Lessons Learned**: Prevent recurrence (policy, tooling, training)
+
+Each scenario in this document roughly follows these phases in order.
+
+---
+
+## Post-Incident Review
+
+After resolving any incident:
+
+1. **Document**: When did you detect it? What was the impact? How long to fix?
+2. **Root cause**: Why did it happen? (e.g., no backups, unencrypted keys, human error, software bug)
+3. **Preventive measures**: Short-term (this week) and long-term (next quarter)
+4. **Team sign-off**: Incident commander + security lead sign off on review
+
+See [Post-Incident Review Template](./key-compromise-recovery.md#post-incident-review-template) for a standard form.
+
+---
+
 ## References
 
-- **Key management**: `docs/security/key-management.md`
-- **Threat model**: `docs/security/threat-model.md`
-- **Enrollment**: `docs/security/enrollment.md`
-- **Agent privilege model**: `docs/security/agent-privilege-model.md`
+- **Key management**: `docs/admin/operations/key-rotation.md`
+- **Key compromise**: `docs/admin/runbooks/key-compromise-recovery.md`
+- **Threat model**: `docs/developer/secure-dev/threat-model.md`
+- **Agent privilege model**: `docs/developer/secure-dev/agent-privilege-model.md`

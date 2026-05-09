@@ -198,6 +198,112 @@ fleet audit checkpoint list --format json \
   | jq '.[] | {id, signature_valid, signed_with_key}'
 ```
 
+---
+
+## NIST Incident Response Phases
+
+Each scenario below follows NIST IR phases: **Detection → Containment → Eradication → Recovery → Lessons Learned**.
+
+### Scenario 1: Agent Private Key Compromised — Phases
+
+**Detection**: Malware alert, unauthorized TLS use, rootkit discovery  
+**Containment**: Decommission host (revoke cert)  
+**Eradication**: Forensics, OS wipe if malware confirmed  
+**Recovery**: Re-enroll with new bootstrap token  
+**Lessons Learned**: Review host monitoring; add EDR/intrusion detection
+
+### Scenario 2: Server CA Compromised — Phases
+
+**Detection**: Unauthorized cert issued, server filesystem breach, proactive audit  
+**Containment**: Revoke all agents immediately (CRL)  
+**Eradication**: Rotate CA (new keypair)  
+**Recovery**: Re-enroll all agents in phases  
+**Lessons Learned**: Strengthen CA key storage; consider HSM or Vault
+
+### Scenario 3: Audit Checkpoint Signing Key Compromised — Phases
+
+**Detection**: Filesystem breach, backup stolen, key export log  
+**Containment**: Rotate signing key (new keypair)  
+**Eradication**: Audit checkpoints signed with new key  
+**Recovery**: Verify pre-compromise entries; document gap  
+**Lessons Learned**: Implement key rotation reminders; separate backup from DB
+
+---
+
+## Post-Incident Review Template
+
+After any key-compromise incident, complete this review:
+
+```markdown
+## Incident Report: [Scenario Name]
+
+**Incident ID**: INC-2026-05-09-001  
+**Severity**: [Critical/High/Medium]  
+**Detected**: 2026-05-09 14:30 UTC  
+**Contained**: 2026-05-09 14:35 UTC  
+**Resolved**: 2026-05-09 16:00 UTC  
+**Total Duration**: 1.5 hours  
+
+### What happened?
+[Describe the incident: how it was detected, what was affected]
+
+### Root cause
+[Why did this happen? E.g., unencrypted key storage, weak access control, supply chain breach]
+
+### Timeline
+- **14:30 UTC**: Malware detected on lab-host-01
+- **14:32 UTC**: Admin receives alert; begins investigation
+- **14:35 UTC**: Decision to decommission; command sent
+- **14:36 UTC**: gRPC stream closed; cert revoked
+- **14:45 UTC**: Forensic snapshot taken
+- **16:00 UTC**: OS reinstalled; host re-enrolled with new token
+
+### Impact
+- **Hosts affected**: 1 (lab-host-01)
+- **Data exposed**: TLS key, signing key, manifest (capability list)
+- **Unauthorized actions**: None detected (no suspicious audit entries)
+- **Downtime**: ~30 minutes (re-enrollment time)
+
+### Actions taken (Containment)
+- [ ] Decommissioned host with clear reason logged
+- [ ] Verified cert revocation via CRL
+- [ ] Checked audit log for unauthorized commands from this host
+- [ ] Notified security team
+
+### Actions taken (Eradication)
+- [ ] Forensic analysis completed; malware identified as [type]
+- [ ] OS completely wiped from golden image
+- [ ] Hardware checked for firmware compromise
+- [ ] Agent binary re-installed from trusted source
+
+### Actions taken (Recovery)
+- [ ] New bootstrap token generated
+- [ ] Host re-enrolled with new host_id, signing key, TLS cert
+- [ ] Verified healthy heartbeat
+- [ ] Checked audit log for re-enrollment event
+
+### Preventive measures (Lessons Learned)
+- **Short-term** (this week):
+  - [ ] Enable EDR/intrusion detection on all hosts
+  - [ ] Review sudoers fragment; tighten access to package manager
+  - [ ] Run security audit on all agent systems
+  
+- **Long-term** (next quarter):
+  - [ ] Implement host-based firewall rules (agent → server only)
+  - [ ] Deploy Container workload identity (for VMs/containers)
+  - [ ] Schedule annual key-rotation drill
+  - [ ] Document key storage best practices in runbook
+
+### Sign-off
+- **Incident Commander**: [Name]
+- **Security Review**: [Name]
+- **Date**: 2026-05-09
+
+---
+```
+
+---
+
 ## References
 
 - [Key Management](../security-fundamentals/key-management.md) — rotation procedures, backup policy
