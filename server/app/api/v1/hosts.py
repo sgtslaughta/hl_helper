@@ -500,12 +500,16 @@ async def get_host_exposure(
     )
 
 
+def _get_agent_bridge(request: Request):
+    return get_app_state(request).agent_bridge
+
+
 @router.post("/{host_id}/exposure/rescan", status_code=202)
 async def rescan_exposure(
     host_id: str,
     actor: str = Depends(admin_required),
     session: AsyncSession = Depends(get_session),
-    bridge=Depends(lambda req: get_app_state(req).agent_bridge),
+    bridge=Depends(_get_agent_bridge),
 ):
     """Request a runtime exposure scan for a host."""
     row = await session.get(Host, host_id)
