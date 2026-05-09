@@ -17,6 +17,7 @@ export interface PillarOut {
 	weight: number;
 	drivers: RiskDriver[];
 	coverage_notes: string[];
+	exposure_counts?: Record<string, number>;
 }
 
 export interface HostRiskOut {

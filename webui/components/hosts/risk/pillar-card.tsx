@@ -6,6 +6,25 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { PILLAR_DETAIL_RENDERERS } from './registry';
 
+function ExposureBreakdownBar({ counts }: { counts: Record<string, number> }) {
+	const total = Object.values(counts).reduce((a, b) => a + b, 0);
+	if (total === 0) return null;
+	const seg = (key: string, color: string) => {
+		const v = counts[key] ?? 0;
+		if (v === 0) return null;
+		const w = (v / total) * 100;
+		return <div key={key} className={color} style={{ width: `${w}%` }} title={`${key}: ${v}`} />;
+	};
+	return (
+		<div className="mt-2 flex h-1.5 overflow-hidden rounded">
+			{seg("NETWORK_EXPOSED", "bg-red-500")}
+			{seg("ACTIVE", "bg-amber-500")}
+			{seg("INSTALLED_ONLY", "bg-zinc-600")}
+			{seg("UNKNOWN", "bg-slate-700")}
+		</div>
+	);
+}
+
 interface Props {
 	p: PillarOut;
 	hostId: string;
@@ -46,6 +65,10 @@ export function RiskPillarCard({ p, hostId, renderExtra }: Props) {
 			</div>
 
 			<RiskPillarBar p={p} />
+
+			{p.name === 'vulnerabilities' && p.exposure_counts ? (
+				<ExposureBreakdownBar counts={p.exposure_counts} />
+			) : null}
 
 			{top.length > 0 ? (
 				<div className="space-y-0.5">
