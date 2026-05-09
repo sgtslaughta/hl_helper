@@ -25,16 +25,55 @@ const ACTION_KEYS: Record<string, ActionMode> = {
 	e: 'logs',
 	r: 'files',
 	t: 'trust',
+	y: 'agent',
 };
+
+const LS_KEY_HOST = 'hosts:lastSelected';
+const LS_KEY_FOCUS = 'hosts:lastFocusMode';
+const LS_KEY_ACTION = 'hosts:lastActionMode';
+
+function readLS(key: string): string | null {
+	if (typeof window === 'undefined') return null;
+	try {
+		return window.localStorage.getItem(key);
+	} catch {
+		return null;
+	}
+}
+
+function writeLS(key: string, value: string | null) {
+	if (typeof window === 'undefined') return;
+	try {
+		if (value == null) window.localStorage.removeItem(key);
+		else window.localStorage.setItem(key, value);
+	} catch {
+		/* quota / private mode */
+	}
+}
 
 export function MissionControlShell({ initialHostId }: { initialHostId: string | null }) {
 	const router = useRouter();
 	const pathname = usePathname();
-	const [selectedId, setSelectedId] = useState<string | null>(initialHostId);
-	const [focusMode, setFocusMode] = useState<FocusMode>('hardware');
-	const [actionMode, setActionMode] = useState<ActionMode>('term');
+	// URL wins over localStorage; fall back to LS only when URL is "/hosts"
+	const [selectedId, setSelectedId] = useState<string | null>(initialHostId ?? readLS(LS_KEY_HOST));
+	const [focusMode, setFocusMode] = useState<FocusMode>(
+		() => (readLS(LS_KEY_FOCUS) as FocusMode) || 'hardware',
+	);
+	const [actionMode, setActionMode] = useState<ActionMode>(
+		() => (readLS(LS_KEY_ACTION) as ActionMode) || 'term',
+	);
 	const [actionWidth, setActionWidth] = useState<PaneWidth>('normal');
 	const [enrollOpen, setEnrollOpen] = useState(false);
+
+	useEffect(() => {
+		writeLS(LS_KEY_HOST, selectedId);
+	}, [selectedId]);
+	useEffect(() => {
+		writeLS(LS_KEY_FOCUS, focusMode);
+	}, [focusMode]);
+	useEffect(() => {
+		writeLS(LS_KEY_ACTION, actionMode);
+	}, [actionMode]);
 
 	useEffect(() => {
 		const target = selectedId ? `/hosts/${selectedId}` : '/hosts';
@@ -66,9 +105,8 @@ export function MissionControlShell({ initialHostId }: { initialHostId: string |
 		return () => window.removeEventListener('keydown', onKey);
 	}, []);
 
-	useEffect(() => {
-		if (selectedId) setFocusMode('hardware');
-	}, [selectedId]);
+	// Note: previous version auto-reset focus to 'hardware' on host change;
+	// removed so that user's last-viewed panel persists across selections.
 
 	const hostsQ = useQuery<Host[]>({
 		queryKey: ['hosts'],
@@ -94,11 +132,18 @@ export function MissionControlShell({ initialHostId }: { initialHostId: string |
 			pending: pendingQ.data?.length ?? 0,
 			online: 0,
 			offline: 0,
+			stale: 0,
 		};
+		const staleCutoff = Date.now() - 30 * 60_000;
 		for (const h of hostsQ.data ?? []) {
 			if (h.status === 'critical' || h.status === 'warning') out.critical++;
 			else if (h.status === 'offline') out.offline++;
 			else out.online++;
+			// Stale = enrolled but never heartbeated and >30m old
+			const enrolledAt = h.enrolled_at ? Date.parse(h.enrolled_at) : Number.NaN;
+			if (!h.last_seen_at && Number.isFinite(enrolledAt) && enrolledAt < staleCutoff) {
+				out.stale++;
+			}
 		}
 		return out;
 	}, [hostsQ.data, pendingQ.data]);

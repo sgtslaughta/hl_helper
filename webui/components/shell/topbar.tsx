@@ -3,7 +3,6 @@
 import { apiFetch } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth';
 import { usePaletteStore } from '@/stores/palette';
-import { useSidebarStore } from '@/stores/sidebar';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useQuery } from '@tanstack/react-query';
 import { Bell, Command, LogOut, Moon, Search, Settings, Sun, User } from 'lucide-react';
@@ -21,7 +20,6 @@ export function Topbar() {
 	const currentTheme = theme === 'system' ? systemTheme : theme;
 	const { user, logout } = useAuth();
 	const [density, setDensity] = useState<Density>('comfortable');
-	const toggle = useSidebarStore(state => state.toggle);
 	const openPalette = usePaletteStore(s => s.setOpen);
 
 	const { data: unreadCount = { count: 0 } } = useQuery<UnreadCount>({
@@ -68,17 +66,8 @@ export function Topbar() {
 
 	return (
 		<header className="grid h-12 grid-cols-[1fr_auto_1fr] items-center gap-3 border-b border-hairline bg-surface px-4">
-			{/* Left cluster */}
-			<div className="flex items-center">
-				<button
-					type="button"
-					onClick={toggle}
-					className="rounded px-2 py-1 font-mono text-text-dim hover:bg-surface-2 hover:text-text"
-					title="Toggle sidebar"
-				>
-					⌘\
-				</button>
-			</div>
+			{/* Left cluster (sidebar collapse lives in sidebar) */}
+			<div className="flex items-center" />
 
 			{/* Center: global super search */}
 			<button
@@ -122,72 +111,75 @@ export function Topbar() {
 							<User size={18} />
 						</button>
 					</DropdownMenu.Trigger>
-					<DropdownMenu.Content
-						className="min-w-48 rounded border border-hairline bg-surface p-1 shadow-lg"
-						sideOffset={8}
-					>
-						<DropdownMenu.Item className="px-3 py-2 text-sm text-text-dim data-[highlighted]:bg-surface-2 data-[highlighted]:text-text cursor-pointer rounded">
-							<a href="/settings/profile">Profile</a>
-						</DropdownMenu.Item>
+					<DropdownMenu.Portal>
+						<DropdownMenu.Content
+							className="z-[100] min-w-48 rounded border border-hairline bg-surface p-1 shadow-lg"
+							sideOffset={8}
+							align="end"
+						>
+							<DropdownMenu.Item className="px-3 py-2 text-sm text-text-dim data-[highlighted]:bg-surface-2 data-[highlighted]:text-text cursor-pointer rounded">
+								<a href="/settings/profile">Profile</a>
+							</DropdownMenu.Item>
 
-						<DropdownMenu.Sub>
-							<DropdownMenu.SubTrigger className="flex items-center justify-between px-3 py-2 text-sm text-text-dim data-[highlighted]:bg-surface-2 data-[highlighted]:text-text cursor-pointer rounded">
-								Theme
-								<span className="text-xs text-text-dim ml-2">→</span>
-							</DropdownMenu.SubTrigger>
-							<DropdownMenu.SubContent className="min-w-40 rounded border border-hairline bg-surface p-1 shadow-lg">
-								<DropdownMenu.Item
-									onClick={handleThemeToggle}
-									className="flex items-center gap-2 px-3 py-2 text-sm text-text data-[highlighted]:bg-surface-2 cursor-pointer rounded"
-								>
-									{currentTheme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
-									{currentTheme === 'dark' ? 'Light' : 'Dark'}
-								</DropdownMenu.Item>
-							</DropdownMenu.SubContent>
-						</DropdownMenu.Sub>
-
-						<DropdownMenu.Sub>
-							<DropdownMenu.SubTrigger className="flex items-center justify-between px-3 py-2 text-sm text-text-dim data-[highlighted]:bg-surface-2 data-[highlighted]:text-text cursor-pointer rounded">
-								Density
-								<span className="text-xs text-text-dim ml-2">→</span>
-							</DropdownMenu.SubTrigger>
-							<DropdownMenu.SubContent className="min-w-40 rounded border border-hairline bg-surface p-1 shadow-lg">
-								{(['compact', 'comfortable', 'spacious'] as const).map(d => (
+							<DropdownMenu.Sub>
+								<DropdownMenu.SubTrigger className="flex items-center justify-between px-3 py-2 text-sm text-text-dim data-[highlighted]:bg-surface-2 data-[highlighted]:text-text cursor-pointer rounded">
+									Theme
+									<span className="text-xs text-text-dim ml-2">→</span>
+								</DropdownMenu.SubTrigger>
+								<DropdownMenu.SubContent className="z-[100] min-w-40 rounded border border-hairline bg-surface p-1 shadow-lg">
 									<DropdownMenu.Item
-										key={d}
-										onClick={() => handleDensityChange(d)}
-										className={`px-3 py-2 text-sm cursor-pointer rounded capitalize ${
-											density === d
-												? 'bg-surface-2 text-text'
-												: 'text-text-dim data-[highlighted]:bg-surface-2 data-[highlighted]:text-text'
-										}`}
+										onClick={handleThemeToggle}
+										className="flex items-center gap-2 px-3 py-2 text-sm text-text data-[highlighted]:bg-surface-2 cursor-pointer rounded"
 									>
-										{d}
+										{currentTheme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+										{currentTheme === 'dark' ? 'Light' : 'Dark'}
 									</DropdownMenu.Item>
-								))}
-							</DropdownMenu.SubContent>
-						</DropdownMenu.Sub>
+								</DropdownMenu.SubContent>
+							</DropdownMenu.Sub>
 
-						<DropdownMenu.Item
-							onClick={() => {
-								window.location.href = '/settings';
-							}}
-							className="flex items-center gap-2 px-3 py-2 text-sm text-text-dim data-[highlighted]:bg-surface-2 data-[highlighted]:text-text cursor-pointer rounded"
-						>
-							<Settings size={16} />
-							Settings
-						</DropdownMenu.Item>
+							<DropdownMenu.Sub>
+								<DropdownMenu.SubTrigger className="flex items-center justify-between px-3 py-2 text-sm text-text-dim data-[highlighted]:bg-surface-2 data-[highlighted]:text-text cursor-pointer rounded">
+									Density
+									<span className="text-xs text-text-dim ml-2">→</span>
+								</DropdownMenu.SubTrigger>
+								<DropdownMenu.SubContent className="z-[100] min-w-40 rounded border border-hairline bg-surface p-1 shadow-lg">
+									{(['compact', 'comfortable', 'spacious'] as const).map(d => (
+										<DropdownMenu.Item
+											key={d}
+											onClick={() => handleDensityChange(d)}
+											className={`px-3 py-2 text-sm cursor-pointer rounded capitalize ${
+												density === d
+													? 'bg-surface-2 text-text'
+													: 'text-text-dim data-[highlighted]:bg-surface-2 data-[highlighted]:text-text'
+											}`}
+										>
+											{d}
+										</DropdownMenu.Item>
+									))}
+								</DropdownMenu.SubContent>
+							</DropdownMenu.Sub>
 
-						<DropdownMenu.Separator className="my-1 h-px bg-hairline" />
+							<DropdownMenu.Item
+								onClick={() => {
+									window.location.href = '/settings';
+								}}
+								className="flex items-center gap-2 px-3 py-2 text-sm text-text-dim data-[highlighted]:bg-surface-2 data-[highlighted]:text-text cursor-pointer rounded"
+							>
+								<Settings size={16} />
+								Settings
+							</DropdownMenu.Item>
 
-						<DropdownMenu.Item
-							onClick={handleLogout}
-							className="flex items-center gap-2 px-3 py-2 text-sm text-danger data-[highlighted]:bg-surface-2 cursor-pointer rounded"
-						>
-							<LogOut size={16} />
-							Sign Out
-						</DropdownMenu.Item>
-					</DropdownMenu.Content>
+							<DropdownMenu.Separator className="my-1 h-px bg-hairline" />
+
+							<DropdownMenu.Item
+								onClick={handleLogout}
+								className="flex items-center gap-2 px-3 py-2 text-sm text-danger data-[highlighted]:bg-surface-2 cursor-pointer rounded"
+							>
+								<LogOut size={16} />
+								Sign Out
+							</DropdownMenu.Item>
+						</DropdownMenu.Content>
+					</DropdownMenu.Portal>
 				</DropdownMenu.Root>
 			</div>
 		</header>

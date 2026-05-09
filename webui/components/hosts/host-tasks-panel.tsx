@@ -3,9 +3,9 @@
 import { EmptyState } from '@/components/empty-states/empty-state';
 import { ActionConfirmDialog } from '@/components/hosts/action-confirm-dialog';
 import { ShellExecForm } from '@/components/hosts/shell-exec-form';
+import { Badge } from '@/components/primitives/badge';
 import { BlueprintSkeleton } from '@/components/skeletons/blueprint-skeleton';
 import { TaskResultPreview } from '@/components/tasks/task-result-preview';
-import { Badge } from '@/components/primitives/badge';
 import { apiFetch } from '@/lib/api-client';
 import { type Host, shellExecHost } from '@/lib/api/hosts';
 import { useCanPerform } from '@/lib/rbac';
@@ -30,6 +30,7 @@ import { Fragment, useState } from 'react';
 interface TaskListItem {
 	id: string;
 	kind: string;
+	kind_display?: string;
 	status: string;
 	created_at: string;
 	risk: string;
@@ -274,7 +275,7 @@ export function HostTasksPanel({ hostId, host }: PanelProps) {
 												<span className="uppercase tracking-wider text-[10px]">{t.status}</span>
 											</span>
 										</td>
-										<td className="px-3 py-2 text-text">{t.kind}</td>
+										<td className="px-3 py-2 text-text">{t.kind_display || t.kind}</td>
 										<td
 											className="px-3 py-2 text-text-dim max-w-[320px] truncate"
 											title={t.summary ?? ''}
@@ -303,7 +304,15 @@ export function HostTasksPanel({ hostId, host }: PanelProps) {
 										<tr>
 											<td colSpan={7} className="border-b border-hairline bg-bezel/40 px-4 py-3">
 												<section aria-label={`Result for ${t.kind}`}>
-													<TaskResultPreview taskId={t.id} hostId={hostId} />
+													<TaskResultPreview
+														taskId={t.id}
+														hostId={hostId}
+														taskAction={
+															typeof t.payload?.action === 'string'
+																? (t.payload.action as string)
+																: null
+														}
+													/>
 												</section>
 											</td>
 										</tr>

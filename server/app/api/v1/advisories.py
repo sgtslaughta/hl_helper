@@ -39,6 +39,7 @@ class AdvisoryOut(BaseModel):
     id: str
     severity: str
     summary: str
+    description_md: str | None = None
     kev: bool = False
     epss: float | None = None
     modified: datetime | None = None
@@ -85,6 +86,23 @@ class FleetAdvisoryRow(BaseModel):
 class FleetAdvisoryRollupResponse(BaseModel):
     items: list[FleetAdvisoryRow]
     total: int
+    # Deduped CVE counts per severity across the full filtered result set
+    # (independent of page offset/limit). Lets the UI render accurate stat
+    # pills even when paginating.
+    severity_counts: dict[str, int] = {}
+    kev_count: int = 0
+
+
+class AdvisoryHostRow(BaseModel):
+    host_id: str
+    hostname: str
+    status: str  # open | suppressed | fixed
+    package: str | None = None
+    installed_version: str | None = None
+
+
+class AdvisoryHostsResponse(BaseModel):
+    items: list[AdvisoryHostRow]
 
 
 def _catalog_sm(app_state: Any) -> Any:
@@ -250,7 +268,7 @@ async def fleet_advisory_rollup(
         ha_rows = list((await session.execute(ha_stmt)).scalars().all())
 
     if not ha_rows:
-        return FleetAdvisoryRollupResponse(items=[], total=0)
+        return FleetAdvisoryRollupResponse(items=[], total=0, severity_counts={}, kev_count=0)
 
     advisory_ids = list({r.advisory_id for r in ha_rows})
 
@@ -320,8 +338,62 @@ async def fleet_advisory_rollup(
         items.sort(key=lambda x: x.id)
 
     total = len(items)
+    severity_counts: dict[str, int] = {}
+    kev_count = 0
+    for row in items:
+        severity_counts[row.severity] = severity_counts.get(row.severity, 0) + 1
+        if row.kev:
+            kev_count += 1
     items = items[offset : offset + limit]
-    return FleetAdvisoryRollupResponse(items=items, total=total)
+    return FleetAdvisoryRollupResponse(
+        items=items,
+        total=total,
+        severity_counts=severity_counts,
+        kev_count=kev_count,
+    )
+
+
+@router.get("/{advisory_id}/hosts", response_model=AdvisoryHostsResponse)
+async def list_advisory_hosts(
+    request: Request,
+    advisory_id: str,
+    status: str = Query("open", description="Filter by host_advisory.status; 'all' to skip"),
+    _: str = Depends(admin_required),
+) -> AdvisoryHostsResponse:
+    """Return hosts affected by a given advisory. Joins host_advisory rows
+    (fleet DB) with host records to surface hostnames in the UI."""
+    from server.app.models.host import Host  # local import: avoid cycles
+
+    app_state = get_app_state(request)
+    async with app_state.sessionmaker() as session:
+        stmt = select(HostAdvisory).where(HostAdvisory.advisory_id == advisory_id)
+        if status and status != "all":
+            stmt = stmt.where(HostAdvisory.status == status)
+        ha_rows = list((await session.execute(stmt)).scalars().all())
+
+        if not ha_rows:
+            return AdvisoryHostsResponse(items=[])
+
+        host_ids = list({r.host_id for r in ha_rows})
+        host_rows = list(
+            (await session.execute(select(Host).where(Host.id.in_(host_ids)))).scalars().all()
+        )
+
+    by_host = {h.id: h for h in host_rows}
+    items = []
+    for r in ha_rows:
+        h = by_host.get(r.host_id)
+        items.append(
+            AdvisoryHostRow(
+                host_id=r.host_id,
+                hostname=(h.hostname if h else r.host_id),
+                status=r.status,
+                package=getattr(r, "package", None),
+                installed_version=getattr(r, "installed_version", None),
+            )
+        )
+    items.sort(key=lambda x: x.hostname.lower())
+    return AdvisoryHostsResponse(items=items)
 
 
 @router.get("/{advisory_id}", response_model=AdvisoryOut)
@@ -346,6 +418,7 @@ async def get_advisory(
             id=adv.id,
             severity=adv.severity,
             summary=_derive_summary(adv),
+            description_md=getattr(adv, "description_md", None),
             kev=adv.kev,
             epss=adv.epss,
             modified=adv.modified,

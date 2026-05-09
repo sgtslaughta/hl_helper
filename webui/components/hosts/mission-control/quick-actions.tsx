@@ -100,6 +100,7 @@ export function QuickActions({ host, onDeleted }: { host: Host; onDeleted?: () =
 	const [reason, setReason] = useState('');
 	const [asRoot, setAsRoot] = useState(false);
 	const [shellReason, setShellReason] = useState('');
+	const [uninstallAgent, setUninstallAgent] = useState(true);
 	const qc = useQueryClient();
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: setters are stable
@@ -110,6 +111,7 @@ export function QuickActions({ host, onDeleted }: { host: Host; onDeleted?: () =
 		setReason('');
 		setAsRoot(false);
 		setShellReason('');
+		setUninstallAgent(true);
 	}, [pending]);
 
 	const reboot = useCanPerform('reboot');
@@ -183,7 +185,27 @@ export function QuickActions({ host, onDeleted }: { host: Host; onDeleted?: () =
 		else if (action === 'pkg-update') pkgMut.mutate(principal);
 		else if (action === 'resurvey') resurveyMut.mutate();
 		else if (action === 'revoke-host') revokeMut.mutate(principal);
-		else if (action === 'delete-host') deleteMut.mutate(principal);
+		else if (action === 'delete-host') {
+			// Optional: dispatch agent self-uninstall via shell-exec before
+			// removing the server-side record. Best-effort: if shell-exec
+			// fails (host offline, no perms), still proceed with delete.
+			const shellPrincipal = shellExec.allowed ? (shellExec.principal ?? '') : null;
+			if (uninstallAgent && shellPrincipal) {
+				shellExecHost(
+					host.id,
+					{
+						command: 'hl-agent uninstall --purge',
+						timeout_s: 120,
+						as_root: true,
+						reason: 'agent self-uninstall before host deletion',
+					},
+					shellPrincipal,
+				).catch(() => {
+					// host probably offline; proceed with deletion regardless
+				});
+			}
+			deleteMut.mutate(principal);
+		}
 		setPending(null);
 	}
 
@@ -229,6 +251,38 @@ export function QuickActions({ host, onDeleted }: { host: Host; onDeleted?: () =
 							);
 						})}
 					</div>
+				</fieldset>
+			);
+		}
+		if (pending === 'delete-host') {
+			const canShell = shellExec.allowed;
+			return (
+				<fieldset className="mb-3 space-y-2">
+					<label
+						className={`flex items-start gap-2 rounded-sm border px-2 py-2 ${
+							canShell
+								? 'border-hairline bg-surface-2'
+								: 'border-hairline/50 bg-surface-2/40 opacity-60'
+						}`}
+					>
+						<input
+							type="checkbox"
+							checked={canShell && uninstallAgent}
+							disabled={!canShell}
+							onChange={e => setUninstallAgent(e.target.checked)}
+							className="mt-0.5 accent-accent"
+						/>
+						<span className="font-mono text-[11px]">
+							<span className="block uppercase tracking-wider text-text">
+								Also uninstall agent on host
+							</span>
+							<span className="block text-text-dim">
+								{canShell
+									? 'Runs `hl-agent uninstall --purge` as root before deleting record. Best-effort if host offline.'
+									: 'shell-exec capability required'}
+							</span>
+						</span>
+					</label>
 				</fieldset>
 			);
 		}

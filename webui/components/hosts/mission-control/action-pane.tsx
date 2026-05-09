@@ -12,6 +12,7 @@ import {
 	WrapText,
 } from 'lucide-react';
 import { useState } from 'react';
+import { AgentConfig } from './agent-config';
 import { HostFilesPanel } from './host-files-panel';
 import { HostLogsPanel } from './host-logs-panel';
 import { type PaneAction, PaneChrome, type PaneTab } from './pane-chrome';
@@ -21,7 +22,7 @@ interface UpdateAgentResponse {
 	version?: string;
 }
 
-export type ActionMode = 'term' | 'logs' | 'files' | 'trust';
+export type ActionMode = 'term' | 'logs' | 'files' | 'trust' | 'agent';
 export type PaneWidth = 'normal' | 'wide' | 'xwide';
 
 const TABS: PaneTab[] = [
@@ -29,6 +30,7 @@ const TABS: PaneTab[] = [
 	{ key: 'logs', label: 'Logs', hotkey: 'e' },
 	{ key: 'files', label: 'Files', hotkey: 'r' },
 	{ key: 'trust', label: 'Trust', hotkey: 't' },
+	{ key: 'agent', label: 'Agent', hotkey: 'y' },
 ];
 
 interface Props {
@@ -57,7 +59,9 @@ export function ActionPane({ host, mode, onModeChange, width, onWidthChange }: P
 				return;
 			}
 
-			const latestR = await fetch(`/v1/agent-releases/latest?os=${encodeURIComponent(os)}&arch=${encodeURIComponent(arch)}`);
+			const latestR = await fetch(
+				`/v1/agent-releases/latest?os=${encodeURIComponent(os)}&arch=${encodeURIComponent(arch)}`,
+			);
 			if (!latestR.ok) {
 				alert('No latest release available for this host architecture');
 				return;
@@ -160,6 +164,7 @@ export function ActionPane({ host, mode, onModeChange, width, onWidthChange }: P
 							endpoint.
 						</div>
 					) : null}
+					{mode === 'agent' ? <AgentConfig host={host} /> : null}
 				</div>
 			</div>
 		</PaneChrome>

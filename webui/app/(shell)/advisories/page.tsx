@@ -25,6 +25,29 @@ interface FleetRow {
 interface RollupResponse {
 	items: FleetRow[];
 	total: number;
+	severity_counts?: Record<string, number>;
+	kev_count?: number;
+}
+
+interface AdvisoryHostRow {
+	host_id: string;
+	hostname: string;
+	status: string;
+	package: string | null;
+	installed_version: string | null;
+}
+
+interface AdvisoryHostsResponse {
+	items: AdvisoryHostRow[];
+}
+
+interface AdvisoryDetail {
+	id: string;
+	severity: string;
+	summary: string;
+	description_md: string | null;
+	kev: boolean;
+	epss: number | null;
 }
 
 interface HostMin {
@@ -84,7 +107,20 @@ export default function AdvisoriesPage() {
 	const items = rollupQ.data?.items ?? [];
 	const total = rollupQ.data?.total ?? 0;
 
+	// Prefer server-provided severity_counts (full filtered set, deduped per
+	// CVE). Falls back to per-page tally for older servers.
 	const totals = useMemo(() => {
+		const sc = rollupQ.data?.severity_counts;
+		if (sc) {
+			return {
+				critical: sc.critical ?? 0,
+				high: sc.high ?? 0,
+				medium: sc.medium ?? 0,
+				low: sc.low ?? 0,
+				unknown: sc.unknown ?? 0,
+				kev: rollupQ.data?.kev_count ?? 0,
+			};
+		}
 		const t = { critical: 0, high: 0, medium: 0, low: 0, unknown: 0, kev: 0 };
 		for (const r of items) {
 			t[(r.severity as keyof typeof t) ?? 'unknown'] =
@@ -92,7 +128,7 @@ export default function AdvisoriesPage() {
 			if (r.kev) t.kev += 1;
 		}
 		return t;
-	}, [items]);
+	}, [items, rollupQ.data?.severity_counts, rollupQ.data?.kev_count]);
 
 	const toggleExpanded = (id: string) =>
 		setExpanded(prev => {
@@ -119,8 +155,8 @@ export default function AdvisoriesPage() {
 				<div>
 					<h1 className="text-h1 text-text">Advisories</h1>
 					<p className="mt-2 text-text-dim">
-						Fleet-wide rollup of host advisories. One row per CVE; counts reflect hosts
-						matching the current filters.
+						Fleet-wide rollup of host advisories. One row per CVE; counts reflect hosts matching the
+						current filters.
 					</p>
 				</div>
 				<Link
@@ -171,10 +207,10 @@ export default function AdvisoriesPage() {
 					}}
 					options={[
 						{ value: 'all', label: 'All hosts' },
-						...((hostsQ.data ?? []).map(h => ({
+						...(hostsQ.data ?? []).map(h => ({
 							value: h.id,
 							label: h.hostname || h.id,
-						}))),
+						})),
 					]}
 				/>
 				<Select
@@ -251,7 +287,7 @@ export default function AdvisoriesPage() {
 					<table className="w-full text-sm">
 						<thead className="border-b border-hairline bg-surface-hover">
 							<tr>
-								<th className="w-8 px-2 py-2"></th>
+								<th className="w-8 px-2 py-2" />
 								<th
 									className="px-4 py-2 text-left font-semibold text-text-dim"
 									title="Severity classification from the advisory feed. Distro feeds publish their own; OSV derives from CVSS when no distro rating is available."
@@ -304,7 +340,15 @@ export default function AdvisoriesPage() {
 								return (
 									<Fragment key={r.id}>
 										<tr
+											tabIndex={0}
+											aria-expanded={isOpen}
 											onClick={() => toggleExpanded(r.id)}
+											onKeyDown={e => {
+												if (e.key === 'Enter' || e.key === ' ') {
+													e.preventDefault();
+													toggleExpanded(r.id);
+												}
+											}}
 											className="cursor-pointer hover:bg-surface-hover/50"
 										>
 											<td className="px-2 py-2 text-text-dim">
@@ -333,9 +377,7 @@ export default function AdvisoriesPage() {
 											</td>
 											<td className="px-4 py-2 font-mono text-text">{r.affected_hosts}</td>
 											<td className="px-4 py-2 font-mono text-text">{r.open_count}</td>
-											<td className="px-4 py-2 font-mono text-text-dim">
-												{r.suppressed_count}
-											</td>
+											<td className="px-4 py-2 font-mono text-text-dim">{r.suppressed_count}</td>
 											<td className="px-4 py-2 font-mono text-text-dim">{r.fixed_count}</td>
 											<td className="px-4 py-2 font-mono text-text">
 												{r.epss != null ? r.epss.toFixed(3) : '—'}
@@ -356,28 +398,13 @@ export default function AdvisoriesPage() {
 										</tr>
 										{isOpen && (
 											<tr className="bg-canvas/40">
-												<td></td>
-												<td colSpan={9} className="px-4 py-3 text-text-dim text-xs">
-													<div className="flex flex-wrap items-center gap-3">
-														<Link
-															href={`/advisories/${encodeURIComponent(r.id)}`}
-															className="text-accent hover:text-accent-dim"
-														>
-															Open advisory detail →
-														</Link>
-														<button
-															type="button"
-															onClick={() => setSearch(r.id)}
-															className="rounded border border-hairline px-2 py-0.5 hover:bg-surface-hover"
-														>
-															Filter to this CVE
-														</button>
-														<span>
-															{r.affected_hosts} host{r.affected_hosts === 1 ? '' : 's'} ·{' '}
-															{r.open_count} open · {r.suppressed_count} suppressed ·{' '}
-															{r.fixed_count} fixed
-														</span>
-													</div>
+												<td />
+												<td colSpan={9} className="px-4 py-3">
+													<AdvisoryExpandedRow
+														id={r.id}
+														summary={r.summary}
+														onFilter={() => setSearch(r.id)}
+													/>
 												</td>
 											</tr>
 										)}
@@ -415,6 +442,113 @@ export default function AdvisoriesPage() {
 					</div>
 				</div>
 			)}
+		</div>
+	);
+}
+
+function AdvisoryExpandedRow({
+	id,
+	summary,
+	onFilter,
+}: {
+	id: string;
+	summary: string;
+	onFilter: () => void;
+}) {
+	const detailQ = useQuery<AdvisoryDetail>({
+		queryKey: ['advisory', id],
+		queryFn: () => apiFetch<AdvisoryDetail>(`/v1/advisories/${encodeURIComponent(id)}`),
+		staleTime: 5 * 60_000,
+	});
+	const hostsQ = useQuery<AdvisoryHostsResponse>({
+		queryKey: ['advisory-hosts', id, 'open'],
+		queryFn: () =>
+			apiFetch<AdvisoryHostsResponse>(`/v1/advisories/${encodeURIComponent(id)}/hosts?status=all`),
+	});
+
+	const description = detailQ.data?.description_md?.trim() || summary || '';
+	const hosts = hostsQ.data?.items ?? [];
+	const hostsByStatus = {
+		open: hosts.filter(h => h.status === 'open'),
+		suppressed: hosts.filter(h => h.status === 'suppressed'),
+		fixed: hosts.filter(h => h.status === 'fixed'),
+	};
+
+	const statusTone: Record<string, string> = {
+		open: 'border-orange-500/40 bg-orange-500/10 text-orange-400',
+		suppressed: 'border-text-dim/30 bg-text-dim/10 text-text-dim',
+		fixed: 'border-green-500/40 bg-green-500/10 text-green-400',
+	};
+
+	return (
+		<div className="space-y-3 text-sm">
+			<div className="flex flex-wrap items-center gap-3 text-xs text-text-dim">
+				<Link
+					href={`/advisories/${encodeURIComponent(id)}`}
+					className="text-accent hover:text-accent-dim"
+				>
+					Open advisory detail →
+				</Link>
+				<button
+					type="button"
+					onClick={onFilter}
+					className="rounded border border-hairline px-2 py-0.5 hover:bg-surface-hover"
+				>
+					Filter to this CVE
+				</button>
+			</div>
+
+			<div>
+				<div className="mb-1 text-xs font-semibold uppercase tracking-wider text-text-dim">
+					Description
+				</div>
+				{detailQ.isLoading ? (
+					<div className="text-xs text-text-dim">Loading…</div>
+				) : description ? (
+					<p className="whitespace-pre-wrap text-text-dim">{description}</p>
+				) : (
+					<p className="text-text-dim/60 italic">No description provided.</p>
+				)}
+			</div>
+
+			<div>
+				<div className="mb-1 text-xs font-semibold uppercase tracking-wider text-text-dim">
+					Affected hosts ({hosts.length})
+				</div>
+				{hostsQ.isLoading ? (
+					<div className="text-xs text-text-dim">Loading…</div>
+				) : hosts.length === 0 ? (
+					<div className="text-xs text-text-dim/60 italic">No hosts.</div>
+				) : (
+					<div className="space-y-1.5">
+						{(['open', 'suppressed', 'fixed'] as const).map(s => {
+							const list = hostsByStatus[s];
+							if (list.length === 0) return null;
+							return (
+								<div key={s} className="flex flex-wrap items-center gap-1.5">
+									<span className="text-[10px] uppercase tracking-wider text-text-dim/70 w-20 shrink-0">
+										{s} ({list.length})
+									</span>
+									{list.map(h => (
+										<Link
+											key={h.host_id}
+											href={`/hosts/${h.host_id}`}
+											className={`inline-flex items-center rounded border px-2 py-0.5 text-xs font-mono ${statusTone[s]} hover:opacity-80`}
+											title={
+												h.installed_version
+													? `${h.package ?? ''} @ ${h.installed_version}`
+													: (h.package ?? '')
+											}
+										>
+											{h.hostname}
+										</Link>
+									))}
+								</div>
+							);
+						})}
+					</div>
+				)}
+			</div>
 		</div>
 	);
 }

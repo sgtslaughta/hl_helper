@@ -2,10 +2,17 @@
 
 import { apiFetch } from '@/lib/api-client';
 import { useHostAdvisories } from '@/lib/api/advisories';
-import type { Host } from '@/lib/api/hosts';
+import { type Host, updateHeartbeatInterval } from '@/lib/api/hosts';
+import {
+	type AuditUserLookup,
+	auditActorLabel,
+	extractActorUserId,
+	humanizeAuditAction,
+} from '@/lib/audit-format';
 import { fmtDuration, parseServerTime, relTime } from '@/lib/time';
 import NumberFlow, { type Format as NumberFlowFormat } from '@number-flow/react';
-import { useQuery } from '@tanstack/react-query';
+import * as Popover from '@radix-ui/react-popover';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
 	Activity,
 	AlertTriangle,
@@ -112,7 +119,11 @@ function labelTone(key: string): string {
 // Returns up to `max` most recent values, oldest first. Skips updating when
 // the value is undefined so transient gaps don't blank the trace.
 // 5 minutes of history at 5-second heartbeats = 60 samples.
-function useSamples(value: number | undefined, tick: string | number | undefined, max = 60): number[] {
+function useSamples(
+	value: number | undefined,
+	tick: string | number | undefined,
+	max = 60,
+): number[] {
 	const [buf, setBuf] = useState<number[]>([]);
 	useEffect(() => {
 		if (value == null) return;
@@ -327,43 +338,18 @@ function Gauge({
 				<div className="font-mono text-[9px] uppercase tracking-[0.14em] text-text-dim">
 					{label}
 				</div>
-				<div className={`mc-readout flex items-center gap-1 text-[15px] font-semibold ${valueTone}`}>
-					{typeof value === 'string' || typeof value === 'number' ? (
-						<span>{value}</span>
-					) : (
-						value
-					)}
+				<div
+					className={`mc-readout flex items-center gap-1 text-[15px] font-semibold ${valueTone}`}
+				>
+					{typeof value === 'string' || typeof value === 'number' ? <span>{value}</span> : value}
 					{neutral ? null : <DeltaArrow sign={sign} />}
 				</div>
 				{sub ? (
 					<div className="font-mono text-[9px] uppercase tracking-wider text-text-dim">{sub}</div>
 				) : null}
 			</div>
-			{!neutral && trendTone ? (
-				<Sparkline values={samples} color={trendTone} />
-			) : null}
+			{!neutral && trendTone ? <Sparkline values={samples} color={trendTone} /> : null}
 		</div>
-	);
-}
-
-function StatusBeacon({ status }: { status: string }) {
-	const tone =
-		{
-			healthy: 'text-ok',
-			online: 'text-ok',
-			warning: 'text-warn',
-			critical: 'text-danger',
-			offline: 'text-text-dim',
-			pending: 'text-accent',
-			revoked: 'text-danger',
-		}[status] ?? 'text-text-dim';
-	return (
-		<span className={`mc-pip ${tone} border-current`}>
-			<span
-				className={`mc-led ${status === 'healthy' || status === 'online' ? 'mc-led-pulse' : ''}`}
-			/>
-			{status.toUpperCase()}
-		</span>
 	);
 }
 
@@ -402,6 +388,139 @@ function RibbonHeader({
 	);
 }
 
+function HostHealthCluster({
+	host,
+	lastSeenAge,
+}: {
+	host: Host;
+	lastSeenAge: number | null;
+}) {
+	const lastSeen = host.last_seen_at ? parseServerTime(host.last_seen_at) : null;
+	const interval = host.heartbeat_interval_s ?? 60;
+	const [open, setOpen] = useState(false);
+	const [draft, setDraft] = useState<number>(interval);
+	const [saved, setSaved] = useState(false);
+	const qc = useQueryClient();
+	const mut = useMutation({
+		mutationFn: (s: number) => updateHeartbeatInterval(host.id, s),
+		onSuccess: () => {
+			setSaved(true);
+			qc.invalidateQueries({ queryKey: ['hosts', host.id] });
+			setTimeout(() => setSaved(false), 1800);
+		},
+	});
+
+	useEffect(() => {
+		if (open) setDraft(interval);
+	}, [open, interval]);
+
+	// Heartbeat freshness: green if last_seen within 2x interval, warn within 4x, danger beyond.
+	const ageS = lastSeenAge ?? Number.POSITIVE_INFINITY;
+	const tone = ageS < interval * 2 ? 'text-ok' : ageS < interval * 4 ? 'text-warn' : 'text-danger';
+
+	const statusToneMap: Record<string, string> = {
+		healthy: 'text-ok',
+		online: 'text-ok',
+		warning: 'text-warn',
+		critical: 'text-danger',
+		offline: 'text-text-dim',
+		pending: 'text-accent',
+		revoked: 'text-danger',
+	};
+	const statusTone = statusToneMap[host.status] ?? 'text-text-dim';
+	const statusPulse = host.status === 'healthy';
+	const triggerTitle = 'Click for heartbeat settings';
+
+	return (
+		<Popover.Root open={open} onOpenChange={setOpen}>
+			<Popover.Anchor asChild>
+				<div className="flex items-center gap-2">
+					<button
+						type="button"
+						onClick={() => setOpen(true)}
+						className={`mc-pip ${statusTone} border-current hover:bg-surface-2`}
+						title={triggerTitle}
+						aria-label={`Agent health: ${host.status}. ${triggerTitle}`}
+					>
+						<span className={`mc-led ${statusPulse ? 'mc-led-pulse' : ''}`} />
+						{host.status.toUpperCase()}
+					</button>
+					<button
+						type="button"
+						onClick={() => setOpen(true)}
+						className={`mc-pip border-hairline ${tone} hover:bg-surface-2`}
+						title={lastSeen ? `${lastSeen.toLocaleString()} · ${triggerTitle}` : triggerTitle}
+					>
+						<span className="opacity-70">SEEN</span>
+						<span className="text-text">
+							{lastSeenAge != null ? `${fmtDuration(lastSeenAge)} ago` : 'never'}
+						</span>
+					</button>
+				</div>
+			</Popover.Anchor>
+			<Popover.Portal>
+				<Popover.Content
+					side="bottom"
+					align="end"
+					sideOffset={6}
+					className="z-[100] w-72 rounded border border-hairline bg-surface p-3 font-mono text-[11px] shadow-xl"
+				>
+					<div className="mb-2 flex items-center justify-between">
+						<span className="mc-heading">Heartbeat</span>
+						<span className={`mc-pip border-current px-1 py-0 ${tone}`}>
+							{tone === 'text-ok' ? 'OK' : tone === 'text-warn' ? 'STALE' : 'OFFLINE'}
+						</span>
+					</div>
+					<dl className="space-y-1 border-b border-hairline pb-2 text-text-dim">
+						<div className="flex justify-between">
+							<dt>Last seen</dt>
+							<dd className="text-text" title={lastSeen ? lastSeen.toLocaleString() : ''}>
+								{lastSeen ? `${fmtDuration(ageS)} ago` : 'never'}
+							</dd>
+						</div>
+						<div className="flex justify-between">
+							<dt>Current interval</dt>
+							<dd className="text-text">{interval}s</dd>
+						</div>
+						<div className="flex justify-between">
+							<dt>Next expected</dt>
+							<dd className="text-text">
+								{lastSeen ? fmtDuration(Math.max(0, interval - ageS)) : '—'}
+							</dd>
+						</div>
+					</dl>
+					<label className="mt-2 block">
+						<div className="uppercase tracking-[0.14em] text-text-dim">Update interval (sec)</div>
+						<div className="mt-1 flex gap-1.5">
+							<input
+								type="number"
+								min={5}
+								max={3600}
+								value={draft}
+								onChange={e => setDraft(Number(e.target.value))}
+								className="w-24 rounded-sm border border-hairline bg-bezel/60 px-2 py-1 text-right text-[12px] text-text outline-none focus:border-accent"
+								aria-label="Heartbeat interval"
+							/>
+							<button
+								type="button"
+								onClick={() => {
+									if (draft >= 5 && draft <= 3600 && draft !== interval) mut.mutate(draft);
+								}}
+								disabled={mut.isPending || draft < 5 || draft > 3600 || draft === interval}
+								className="rounded-sm border border-hairline bg-accent/10 px-2 py-1 text-accent hover:bg-accent/20 disabled:opacity-40"
+							>
+								{mut.isPending ? '…' : 'Save'}
+							</button>
+							{saved && <span className="ml-auto flex items-center text-ok">Saved</span>}
+						</div>
+						<div className="mt-1 text-[9px] text-text-dim">Range: 5–3600 sec</div>
+					</label>
+				</Popover.Content>
+			</Popover.Portal>
+		</Popover.Root>
+	);
+}
+
 function severityTone(sev: string): string {
 	switch (sev.toLowerCase()) {
 		case 'critical':
@@ -414,6 +533,64 @@ function severityTone(sev: string): string {
 		default:
 			return 'text-text-dim';
 	}
+}
+
+const SEVERITY_ABBREV: Record<string, string> = {
+	critical: 'CR',
+	high: 'HI',
+	medium: 'MD',
+	low: 'LO',
+};
+
+function severityAbbrev(sev: string): string {
+	return SEVERITY_ABBREV[sev.toLowerCase()] ?? 'UNK';
+}
+
+interface SeverityBuckets {
+	critical: number;
+	high: number;
+	medium: number;
+	low: number;
+	unknown: number;
+}
+
+function bucketSeverities(items: { severity: string }[]): SeverityBuckets {
+	const out: SeverityBuckets = { critical: 0, high: 0, medium: 0, low: 0, unknown: 0 };
+	for (const it of items) {
+		const k = it.severity.toLowerCase();
+		if (k === 'critical') out.critical++;
+		else if (k === 'high') out.high++;
+		else if (k === 'medium') out.medium++;
+		else if (k === 'low') out.low++;
+		else out.unknown++;
+	}
+	return out;
+}
+
+function SeveritySummary({ buckets }: { buckets: SeverityBuckets }) {
+	const entries: Array<[keyof SeverityBuckets, string, string]> = [
+		['critical', 'CR', 'text-danger'],
+		['high', 'HI', 'text-danger'],
+		['medium', 'MD', 'text-warn'],
+		['low', 'LO', 'text-accent'],
+		['unknown', 'UNK', 'text-text-dim'],
+	];
+	const visible = entries.filter(([k]) => buckets[k] > 0);
+	if (visible.length === 0) return null;
+	return (
+		<div className="flex flex-wrap items-center gap-1 border-b border-hairline px-2 pb-1.5 pt-1">
+			{visible.map(([k, label, tone]) => (
+				<span
+					key={k}
+					className={`mc-pip ${tone} border-current px-1 py-0`}
+					title={`${buckets[k]} ${k}`}
+				>
+					<span className="opacity-70">{label}</span>
+					<span className="font-semibold">{buckets[k]}</span>
+				</span>
+			))}
+		</div>
+	);
 }
 
 function statusTone(status: string): string {
@@ -514,6 +691,23 @@ function AuditRibbon({ hostId, onJump }: { hostId: string; onJump: () => void })
 		refetchInterval: 8_000,
 	});
 	const items = q.data?.items ?? [];
+	const previewItems = items.slice(0, 4);
+
+	const userIds = Array.from(
+		new Set(previewItems.map(e => extractActorUserId(e.actor)).filter((x): x is string => !!x)),
+	);
+	const userQs = useQueries({
+		queries: userIds.map(id => ({
+			queryKey: ['users', id],
+			queryFn: () =>
+				apiFetch<AuditUserLookup>(`/v1/users/${id}`).catch(() => ({ id }) as AuditUserLookup),
+			staleTime: 5 * 60_000,
+		})),
+	});
+	const userMap: Record<string, AuditUserLookup | undefined> = {};
+	userIds.forEach((id, i) => {
+		userMap[id] = userQs[i]?.data;
+	});
 
 	return (
 		<div className="flex flex-col">
@@ -524,11 +718,16 @@ function AuditRibbon({ hostId, onJump }: { hostId: string; onJump: () => void })
 				) : items.length === 0 ? (
 					<div className="text-text-dim">no entries</div>
 				) : (
-					items.slice(0, 4).map(e => (
-						<div key={e.sequence} className="flex items-center gap-1.5 truncate">
-							<span className="text-accent">#{e.sequence}</span>
+					previewItems.map(e => (
+						<div
+							key={e.sequence}
+							className="flex items-center gap-1.5 truncate"
+							title={`${new Date(e.timestamp).toLocaleString()} · ${e.action}`}
+						>
+							<span className="text-text-dim/60 shrink-0">{relTime(e.timestamp)}</span>
 							<span className="truncate text-text-dim">
-								<span className="text-text">{e.actor}</span> {e.action}
+								<span className="text-text">{auditActorLabel(e.actor, userMap)}</span>{' '}
+								{humanizeAuditAction(e.action)}
 							</span>
 						</div>
 					))
@@ -548,6 +747,15 @@ function PostureRibbon({ hostId, onJump }: { hostId: string; onJump: () => void 
 		refetchInterval: 15_000,
 	});
 	const items = q.data?.findings ?? [];
+	const buckets = bucketSeverities(items);
+	const worstTone =
+		buckets.critical > 0 || buckets.high > 0
+			? 'text-danger'
+			: buckets.medium > 0
+				? 'text-warn'
+				: items.length > 0
+					? 'text-accent'
+					: 'text-ok';
 
 	return (
 		<div className="flex flex-col">
@@ -556,23 +764,26 @@ function PostureRibbon({ hostId, onJump }: { hostId: string; onJump: () => void 
 				title="Posture"
 				count={items.length}
 				onJump={onJump}
-				tone={items.length > 0 ? 'text-warn' : 'text-ok'}
+				tone={worstTone}
 			/>
-			<div className="mc-bezel flex-1 space-y-1 px-2 py-1.5 font-mono text-[11px]">
-				{q.isLoading ? (
-					<div className="text-text-dim">…scanning</div>
-				) : items.length === 0 ? (
-					<div className="text-ok">all clear</div>
-				) : (
-					items.slice(0, 4).map(f => (
-						<div key={f.id} className="flex items-center gap-1.5 truncate">
-							<span className={`mc-pip ${severityTone(f.severity)} border-current px-1 py-0`}>
-								{f.severity.slice(0, 3).toUpperCase()}
-							</span>
-							<span className="truncate text-text">{f.title}</span>
-						</div>
-					))
-				)}
+			<div className="mc-bezel flex flex-1 flex-col font-mono text-[11px]">
+				<SeveritySummary buckets={buckets} />
+				<div className="flex-1 space-y-1 px-2 py-1.5">
+					{q.isLoading ? (
+						<div className="text-text-dim">…scanning</div>
+					) : items.length === 0 ? (
+						<div className="text-ok">all clear</div>
+					) : (
+						items.slice(0, 4).map(f => (
+							<div key={f.id} className="flex items-center gap-1.5 truncate">
+								<span className={`mc-pip ${severityTone(f.severity)} border-current px-1 py-0`}>
+									{severityAbbrev(f.severity)}
+								</span>
+								<span className="truncate text-text">{f.title}</span>
+							</div>
+						))
+					)}
+				</div>
 			</div>
 		</div>
 	);
@@ -581,6 +792,15 @@ function PostureRibbon({ hostId, onJump }: { hostId: string; onJump: () => void 
 function AdvisoriesRibbon({ hostId, onJump }: { hostId: string; onJump: () => void }) {
 	const q = useHostAdvisories(hostId, { status: 'open' });
 	const items = q.data?.items ?? [];
+	const buckets = bucketSeverities(items);
+	const worstTone =
+		buckets.critical > 0 || buckets.high > 0
+			? 'text-danger'
+			: buckets.medium > 0
+				? 'text-warn'
+				: items.length > 0
+					? 'text-accent'
+					: 'text-ok';
 
 	return (
 		<div className="flex flex-col">
@@ -589,23 +809,26 @@ function AdvisoriesRibbon({ hostId, onJump }: { hostId: string; onJump: () => vo
 				title="Advisories"
 				count={items.length}
 				onJump={onJump}
-				tone={items.length > 0 ? 'text-danger' : 'text-ok'}
+				tone={worstTone}
 			/>
-			<div className="mc-bezel flex-1 space-y-1 px-2 py-1.5 font-mono text-[11px]">
-				{q.isLoading ? (
-					<div className="text-text-dim">…loading</div>
-				) : items.length === 0 ? (
-					<div className="text-ok">no advisories</div>
-				) : (
-					items.slice(0, 4).map(a => (
-						<div key={a.id} className="flex items-center gap-1.5 truncate">
-							<span className={`mc-pip ${severityTone(a.severity)} border-current px-1 py-0`}>
-								{a.severity.slice(0, 3).toUpperCase()}
-							</span>
-							<span className="truncate text-text">{a.package_name}</span>
-						</div>
-					))
-				)}
+			<div className="mc-bezel flex flex-1 flex-col font-mono text-[11px]">
+				<SeveritySummary buckets={buckets} />
+				<div className="flex-1 space-y-1 px-2 py-1.5">
+					{q.isLoading ? (
+						<div className="text-text-dim">…loading</div>
+					) : items.length === 0 ? (
+						<div className="text-ok">no advisories</div>
+					) : (
+						items.slice(0, 4).map(a => (
+							<div key={a.id} className="flex items-center gap-1.5 truncate">
+								<span className={`mc-pip ${severityTone(a.severity)} border-current px-1 py-0`}>
+									{severityAbbrev(a.severity)}
+								</span>
+								<span className="truncate text-text">{a.package_name}</span>
+							</div>
+						))
+					)}
+				</div>
 			</div>
 		</div>
 	);
@@ -651,20 +874,7 @@ export function OverviewDashboard({ host, onJump }: Props) {
 						</div>
 					</div>
 				</div>
-				<div className="flex items-center gap-2">
-					<StatusBeacon status={host.status} />
-					{lastSeen ? (
-						<span
-							className="mc-pip border-hairline text-text-dim"
-							title={lastSeen.toLocaleString()}
-						>
-							<span className="opacity-70">SEEN</span>
-							<span className="text-text">
-								{lastSeenAge != null ? fmtDuration(lastSeenAge) : '—'} ago
-							</span>
-						</span>
-					) : null}
-				</div>
+				<HostHealthCluster host={host} lastSeenAge={lastSeenAge} />
 			</div>
 
 			{/* Telemetry gauge strip */}
@@ -692,11 +902,7 @@ export function OverviewDashboard({ host, onJump }: Props) {
 								: undefined
 					}
 					tick={tick}
-					sub={
-						s?.cpu_threads
-							? `${s.cpu_cores ?? '?'}c/${s.cpu_threads}t`
-							: undefined
-					}
+					sub={s?.cpu_threads ? `${s.cpu_cores ?? '?'}c/${s.cpu_threads}t` : undefined}
 				/>
 				<Gauge
 					icon={MemoryStick}

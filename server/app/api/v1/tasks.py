@@ -114,10 +114,55 @@ class TaskListItem(BaseModel):
 
     id: str
     kind: str
+    # Friendly kind label derived from kind + payload.action (e.g. CUSTOM
+    # tasks with payload.action="resurvey" surface as "resurvey").
+    kind_display: str = ""
     status: str
     created_at: datetime
     risk: str
     summary: str = ""
+    # Subset of payload helpful for client-side rendering (action, host_id).
+    # Full payload available via /v1/tasks/{id}.
+    payload: dict[str, object] = {}
+    # Hosts targeted by this task. Derived from target_selector.host_ids
+    # (multi-host) or payload.host_id (single-host actions like resurvey).
+    # Empty when the task has no host context (rare).
+    host_ids: list[str] = []
+    # Principal who created the task. Format: "user:<uuid>" or "system" or
+    # other free-form principal string. Used by the UI for filtering and
+    # actor display.
+    created_by: str | None = None
+
+
+def _extract_host_ids(
+    payload: dict[str, object] | None,
+    target_selector: dict[str, object] | None,
+) -> list[str]:
+    """Pull host ids from target_selector.host_ids (preferred) or payload.host_id."""
+    out: list[str] = []
+    sel = target_selector if isinstance(target_selector, dict) else None
+    if sel:
+        ids = sel.get("host_ids")
+        if isinstance(ids, list):
+            out.extend(str(x) for x in ids if isinstance(x, (str, int)))
+    if not out and isinstance(payload, dict):
+        h = payload.get("host_id")
+        if isinstance(h, str) and h:
+            out.append(h)
+    return out
+
+
+def _kind_display(kind: str, payload: dict[str, object] | None) -> str:
+    """Map raw kind + payload.action into a user-friendly task kind label.
+
+    Custom tasks are kind=custom but the meaningful classifier lives in
+    payload.action (resurvey, rescan, ...). Surface that to the UI.
+    """
+    if kind == "custom" and isinstance(payload, dict):
+        action = str(payload.get("action") or "").strip()
+        if action:
+            return action
+    return kind
 
 
 class TasksPage(BaseModel):
@@ -301,10 +346,14 @@ async def list_tasks(
             TaskListItem(
                 id=r.id,
                 kind=r.kind.value,
+                kind_display=_kind_display(r.kind.value, r.payload),
                 status=r.status.value,
                 created_at=r.created_at,
                 risk=r.risk.value,
                 summary=_task_summary(r.kind.value, r.payload),
+                payload=r.payload or {},
+                host_ids=_extract_host_ids(r.payload, r.target_selector),
+                created_by=r.created_by,
             )
             for r in page.items
         ],

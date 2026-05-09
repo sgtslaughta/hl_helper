@@ -25,7 +25,10 @@ export function ignoreEventInInputs(e: KeyboardEvent): boolean {
 	if (t instanceof HTMLElement && t.isContentEditable) return true;
 	// Suppress while a modal dialog is on screen — even if a non-form
 	// element inside the dialog has focus.
-	if (typeof document !== 'undefined' && document.querySelector('[role="dialog"][aria-modal="true"]')) {
+	if (
+		typeof document !== 'undefined' &&
+		document.querySelector('[role="dialog"][aria-modal="true"]')
+	) {
 		return true;
 	}
 	return false;
@@ -49,6 +52,11 @@ export function useNavigationHotkeys(): void {
 	useHotkeys('g t', () => router.push('/tasks'), opts);
 	useHotkeys('g u', () => router.push('/updates'), opts);
 	useHotkeys('g c', () => router.push('/containers'), opts);
+	useHotkeys('g x', () => router.push('/topology'), opts);
+	useHotkeys('g s', () => router.push('/security'), opts);
+	useHotkeys('g a', () => router.push('/audit'), opts);
+	useHotkeys('g p', () => router.push('/plugins'), opts);
+	useHotkeys('g d', () => router.push('/docs'), opts);
 }
 
 const DEFAULT_HOTKEYS: HotkeyBinding[] = [
