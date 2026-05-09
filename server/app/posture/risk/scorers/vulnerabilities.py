@@ -10,7 +10,7 @@ See spec section 'Per-pillar scoring rules'.
 from __future__ import annotations
 
 import math
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from server.app.posture.risk.types import Driver, ScoreContext, SubScore
@@ -34,6 +34,40 @@ _BASE: dict[str, float] = {
 }
 
 _DECAY_DENOM = 50.0
+
+DEFAULT_EXPOSURE_MULTIPLIERS = {
+    "NETWORK_EXPOSED": 2.0,
+    "ACTIVE": 1.5,
+    "INSTALLED_ONLY": 0.5,
+    "UNKNOWN": 1.0,
+}
+
+
+def _resolve_tier(
+    *,
+    advisory_id: str,
+    exposures: list,
+    now: datetime,
+    scan_interval_seconds: int,
+) -> str:
+    """Find the tier for `advisory_id`. Stale exposures (>2× interval) → UNKNOWN."""
+    cutoff = now - timedelta(seconds=2 * scan_interval_seconds)
+    for e in exposures:
+        if getattr(e, "advisory_id", None) != advisory_id:
+            continue
+        scanned = getattr(e, "scanned_at", None)
+        if scanned is None:
+            continue
+        if scanned.tzinfo is None:
+            scanned = scanned.replace(tzinfo=timezone.utc)
+        if scanned < cutoff:
+            return "UNKNOWN"
+        return getattr(e, "exposure_tier", "UNKNOWN")
+    return "UNKNOWN"
+
+
+def _apply_exposure_weight(*, base: float, tier: str, multipliers: dict[str, float]) -> float:
+    return base * multipliers.get(tier, 1.0)
 
 
 class VulnerabilitiesScorer:
