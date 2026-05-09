@@ -269,6 +269,31 @@ func (k *TPMKeystore) StoreEnrollmentBundle(leafPEM, intermediatePEM, rootPEM []
 	return k.file.StoreEnrollmentBundle(leafPEM, intermediatePEM, rootPEM)
 }
 
+// RotateTLS delegates to the wrapped FileKeystore.
+func (k *TPMKeystore) RotateTLS(commonName string) ([]byte, []byte, []byte, error) {
+	return k.file.RotateTLS(commonName)
+}
+
+// StageTLS delegates to the wrapped FileKeystore.
+func (k *TPMKeystore) StageTLS(chainPEM, privPEM []byte) error {
+	return k.file.StageTLS(chainPEM, privPEM)
+}
+
+// VerifyStagedTLS delegates to the wrapped FileKeystore.
+func (k *TPMKeystore) VerifyStagedTLS() error {
+	return k.file.VerifyStagedTLS()
+}
+
+// CommitTLS delegates to the wrapped FileKeystore.
+func (k *TPMKeystore) CommitTLS() error {
+	return k.file.CommitTLS()
+}
+
+// RollbackStagedTLS delegates to the wrapped FileKeystore.
+func (k *TPMKeystore) RollbackStagedTLS() error {
+	return k.file.RollbackStagedTLS()
+}
+
 // Close closes the TPM connection.
 func (k *TPMKeystore) Close() error {
 	if k.rw != nil {
