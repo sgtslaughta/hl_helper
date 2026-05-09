@@ -1,3 +1,8 @@
+---
+title: REST API
+status: stable
+---
+
 # REST API
 
 The HL Helper server exposes a REST API for host management, enrollment,

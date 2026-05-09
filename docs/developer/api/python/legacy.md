@@ -1,3 +1,8 @@
+---
+title: Python API Reference
+status: stable
+---
+
 # Python API Reference
 
 Auto-generated API reference from source code docstrings.

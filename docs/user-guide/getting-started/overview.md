@@ -1,3 +1,8 @@
+---
+title: User Guide
+status: stable
+---
+
 # User Guide
 
 Overview of HL Helper concepts, workflows, and daily operations.

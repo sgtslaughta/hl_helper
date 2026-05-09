@@ -1,3 +1,8 @@
+---
+title: Contributing
+status: stable
+---
+
 # Contributing
 
 Guide for developers contributing to HL Helper.

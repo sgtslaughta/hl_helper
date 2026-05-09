@@ -1,3 +1,8 @@
+---
+title: Recovery and Incident Response
+status: stable
+---
+
 # Recovery and Incident Response
 
 This document describes recovery procedures for common failure scenarios and security incidents in hl_helper.

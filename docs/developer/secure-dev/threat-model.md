@@ -1,3 +1,8 @@
+---
+title: Threat Model
+status: stable
+---
+
 # Threat Model
 
 This document describes the security assumptions, in-scope threats, mitigations, and known limitations of hl_helper.

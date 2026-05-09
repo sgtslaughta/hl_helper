@@ -1,3 +1,8 @@
+---
+title: Key Management
+status: stable
+---
+
 # Key Management
 
 This document describes how hl_helper generates, stores, rotates, and secures cryptographic keys across the server and agents.

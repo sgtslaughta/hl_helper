@@ -1,3 +1,8 @@
+---
+title: HA Topology and Scaling
+status: stable
+---
+
 # HA Topology and Scaling
 
 This document describes deployment topologies for hl_helper: single-node, read replicas, and active/passive failover. It also explains why true active/active (multi-writer) is not supported today.

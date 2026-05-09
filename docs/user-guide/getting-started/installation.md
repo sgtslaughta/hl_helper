@@ -1,3 +1,8 @@
+---
+title: Installation
+status: stable
+---
+
 # Installation
 
 Instructions for deploying the HL Helper control plane.

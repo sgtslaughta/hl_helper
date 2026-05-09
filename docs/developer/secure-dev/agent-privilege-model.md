@@ -1,3 +1,8 @@
+---
+title: Agent Privilege Model
+status: stable
+---
+
 # Agent Privilege Model
 
 This document describes how the hl_helper agent enforces the principle of least privilege on each host.

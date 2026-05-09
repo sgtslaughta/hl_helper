@@ -1,3 +1,8 @@
+---
+title: Enrollment API Reference
+status: stable
+---
+
 # Enrollment API Reference
 
 REST API for host enrollment, install-script delivery, and host management. Auto-generated companion: `openapi.json` (full schema).

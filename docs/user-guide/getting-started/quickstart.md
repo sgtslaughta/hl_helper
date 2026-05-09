@@ -1,3 +1,8 @@
+---
+title: Quick Start
+status: stable
+---
+
 # Quick Start
 
 Get a minimal HL Helper deployment running in under 5 minutes.

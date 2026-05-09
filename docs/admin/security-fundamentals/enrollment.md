@@ -1,3 +1,8 @@
+---
+title: Enrollment
+status: stable
+---
+
 # Enrollment
 
 This document describes how hosts securely enroll with the hl_helper control plane for the first time.

@@ -1,3 +1,8 @@
+---
+title: Key Compromise Recovery
+status: stable
+---
+
 # Key Compromise Recovery
 
 Recovery procedures for three critical security incidents: agent private key compromised, server CA compromised, or audit checkpoint signing key compromised.

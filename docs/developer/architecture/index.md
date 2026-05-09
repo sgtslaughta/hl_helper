@@ -1,3 +1,8 @@
+---
+title: Architecture
+status: stable
+---
+
 # Architecture
 
 High-level overview of the HL Helper system architecture.
