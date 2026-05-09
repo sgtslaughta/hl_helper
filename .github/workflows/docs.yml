@@ -1,0 +1,51 @@
+name: docs
+on:
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'scripts/gen-docs.sh'
+      - 'scripts/sphinx-conf/**'
+      - 'zensical.toml'
+      - '.github/workflows/docs.yml'
+      - 'tests/docs/**'
+  push:
+    branches: [main]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install Python deps
+        run: |
+          pip install -e ".[docs]"
+          pip install pyyaml pytest zensical
+      - name: Install Go doc tools
+        run: go install github.com/princjef/gomarkdoc/cmd/gomarkdoc@latest
+      - name: Install protoc + protoc-gen-doc
+        run: |
+          sudo apt-get update && sudo apt-get install -y protobuf-compiler
+          go install github.com/pseudomuto/protoc-gen-doc/cmd/protoc-gen-doc@latest
+      - name: Run autogen pipeline
+        run: ./scripts/gen-docs.sh
+      - name: Run doc tests
+        run: pytest tests/docs/ -v
+      - name: Build zensical site
+        run: zensical build --strict
+      - name: Lychee link check
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: --no-progress --offline 'docs/**/*.md'
+          fail: true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: site
+          path: site/
