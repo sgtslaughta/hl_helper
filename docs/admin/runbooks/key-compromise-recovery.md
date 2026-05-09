@@ -200,7 +200,7 @@ fleet audit checkpoint list --format json \
 
 ## References
 
-- [Key Management](../security/key-management.md) — rotation procedures, backup policy
-- [Recovery and Incident Response](../security/recovery.md) — general incident procedures
-- [Threat Model](../security/threat-model.md) — security assumptions & threat coverage
-- [HA Topology](./ha-topology.md) — backup and disaster recovery
+- [Key Management](../security-fundamentals/key-management.md) — rotation procedures, backup policy
+- [Recovery and Incident Response](./recovery.md) — general incident procedures
+- [Threat Model](../../developer/secure-dev/threat-model.md) — security assumptions & threat coverage
+- [HA Topology](../operations/ha-topology.md) — backup and disaster recovery

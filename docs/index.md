@@ -1,3 +1,8 @@
+---
+title: HL Helper
+status: stable
+---
+
 # HL Helper
 
 Self-hosted, security-focused fleet manager for Linux/Unix homelabs.
@@ -23,5 +28,5 @@ enough that a compromised host cannot pivot to the control plane.
 
 ## Getting Started
 
-New to HL Helper? Start with the [Installation](getting-started/installation.md)
-guide, then follow the [Quick Start](getting-started/quickstart.md).
+New to HL Helper? Start with the [Installation](user-guide/getting-started/installation.md)
+guide, then follow the [Quick Start](user-guide/getting-started/quickstart.md).

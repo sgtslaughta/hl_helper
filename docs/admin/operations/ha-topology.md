@@ -373,6 +373,6 @@ fleet agents list  # all should show last_heartbeat < 1 minute
 
 ## References
 
-- [Key Management](../security/key-management.md) — backup procedures, CA renewal
-- [Recovery and Incident Response](../security/recovery.md) — detailed incident procedures
-- [Threat Model](../security/threat-model.md) — audit chain & signing key security assumptions
+- [Key Management](../security-fundamentals/key-management.md) — backup procedures, CA renewal
+- [Recovery and Incident Response](../runbooks/recovery.md) — detailed incident procedures
+- [Threat Model](../../developer/secure-dev/threat-model.md) — audit chain & signing key security assumptions

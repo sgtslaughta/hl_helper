@@ -15,7 +15,7 @@ The full OpenAPI 3.1 specification is available as a JSON file:
 
 ## Endpoints
 
-See the [Enrollment API](enrollment.md) for detailed endpoint documentation
+See the [Enrollment API](../enrollment.md) for detailed endpoint documentation
 including request/response examples and error formats.
 
 ## Authentication
