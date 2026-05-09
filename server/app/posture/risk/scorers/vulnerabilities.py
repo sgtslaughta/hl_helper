@@ -10,9 +10,20 @@ See spec section 'Per-pillar scoring rules'.
 from __future__ import annotations
 
 import math
+from datetime import datetime, timezone
 from typing import Any
 
 from server.app.posture.risk.types import Driver, ScoreContext, SubScore
+
+
+def _aware(dt: datetime | None) -> datetime | None:
+    """Coerce a naive datetime to UTC-aware. SQLite drops tz info on
+    DateTime(timezone=True) columns; treat naive values as UTC."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
 
 _BASE: dict[str, float] = {
     "critical": 12.0,
@@ -69,11 +80,12 @@ class VulnerabilitiesScorer:
         has_inventory = bool(
             ctx.survey and isinstance(ctx.survey, dict) and ctx.survey.get("packages")
         )
-        survey_at = getattr(ctx.host, "survey_at", None)
+        survey_at = _aware(getattr(ctx.host, "survey_at", None))
+        now = _aware(ctx.now) or ctx.now
         if survey_at is None:
             freshness = 0.3
         else:
-            age = (ctx.now - survey_at).total_seconds()
+            age = (now - survey_at).total_seconds()
             freshness = max(0.3, 1.0 - age / (7 * 86400))
         coverage = 1.0 if has_inventory else 0.4
         confidence = round(coverage * freshness, 3)

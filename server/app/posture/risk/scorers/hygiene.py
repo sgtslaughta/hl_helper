@@ -8,9 +8,19 @@ status.
 from __future__ import annotations
 
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from server.app.posture.risk.types import Driver, ScoreContext, SubScore
+
+
+def _aware(dt: datetime | None) -> datetime | None:
+    """Coerce a naive datetime to UTC-aware. SQLite drops tz info on
+    DateTime(timezone=True) columns; treat naive values as UTC."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
 
 
 def _parse_minor(v: str | None) -> tuple[int, int] | None:
@@ -40,11 +50,11 @@ class HygieneScorer:
 
     async def score(self, ctx: ScoreContext) -> SubScore:
         host = ctx.host
-        now = ctx.now
+        now = _aware(ctx.now) or ctx.now
         score = 0.0
         drivers: list[Driver] = []
 
-        cert = getattr(host, "cert_expires_at", None)
+        cert = _aware(getattr(host, "cert_expires_at", None))
         if cert is not None:
             days = (cert - now).total_seconds() / 86400
             if days < 7:
@@ -54,8 +64,8 @@ class HygieneScorer:
                 score += 15
                 drivers.append(Driver(label=f"cert expires in {int(days)}d", contrib=15))
 
-        last_seen = getattr(host, "last_seen_at", None)
-        enrolled = getattr(host, "enrolled_at", None)
+        last_seen = _aware(getattr(host, "last_seen_at", None))
+        enrolled = _aware(getattr(host, "enrolled_at", None))
         if last_seen is None and enrolled is not None:
             if (now - enrolled) > timedelta(minutes=30):
                 score += 25

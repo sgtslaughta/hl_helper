@@ -12,7 +12,7 @@ from typing import Any
 
 from server.app.posture.risk.types import Driver, ScoreContext, SubScore
 
-_SEV_WEIGHT = {"critical": 25.0, "high": 12.0, "medium": 5.0, "low": 1.5}
+_SEV_WEIGHT = {"critical": 25.0, "high": 12.0, "medium": 5.0, "low": 1.5, "info": 0.5}
 
 _CONFIG_RULES = {
     "sshd_passwordauth",
