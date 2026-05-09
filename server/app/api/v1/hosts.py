@@ -277,6 +277,11 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
         yield session
 
 
+def get_agent_bridge(request: Request):
+    """Get agent_bridge from app state."""
+    return get_app_state(request).agent_bridge
+
+
 def get_revocation_service(request: Request) -> RevocationService:
     """Get revocation service from app state."""
 
@@ -375,6 +380,26 @@ async def get_host_cert(
         last_reenroll_at=row.last_reenroll_at,
         status=status_str,
     )
+
+
+@router.post("/{host_id}/cert/rotate-now", status_code=202)
+async def rotate_cert_now(
+    host_id: str,
+    actor: str = Depends(admin_required),
+    session: AsyncSession = Depends(get_session),
+    bridge=Depends(get_agent_bridge),
+):
+    """Request immediate certificate rotation for a host.
+
+    Returns 202 Accepted with delivery status. If the host is offline,
+    delivered will be False.
+    """
+    row = await session.get(Host, host_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="host_not_found")
+
+    delivered = await bridge.push_run_cert_rotate(host_id, reason="operator-initiated")
+    return {"delivered": bool(delivered)}
 
 
 @router.patch("/{host_id}", response_model=HostOut)

@@ -85,3 +85,33 @@ async def test_get_host_cert_returns_cert_state(api_client, session_factory):
 async def test_get_host_cert_404_unknown(api_client):
     r = await api_client.get("/v1/hosts/nope/cert", headers=HEADERS)
     assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_rotate_now_pushes_run_cert_rotate(
+    api_client, session_factory
+):
+    from server.app.models.host import Host
+
+    async with session_factory() as s:
+        s.add(Host(id="h-1", hostname="h1", agent_pubkey=b"\x00" * 32))
+        await s.commit()
+
+    # Get the agent_bridge from app state - the app is stored directly on the transport
+    app = api_client._transport.app  # type: ignore[attr-defined]
+    state = app.state.app_state
+    bridge = state.agent_bridge
+
+    pushed: list = []
+    bridge.set_test_pusher("h-1", lambda m: pushed.append(m))
+
+    r = await api_client.post("/v1/hosts/h-1/cert/rotate-now", headers=HEADERS)
+    assert r.status_code == 202
+    assert len(pushed) == 1
+    assert pushed[0].WhichOneof("msg") == "run_cert_rotate"
+
+
+@pytest.mark.asyncio
+async def test_rotate_now_404_unknown(api_client):
+    r = await api_client.post("/v1/hosts/nope/cert/rotate-now", headers=HEADERS)
+    assert r.status_code == 404

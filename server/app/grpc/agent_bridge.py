@@ -124,6 +124,34 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
         out.cert_issue.not_after.FromDatetime(resp.not_after)
         push(out)
 
+    def set_test_pusher(self, host_id: str, fn) -> None:  # type: ignore[no-untyped-def]
+        """Test override for per-host send queue.
+
+        Allows tests to inject a callback that receives ServerToAgent messages
+        instead of pushing to the control queue.
+        """
+        if not hasattr(self, "_test_pushers"):
+            self._test_pushers = {}
+        self._test_pushers[host_id] = fn
+
+    async def push_run_cert_rotate(self, host_id: str, reason: str) -> bool:
+        """Send RunCertRotate to a connected agent. Returns False if not connected.
+
+        Args:
+            host_id: Target host identifier.
+            reason: Reason for rotation (e.g. "operator-initiated").
+
+        Returns:
+            True if the message was queued; False if the host is offline.
+        """
+        msg = agent_bridge_pb2.ServerToAgent(
+            run_cert_rotate=agent_bridge_pb2.RunCertRotate(reason=reason)
+        )
+        if hasattr(self, "_test_pushers") and host_id in self._test_pushers:
+            self._test_pushers[host_id](msg)
+            return True
+        return push_control(host_id, msg)
+
     async def Stream(
         self,
         request_iterator: AsyncIterable[agent_bridge_pb2.AgentToServer],

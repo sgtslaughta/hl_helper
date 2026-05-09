@@ -260,6 +260,7 @@ class AppState:
     advertised_origins: list[str] | None = None
     grpc_server: Server | None = None
     reenroll_server: Server | None = None
+    agent_bridge: Any | None = None
 
 
 async def build_app_state(settings: FleetSettings) -> AppState:
@@ -618,7 +619,7 @@ async def _start_grpc_server(state: AppState, grpc_host: str) -> None:
         )
 
         # Create and start gRPC server
-        server, bound_addr, _ = make_grpc_server(
+        server, bound_addr, _, agent_bridge = make_grpc_server(
             server_cert_chain_pem=cert_chain_pem,
             server_key_pem=key_pem,
             client_ca_pem=ca_chain_pem,
@@ -635,6 +636,7 @@ async def _start_grpc_server(state: AppState, grpc_host: str) -> None:
 
         await server.start()
         state.grpc_server = server
+        state.agent_bridge = agent_bridge
         logger.info(f"gRPC server started at {bound_addr}")
 
         # Start ReEnroll gRPC server (TLS-only, no mTLS)
