@@ -93,7 +93,7 @@ async def grpc_server_and_dispatcher(
     The caller should use bound_address to connect a client.
     """
     dispatcher = CommandDispatcher()
-    server, bound_addr, _ = make_grpc_server(
+    server, bound_addr, _, _ = make_grpc_server(
         server_cert_chain_pem=tls_creds["server_cert_pem"],
         server_key_pem=tls_creds["server_key_pem"],
         client_ca_pem=tls_creds["ca_chain_pem"],
