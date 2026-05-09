@@ -18,32 +18,25 @@ function polygon(values: number[], maxValue = 100) {
 	return pts.map(p => p.join(',')).join(' ');
 }
 
-function trunc(s: string, n: number): string {
-	return s.length > n ? `${s.slice(0, n - 1)}…` : s;
-}
+/** 3-letter abbreviation for a pillar. Built-in scorer names get
+ *  hand-tuned codes; unknowns fall back to the first three letters of
+ *  the scorer name uppercased (truncated/padded to length 3). */
+const ABBREV: Record<string, string> = {
+	vulnerabilities: 'VUL',
+	configuration: 'CFG',
+	identity: 'IDA',
+	hygiene: 'HYG',
+};
 
-/** Split a label into up to two lines on whitespace. Single-word labels
- *  return as one line, with truncation applied. Multi-word labels split
- *  at the closest-to-middle space so both lines are roughly balanced. */
-function splitLabel(s: string, perLine = 12): string[] {
-	const words = s.split(/\s+/).filter(Boolean);
-	if (words.length <= 1) return [trunc(s, perLine)];
-	// Find split index closest to balancing line lengths.
-	let best = 1;
-	let bestDiff = Number.POSITIVE_INFINITY;
-	for (let i = 1; i < words.length; i++) {
-		const a = words.slice(0, i).join(' ').length;
-		const b = words.slice(i).join(' ').length;
-		const diff = Math.abs(a - b);
-		if (diff < bestDiff) {
-			bestDiff = diff;
-			best = i;
-		}
-	}
-	return [
-		trunc(words.slice(0, best).join(' '), perLine),
-		trunc(words.slice(best).join(' '), perLine),
-	];
+function pillarAbbrev(name: string): string {
+	const known = ABBREV[name];
+	if (known) return known;
+	return (
+		name
+			.replace(/[^a-z0-9]/gi, '')
+			.slice(0, 3)
+			.toUpperCase() || '?'
+	);
 }
 
 /** Score → color band, same palette as RiskPillarBar. */
@@ -141,40 +134,40 @@ export function RiskPillarRadar({ pillars }: { pillars: PillarOut[] }) {
 						/>
 					);
 				})}
-				{/* Axis labels — multi-word labels wrap to a second line so we
-				    avoid truncation; single-word labels render on one line.
-				    Color matches the pillar's score band so the radar
-				    doubles as a status legend. */}
+				{/* Axis badges — small colored disk with a 3-letter abbreviation.
+				    Hover shows full label via native <title>. Keeps the chart
+				    body inside the card regardless of label length. */}
 				{sorted.map((p, i) => {
 					const ang = (i / n) * Math.PI * 2 - Math.PI / 2;
-					const lx = CX + (R + 6) * Math.cos(ang);
-					const ly = CY + (R + 8) * Math.sin(ang);
-					const cosA = Math.cos(ang);
-					const anchor = cosA > 0.3 ? 'start' : cosA < -0.3 ? 'end' : 'middle';
-					const lines = splitLabel(p.label, 12);
+					const lx = CX + (R + 12) * Math.cos(ang);
+					const ly = CY + (R + 12) * Math.sin(ang);
 					const color = pillarColor(p.score);
 					return (
-						<text
-							key={`label-${p.name}`}
-							x={lx}
-							y={ly}
-							textAnchor={anchor}
-							dominantBaseline="middle"
-							className="font-mono"
-							fontSize="6.5"
-							fill={color}
-							fontWeight="600"
-						>
-							{lines.map((line, idx) => (
-								<tspan
-									key={`${p.name}-line-${idx}`}
-									x={lx}
-									dy={idx === 0 ? -((lines.length - 1) * 4) : 8}
-								>
-									{line}
-								</tspan>
-							))}
-						</text>
+						<g key={`badge-${p.name}`} style={{ cursor: 'help' }}>
+							<title>
+								{p.label} — {Math.round(p.score)} (conf {Math.round(p.confidence * 100)}%)
+							</title>
+							<circle
+								cx={lx}
+								cy={ly}
+								r={9}
+								fill="var(--color-surface)"
+								stroke={color}
+								strokeWidth={1.4}
+							/>
+							<text
+								x={lx}
+								y={ly}
+								textAnchor="middle"
+								dominantBaseline="central"
+								className="font-mono"
+								fontSize="7"
+								fontWeight="700"
+								fill={color}
+							>
+								{pillarAbbrev(p.name)}
+							</text>
+						</g>
 					);
 				})}
 				{/* Center 100 ring label */}
@@ -189,13 +182,27 @@ export function RiskPillarRadar({ pillars }: { pillars: PillarOut[] }) {
 					100
 				</text>
 			</svg>
-			<div className="mt-2 flex items-center justify-center gap-4 font-mono text-[9px] uppercase tracking-wider text-text-dim">
+			<div className="mt-1 flex items-center justify-center gap-3 font-mono text-[9px] uppercase tracking-wider text-text-dim">
 				<span className="flex items-center gap-1">
-					<span className="h-2 w-3 rounded-sm bg-accent/60" /> raw score
+					<span className="h-2 w-3 rounded-sm bg-accent/60" /> raw
 				</span>
 				<span className="flex items-center gap-1">
 					<span className="h-2 w-3 border border-dashed border-warn" /> weighted
 				</span>
+			</div>
+			{/* Abbrev legend */}
+			<div className="mt-1 flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 font-mono text-[9px] text-text-dim">
+				{sorted.map(p => (
+					<span key={`leg-${p.name}`} className="flex items-center gap-1" title={p.label}>
+						<span
+							className="rounded-full border px-1 py-px text-[8px] font-bold leading-none"
+							style={{ borderColor: pillarColor(p.score), color: pillarColor(p.score) }}
+						>
+							{pillarAbbrev(p.name)}
+						</span>
+						<span className="truncate">{p.label}</span>
+					</span>
+				))}
 			</div>
 		</section>
 	);
