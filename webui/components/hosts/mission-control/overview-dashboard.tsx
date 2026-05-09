@@ -3,6 +3,7 @@
 import { apiFetch } from '@/lib/api-client';
 import { useHostAdvisories } from '@/lib/api/advisories';
 import { type Host, updateHeartbeatInterval } from '@/lib/api/hosts';
+import { type HostRiskOut, useHostRisk } from '@/lib/api/posture-risk';
 import {
 	type AuditUserLookup,
 	auditActionHref,
@@ -36,6 +37,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { type ComponentType, type ReactNode, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 export type FocusMode =
 	| 'overview'
@@ -75,19 +77,6 @@ interface AuditEntry {
 interface AuditPage {
 	items: AuditEntry[];
 	next_cursor: string | null;
-}
-
-interface Finding {
-	id: string;
-	severity: string;
-	title: string;
-	summary: string;
-	rule: string;
-	subject_kind: string;
-	subject_id: string | null;
-}
-interface PostureResponse {
-	findings: Finding[];
 }
 
 interface Props {
@@ -573,28 +562,173 @@ function bucketSeverities(items: { severity: string }[]): SeverityBuckets {
 	return out;
 }
 
-function SeveritySummary({ buckets }: { buckets: SeverityBuckets }) {
-	const entries: Array<[keyof SeverityBuckets, string, string]> = [
-		['critical', 'CR', 'text-danger'],
-		['high', 'HI', 'text-danger'],
-		['medium', 'MD', 'text-warn'],
-		['low', 'LO', 'text-accent'],
-		['unknown', 'UNK', 'text-text-dim'],
+interface PieSlice {
+	key: keyof SeverityBuckets;
+	label: string; // 2-char abbrev
+	full: string; // full name
+	count: number;
+	color: string; // CSS var
+}
+
+function SeverityPie({
+	buckets,
+	hostId,
+	size = 120,
+}: {
+	buckets: SeverityBuckets;
+	hostId: string;
+	size?: number;
+}) {
+	const navigate = (sev: string) => {
+		if (typeof window === 'undefined') return;
+		window.location.href = `/advisories?host_id=${encodeURIComponent(hostId)}&severity=${sev}`;
+	};
+	const slicesAll: PieSlice[] = [
+		{
+			key: 'critical',
+			label: 'CR',
+			full: 'critical',
+			count: buckets.critical,
+			color: 'var(--color-danger)',
+		},
+		{
+			key: 'high',
+			label: 'HI',
+			full: 'high',
+			count: buckets.high,
+			color: 'var(--color-danger)',
+		},
+		{
+			key: 'medium',
+			label: 'MD',
+			full: 'medium',
+			count: buckets.medium,
+			color: 'var(--color-warn)',
+		},
+		{ key: 'low', label: 'LO', full: 'low', count: buckets.low, color: 'var(--color-accent)' },
+		{
+			key: 'unknown',
+			label: 'UNK',
+			full: 'unknown',
+			count: buckets.unknown,
+			color: 'var(--color-text-dim)',
+		},
 	];
-	const visible = entries.filter(([k]) => buckets[k] > 0);
-	if (visible.length === 0) return null;
+	const slices = slicesAll.filter(s => s.count > 0);
+	const total = slices.reduce((a, s) => a + s.count, 0);
+	const [hover, setHover] = useState<string | null>(null);
+	const cx = size / 2;
+	const cy = size / 2;
+	const r = size / 2 - 2;
+	const innerR = r * 0.55;
+
+	if (total === 0) {
+		return (
+			<div
+				className="flex items-center justify-center text-ok font-mono text-[11px]"
+				style={{ height: size }}
+			>
+				no advisories
+			</div>
+		);
+	}
+
+	// Build SVG arc paths.
+	let acc = 0;
+	const paths = slices.map(s => {
+		const startA = (acc / total) * Math.PI * 2 - Math.PI / 2;
+		acc += s.count;
+		const endA = (acc / total) * Math.PI * 2 - Math.PI / 2;
+		const large = s.count / total > 0.5 ? 1 : 0;
+		const x1 = cx + r * Math.cos(startA);
+		const y1 = cy + r * Math.sin(startA);
+		const x2 = cx + r * Math.cos(endA);
+		const y2 = cy + r * Math.sin(endA);
+		const xi2 = cx + innerR * Math.cos(endA);
+		const yi2 = cy + innerR * Math.sin(endA);
+		const xi1 = cx + innerR * Math.cos(startA);
+		const yi1 = cy + innerR * Math.sin(startA);
+		const d = [
+			`M ${x1} ${y1}`,
+			`A ${r} ${r} 0 ${large} 1 ${x2} ${y2}`,
+			`L ${xi2} ${yi2}`,
+			`A ${innerR} ${innerR} 0 ${large} 0 ${xi1} ${yi1}`,
+			'Z',
+		].join(' ');
+		return { slice: s, d };
+	});
+
+	const hovered = slices.find(s => s.key === hover) ?? null;
+
 	return (
-		<div className="flex flex-wrap items-center gap-1 border-b border-hairline px-2 pb-1.5 pt-1">
-			{visible.map(([k, label, tone]) => (
-				<span
-					key={k}
-					className={`mc-pip ${tone} border-current px-1 py-0`}
-					title={`${buckets[k]} ${k}`}
-				>
-					<span className="opacity-70">{label}</span>
-					<span className="font-semibold">{buckets[k]}</span>
-				</span>
-			))}
+		<div className="flex items-center gap-3 px-2 py-2">
+			<div className="relative shrink-0" style={{ width: size, height: size }}>
+				<svg width={size} height={size} role="img" aria-label="Severity distribution">
+					<title>Advisory severity distribution</title>
+					{paths.map(({ slice, d }) => {
+						const isHover = hover === slice.key;
+						return (
+							<path
+								key={slice.key}
+								d={d}
+								fill={slice.color}
+								fillOpacity={hover && !isHover ? 0.35 : 0.8}
+								stroke="var(--color-bezel)"
+								strokeWidth={1}
+								style={{
+									filter: isHover ? 'brightness(1.4) drop-shadow(0 0 6px currentColor)' : undefined,
+									color: slice.color,
+									transition: 'fill-opacity 120ms, filter 120ms',
+									cursor: 'pointer',
+								}}
+								onMouseEnter={() => setHover(slice.key)}
+								onMouseLeave={() => setHover(null)}
+								onClick={() => navigate(slice.full)}
+								role="button"
+								tabIndex={0}
+								onKeyDown={ev => {
+									if (ev.key === 'Enter' || ev.key === ' ') {
+										ev.preventDefault();
+										navigate(slice.full);
+									}
+								}}
+								aria-label={`${slice.count} ${slice.full} advisories — click to filter`}
+							/>
+						);
+					})}
+				</svg>
+				{/* Center readout */}
+				<div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center font-mono leading-none">
+					<span className="text-[16px] font-semibold text-text">
+						{hovered ? hovered.count : total}
+					</span>
+					<span className="text-[8px] uppercase tracking-wider text-text-dim mt-0.5">
+						{hovered ? hovered.full : 'total'}
+					</span>
+				</div>
+			</div>
+			{/* Legend */}
+			<div className="flex flex-1 flex-col gap-0.5 text-[11px]">
+				{slices.map(s => (
+					<button
+						type="button"
+						key={s.key}
+						onMouseEnter={() => setHover(s.key)}
+						onMouseLeave={() => setHover(null)}
+						onClick={() => navigate(s.full)}
+						className={`flex items-center gap-1.5 rounded px-1 py-0.5 text-left hover:bg-surface-2 ${
+							hover === s.key ? 'bg-surface-2' : ''
+						}`}
+					>
+						<span className="h-2 w-2 rounded-sm shrink-0" style={{ backgroundColor: s.color }} />
+						<span className="text-text-dim uppercase tracking-wider w-7">{s.label}</span>
+						<span className="text-text font-mono">{s.count}</span>
+						<span className="ml-auto text-text-dim/60 font-mono">
+							{((s.count / total) * 100).toFixed(0)}%
+						</span>
+					</button>
+				))}
+			</div>
 		</div>
 	);
 }
@@ -760,53 +894,438 @@ function AuditRibbon({ hostId, onJump }: { hostId: string; onJump: () => void })
 	);
 }
 
+const RISK_DISCLAIMER =
+	'Risk score is heuristic. It uses only advisory severity + CISA KEV + EPSS — it does not see your firewall, network exposure, EDR/AV, segmentation, runtime mitigations, or compensating controls. A "severe" score may be benign behind defenses; a "stable" score may still hide blast radius. Use as a triage hint, not a verdict.';
+
+function RiskInfographic({
+	risk,
+	hostId,
+	loading,
+}: {
+	risk: HostRiskOut;
+	hostId: string;
+	loading: boolean;
+}) {
+	const LEVEL_COLOR: Record<string, string> = {
+		minimal: 'var(--color-ok)',
+		stable: 'var(--color-ok)',
+		moderate: 'var(--color-accent)',
+		elevated: 'var(--color-warn)',
+		high: '#ff8400',
+		severe: 'var(--color-danger)',
+		unknown: 'var(--color-text-dim)',
+	};
+	const color = LEVEL_COLOR[risk.level] ?? 'var(--color-text-dim)';
+
+	const LEVEL_LABEL: Record<string, string> = {
+		minimal: 'All clear',
+		stable: 'Stable — monitor',
+		moderate: 'Moderate — review',
+		elevated: 'Elevated — patch this week',
+		high: 'High — patch now',
+		severe: 'Severe — under active risk',
+		unknown: 'Insufficient signal — scan host',
+	};
+	const label = LEVEL_LABEL[risk.level] ?? risk.level;
+
+	const kevCount = 0; // not exposed by API yet — see follow-up task
+	const maxEpss = 0;
+	const criticalCount = 0;
+	const highCount = 0;
+
+	const topContributors = risk.pillars
+		.flatMap(p =>
+			p.drivers.map(d => ({
+				id: d.label,
+				severity: 'unknown', // pillar-agnostic; severity-coded chip not used in panel anymore
+				kev: false,
+				epss: 0,
+				package: d.label,
+				score: d.contrib,
+			})),
+		)
+		.sort((a, b) => b.score - a.score)
+		.slice(0, 3);
+
+	// Compact half-circle gauge. Tighter aspect ratio than the original
+	// design so the ribbon doesn't dominate the overview vertically.
+	const W = 220;
+	const H = 88;
+	const cx = W / 2;
+	const cy = H - 4;
+	const r = 72;
+
+	// Helper: polar→cartesian for our half-circle (angle in degrees, 180=left)
+	const polar = (angDeg: number) => {
+		const a = (angDeg * Math.PI) / 180;
+		return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+	};
+
+	// Risk gauge is split into colored bands matching level thresholds.
+	const bands = [
+		{ from: 0, to: 20, color: 'var(--color-ok)' },
+		{ from: 20, to: 40, color: 'var(--color-accent)' },
+		{ from: 40, to: 65, color: 'var(--color-warn)' },
+		{ from: 65, to: 85, color: '#ff8400' },
+		{ from: 85, to: 100, color: 'var(--color-danger)' },
+	];
+
+	const scoreToAngle = (s: number) => 180 + (Math.min(100, Math.max(0, s)) / 100) * 180;
+
+	const arcPath = (fromScore: number, toScore: number) => {
+		const a1 = scoreToAngle(fromScore);
+		const a2 = scoreToAngle(toScore);
+		const [x1, y1] = polar(a1);
+		const [x2, y2] = polar(a2);
+		const large = a2 - a1 > 180 ? 1 : 0;
+		return `M ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2}`;
+	};
+
+	// Animate score 0 → actual on first paint and on subsequent changes.
+	// `displayScoreRef` snapshots the running value so re-running the
+	// animation when target changes doesn't add `displayScore` to the dep
+	// list (which would re-trigger every frame and break easing).
+	const [displayScore, setDisplayScore] = useState(0);
+	const displayScoreRef = useRef(0);
+	useEffect(() => {
+		displayScoreRef.current = displayScore;
+	}, [displayScore]);
+	useEffect(() => {
+		if (loading) return;
+		const target = risk.score ?? 0;
+		const start = performance.now();
+		const from = displayScoreRef.current;
+		const dur = 700; // ms
+		let raf = 0;
+		const tick = (t: number) => {
+			const p = Math.min(1, (t - start) / dur);
+			const eased = 1 - (1 - p) ** 3; // easeOutCubic
+			const v = from + (target - from) * eased;
+			setDisplayScore(v);
+			if (p < 1) raf = requestAnimationFrame(tick);
+		};
+		raf = requestAnimationFrame(tick);
+		return () => cancelAnimationFrame(raf);
+	}, [risk.score, loading]);
+
+	const needleAngle = scoreToAngle(displayScore);
+	const [nx, ny] = polar(needleAngle);
+
+	// Mouse-tracked hover panel for top drivers. Rendered via portal so it
+	// escapes the ribbon's overflow clipping and sits at the topmost layer.
+	const [hovered, setHovered] = useState(false);
+	const [mouse, setMouse] = useState({ x: 0, y: 0 });
+	// Disclaimer popover open state — when true, suppress the hover panel
+	// so the two layers don't fight for attention.
+	const [disclaimerOpen, setDisclaimerOpen] = useState(false);
+	const containerRef = useRef<HTMLDivElement | null>(null);
+	const handleMove = (e: React.MouseEvent) => {
+		setMouse({ x: e.clientX, y: e.clientY });
+	};
+
+	// Derive score display — null becomes 0 for display purposes
+	const displayedScore = risk.score ?? 0;
+
+	const PANEL_W = 260;
+	const PANEL_OFFSET = 14;
+	// Clamp to viewport. Prefer right of cursor, fall back to left when
+	// the panel would clip the right edge.
+	let panelLeft = mouse.x + PANEL_OFFSET;
+	if (typeof window !== 'undefined' && panelLeft + PANEL_W > window.innerWidth - 8) {
+		panelLeft = mouse.x - PANEL_W - PANEL_OFFSET;
+	}
+	let panelTop = mouse.y + PANEL_OFFSET;
+	if (typeof window !== 'undefined' && panelTop + 200 > window.innerHeight - 8) {
+		panelTop = Math.max(8, window.innerHeight - 220);
+	}
+
+	return (
+		<div
+			ref={containerRef}
+			className="relative cursor-pointer px-2 pt-1.5 pb-1"
+			onMouseEnter={() => setHovered(true)}
+			onMouseLeave={() => setHovered(false)}
+			onMouseMove={handleMove}
+			onClick={e => {
+				// Don't navigate if the click was on the disclaimer ⓘ button
+				// or its popover content.
+				const t = e.target as HTMLElement;
+				if (t.closest('[data-radix-popover-trigger], [data-radix-popover-content]')) return;
+				if (typeof window !== 'undefined') {
+					window.location.href = `/advisories?host_id=${encodeURIComponent(hostId)}`;
+				}
+			}}
+			onKeyDown={e => {
+				if (e.key === 'Enter' || e.key === ' ') {
+					e.preventDefault();
+					if (typeof window !== 'undefined') {
+						window.location.href = `/advisories?host_id=${encodeURIComponent(hostId)}`;
+					}
+				}
+			}}
+			// biome-ignore lint/a11y/useSemanticElements: contains nested Radix Popover.Trigger button — nesting <button> in <button> is invalid HTML
+			role="button"
+			tabIndex={0}
+			aria-label={`Open advisories for this host — risk ${displayedScore} of 100, ${label}`}
+		>
+			{/* Disclaimer popover — click ⓘ to open. Bigger hit-target than a
+			    title-attr-only tooltip; persists until dismissed. */}
+			<Popover.Root open={disclaimerOpen} onOpenChange={setDisclaimerOpen}>
+				<Popover.Trigger asChild>
+					<button
+						type="button"
+						className="absolute right-1 top-0.5 z-10 flex h-6 w-6 items-center justify-center rounded text-text-dim hover:bg-surface-2 hover:text-text"
+						aria-label="About this risk score"
+					>
+						<svg
+							width="13"
+							height="13"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							strokeWidth="2"
+							strokeLinecap="round"
+							strokeLinejoin="round"
+							aria-hidden="true"
+						>
+							<title>About this risk score</title>
+							<circle cx="12" cy="12" r="10" />
+							<path d="M12 16v-4" />
+							<path d="M12 8h.01" />
+						</svg>
+					</button>
+				</Popover.Trigger>
+				<Popover.Portal>
+					<Popover.Content
+						side="bottom"
+						align="end"
+						sideOffset={6}
+						collisionPadding={12}
+						className="z-[9999] w-[320px] rounded border border-hairline bg-surface p-3 font-mono text-[11px] text-text shadow-2xl"
+					>
+						<div className="mb-1.5 flex items-center justify-between">
+							<span className="text-[10px] uppercase tracking-[0.18em] text-warn">
+								⚠ Heuristic — not a verdict
+							</span>
+							<Popover.Close asChild>
+								<button
+									type="button"
+									aria-label="Close"
+									className="rounded px-1 text-text-dim hover:bg-surface-2 hover:text-text"
+								>
+									✕
+								</button>
+							</Popover.Close>
+						</div>
+						<p className="text-text-dim leading-relaxed">{RISK_DISCLAIMER}</p>
+						<div className="mt-2 border-t border-hairline pt-2 text-[10px] text-text-dim/80">
+							<div className="mb-1 uppercase tracking-wider">Inputs used</div>
+							<ul className="list-disc pl-4 space-y-0.5">
+								<li>Advisory severity (critical/high/medium/low)</li>
+								<li>CISA KEV (active in wild)</li>
+								<li>EPSS 30-day exploitation probability</li>
+							</ul>
+							<div className="mt-1.5 mb-1 uppercase tracking-wider">Not modeled</div>
+							<ul className="list-disc pl-4 space-y-0.5">
+								<li>Network exposure / segmentation / firewall</li>
+								<li>EDR / AV / runtime mitigations</li>
+								<li>Reachability of the vulnerable code path</li>
+								<li>Compensating controls in place</li>
+							</ul>
+						</div>
+					</Popover.Content>
+				</Popover.Portal>
+			</Popover.Root>
+
+			<div className="relative">
+				<svg
+					width="100%"
+					viewBox={`0 0 ${W} ${H}`}
+					role="img"
+					aria-label={`Risk gauge: ${displayedScore} of 100 — ${label}`}
+					style={{ overflow: 'visible', display: 'block' }}
+				>
+					<title>Risk gauge — heuristic</title>
+					{bands.map(b => (
+						<path
+							key={`${b.from}-${b.to}`}
+							d={arcPath(b.from, b.to)}
+							stroke={b.color}
+							strokeOpacity={loading ? 0.15 : 0.35}
+							strokeWidth={9}
+							fill="none"
+							strokeLinecap="butt"
+						/>
+					))}
+					{!loading && displayScore > 0 ? (
+						<path
+							d={arcPath(0, displayScore)}
+							stroke={color}
+							strokeWidth={9}
+							fill="none"
+							strokeLinecap="round"
+							style={{ filter: `drop-shadow(0 0 5px ${color})` }}
+						/>
+					) : null}
+					{!loading ? (
+						<>
+							<line
+								x1={cx}
+								y1={cy}
+								x2={nx}
+								y2={ny}
+								stroke={color}
+								strokeWidth={2}
+								strokeLinecap="round"
+							/>
+							<circle cx={cx} cy={cy} r={3} fill={color} />
+						</>
+					) : null}
+				</svg>
+				<div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col items-center font-mono leading-none">
+					<span
+						className="text-[20px] font-semibold tabular-nums"
+						style={{ color: loading ? 'var(--color-text-dim)' : color }}
+					>
+						{loading ? '…' : Math.round(displayScore)}
+					</span>
+				</div>
+			</div>
+
+			{/* Label gets its own row so long labels ("Severe — under active risk")
+			    aren't truncated by the chip cluster. */}
+			<div className="mt-1 text-center">
+				<span className="font-mono text-[10px] uppercase tracking-wider" style={{ color }}>
+					{label}
+				</span>
+			</div>
+			<div className="mt-1 flex items-center justify-center gap-1 font-mono text-[9px]">
+				<MiniChip
+					label="KEV"
+					value={kevCount}
+					tone={kevCount > 0 ? 'text-danger' : 'text-text-dim'}
+				/>
+				<MiniChip
+					label="EPSS"
+					value={maxEpss > 0 ? `${(maxEpss * 100).toFixed(0)}%` : '—'}
+					tone={maxEpss > 0.5 ? 'text-danger' : maxEpss > 0.1 ? 'text-warn' : 'text-text-dim'}
+				/>
+				<MiniChip
+					label="C/H"
+					value={`${criticalCount}/${highCount}`}
+					tone={criticalCount > 0 ? 'text-danger' : highCount > 0 ? 'text-warn' : 'text-text-dim'}
+				/>
+			</div>
+
+			<a className="sr-only" href={`/advisories?host_id=${encodeURIComponent(hostId)}`}>
+				Open advisories for this host
+			</a>
+
+			{/* Mouse-tracked hover panel — portaled to body so it sits above
+			    every ribbon/grid clip. Pointer-events-none so cursor motion
+			    doesn't bounce between trigger + panel. */}
+			{typeof document !== 'undefined' && hovered && !disclaimerOpen && topContributors.length > 0
+				? createPortal(
+						<div
+							className="pointer-events-none fixed rounded border border-hairline bg-surface p-2 shadow-2xl"
+							style={{
+								left: panelLeft,
+								top: panelTop,
+								width: PANEL_W,
+								zIndex: 9999,
+							}}
+						>
+							<div className="mb-1 flex items-center justify-between font-mono text-[9px] uppercase tracking-[0.14em] text-text-dim">
+								<span>Top drivers</span>
+								<span>heuristic</span>
+							</div>
+							<div className="space-y-0.5 font-mono text-[10px]">
+								{topContributors.map(c => (
+									<div key={c.id} className="flex items-center gap-1.5 truncate">
+										<span className={`mc-pip ${severityTone(c.severity)} border-current px-1 py-0`}>
+											{severityAbbrev(c.severity)}
+										</span>
+										{c.kev ? (
+											<span
+												className="mc-pip border-current px-1 py-0"
+												style={{ color: 'var(--color-danger)', fontSize: 8 }}
+											>
+												KEV
+											</span>
+										) : null}
+										<span className="truncate text-text">{c.package}</span>
+										<span className="ml-auto text-text-dim shrink-0">
+											{c.epss > 0 ? `${(c.epss * 100).toFixed(0)}%` : ''}
+										</span>
+										<span className="text-text-dim/60 shrink-0 tabular-nums">
+											{c.score.toFixed(1)}
+										</span>
+									</div>
+								))}
+							</div>
+							<div className="mt-1.5 border-t border-hairline pt-1 font-mono text-[9px] text-text-dim/70">
+								Click gauge to open advisories →
+							</div>
+						</div>,
+						document.body,
+					)
+				: null}
+		</div>
+	);
+}
+
+function MiniChip({
+	label,
+	value,
+	tone,
+	title,
+}: {
+	label: string;
+	value: number | string;
+	tone: string;
+	title?: string;
+}) {
+	return (
+		<span
+			className={`inline-flex items-center gap-0.5 rounded-sm border border-hairline px-1 py-0 leading-none ${tone}`}
+			title={title}
+		>
+			<span className="opacity-60">{label}</span>
+			<span className="font-semibold">{value}</span>
+		</span>
+	);
+}
+
 function PostureRibbon({ hostId, onJump }: { hostId: string; onJump: () => void }) {
-	const q = useQuery<PostureResponse>({
-		queryKey: ['hosts', hostId, 'posture'],
-		queryFn: () =>
-			apiFetch<PostureResponse>(
-				`/v1/posture?subject_kind=host&subject_id=${encodeURIComponent(hostId)}`,
-			),
-		refetchInterval: 15_000,
-	});
-	const items = q.data?.findings ?? [];
-	const buckets = bucketSeverities(items);
-	const worstTone =
-		buckets.critical > 0 || buckets.high > 0
-			? 'text-danger'
-			: buckets.medium > 0
-				? 'text-warn'
-				: items.length > 0
-					? 'text-accent'
-					: 'text-ok';
+	const q = useHostRisk(hostId);
+	const data = q.data;
+
+	const tone =
+		!data || data.score == null
+			? 'text-text-dim'
+			: data.score > 65
+				? 'text-danger'
+				: data.score > 40
+					? 'text-warn'
+					: data.score > 0
+						? 'text-accent'
+						: 'text-ok';
 
 	return (
 		<div className="flex flex-col">
 			<RibbonHeader
 				icon={AlertTriangle}
 				title="Posture"
-				count={items.length}
+				count={data?.score ?? 0}
 				onJump={onJump}
-				tone={worstTone}
+				tone={tone}
 			/>
 			<div className="mc-bezel flex flex-1 flex-col font-mono text-[11px]">
-				<SeveritySummary buckets={buckets} />
-				<div className="flex-1 space-y-1 px-2 py-1.5">
-					{q.isLoading ? (
-						<div className="text-text-dim">…scanning</div>
-					) : items.length === 0 ? (
-						<div className="text-ok">all clear</div>
-					) : (
-						items.slice(0, 4).map(f => (
-							<div key={f.id} className="flex items-center gap-1.5 truncate">
-								<span className={`mc-pip ${severityTone(f.severity)} border-current px-1 py-0`}>
-									{severityAbbrev(f.severity)}
-								</span>
-								<span className="truncate text-text">{f.title}</span>
-							</div>
-						))
-					)}
-				</div>
+				{q.isLoading || !data ? (
+					<div className="px-2 py-2 text-text-dim">…loading</div>
+				) : (
+					<RiskInfographic risk={data} hostId={hostId} loading={false} />
+				)}
 			</div>
 		</div>
 	);
@@ -835,23 +1354,11 @@ function AdvisoriesRibbon({ hostId, onJump }: { hostId: string; onJump: () => vo
 				tone={worstTone}
 			/>
 			<div className="mc-bezel flex flex-1 flex-col font-mono text-[11px]">
-				<SeveritySummary buckets={buckets} />
-				<div className="flex-1 space-y-1 px-2 py-1.5">
-					{q.isLoading ? (
-						<div className="text-text-dim">…loading</div>
-					) : items.length === 0 ? (
-						<div className="text-ok">no advisories</div>
-					) : (
-						items.slice(0, 4).map(a => (
-							<div key={a.id} className="flex items-center gap-1.5 truncate">
-								<span className={`mc-pip ${severityTone(a.severity)} border-current px-1 py-0`}>
-									{severityAbbrev(a.severity)}
-								</span>
-								<span className="truncate text-text">{a.package_name}</span>
-							</div>
-						))
-					)}
-				</div>
+				{q.isLoading ? (
+					<div className="px-2 py-2 text-text-dim">…loading</div>
+				) : (
+					<SeverityPie buckets={buckets} hostId={hostId} />
+				)}
 			</div>
 		</div>
 	);
