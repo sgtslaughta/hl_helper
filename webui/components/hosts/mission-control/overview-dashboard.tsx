@@ -38,6 +38,7 @@ import {
 import Link from 'next/link';
 import { type ComponentType, type ReactNode, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { RiskHoverPanel } from './risk-hover-panel';
 
 export type FocusMode =
 	| 'overview'
@@ -516,31 +517,6 @@ function HostHealthCluster({
 	);
 }
 
-function severityTone(sev: string): string {
-	switch (sev.toLowerCase()) {
-		case 'critical':
-		case 'high':
-			return 'text-danger';
-		case 'medium':
-			return 'text-warn';
-		case 'low':
-			return 'text-accent';
-		default:
-			return 'text-text-dim';
-	}
-}
-
-const SEVERITY_ABBREV: Record<string, string> = {
-	critical: 'CR',
-	high: 'HI',
-	medium: 'MD',
-	low: 'LO',
-};
-
-function severityAbbrev(sev: string): string {
-	return SEVERITY_ABBREV[sev.toLowerCase()] ?? 'UNK';
-}
-
 interface SeverityBuckets {
 	critical: number;
 	high: number;
@@ -933,20 +909,6 @@ function RiskInfographic({
 	const criticalCount = 0;
 	const highCount = 0;
 
-	const topContributors = risk.pillars
-		.flatMap(p =>
-			p.drivers.map(d => ({
-				id: d.label,
-				severity: 'unknown', // pillar-agnostic; severity-coded chip not used in panel anymore
-				kev: false,
-				epss: 0,
-				package: d.label,
-				score: d.contrib,
-			})),
-		)
-		.sort((a, b) => b.score - a.score)
-		.slice(0, 3);
-
 	// Compact half-circle gauge. Tighter aspect ratio than the original
 	// design so the ribbon doesn't dominate the overview vertically.
 	const W = 220;
@@ -1224,7 +1186,7 @@ function RiskInfographic({
 			{/* Mouse-tracked hover panel — portaled to body so it sits above
 			    every ribbon/grid clip. Pointer-events-none so cursor motion
 			    doesn't bounce between trigger + panel. */}
-			{typeof document !== 'undefined' && hovered && !disclaimerOpen && topContributors.length > 0
+			{typeof document !== 'undefined' && hovered && !disclaimerOpen
 				? createPortal(
 						<div
 							className="pointer-events-none fixed rounded border border-hairline bg-surface p-2 shadow-2xl"
@@ -1235,37 +1197,7 @@ function RiskInfographic({
 								zIndex: 9999,
 							}}
 						>
-							<div className="mb-1 flex items-center justify-between font-mono text-[9px] uppercase tracking-[0.14em] text-text-dim">
-								<span>Top drivers</span>
-								<span>heuristic</span>
-							</div>
-							<div className="space-y-0.5 font-mono text-[10px]">
-								{topContributors.map(c => (
-									<div key={c.id} className="flex items-center gap-1.5 truncate">
-										<span className={`mc-pip ${severityTone(c.severity)} border-current px-1 py-0`}>
-											{severityAbbrev(c.severity)}
-										</span>
-										{c.kev ? (
-											<span
-												className="mc-pip border-current px-1 py-0"
-												style={{ color: 'var(--color-danger)', fontSize: 8 }}
-											>
-												KEV
-											</span>
-										) : null}
-										<span className="truncate text-text">{c.package}</span>
-										<span className="ml-auto text-text-dim shrink-0">
-											{c.epss > 0 ? `${(c.epss * 100).toFixed(0)}%` : ''}
-										</span>
-										<span className="text-text-dim/60 shrink-0 tabular-nums">
-											{c.score.toFixed(1)}
-										</span>
-									</div>
-								))}
-							</div>
-							<div className="mt-1.5 border-t border-hairline pt-1 font-mono text-[9px] text-text-dim/70">
-								Click gauge to open advisories →
-							</div>
+							<RiskHoverPanel risk={risk} />
 						</div>,
 						document.body,
 					)
