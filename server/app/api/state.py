@@ -51,6 +51,8 @@ class AppStateProtocol(Protocol):
     lockout_tracker: Any | None  # LockoutTrackerPersistent | None
     session_service: Any | None  # SessionService | None, but lazily imported to avoid circular deps
     secrets_broker: SecretsBackend | None
+    risk_registry: Any | None  # ScorerRegistry, lazy-typed to avoid circular import
+    risk_recomputer: Any | None  # RiskRecomputer, lazy-typed
 
 
 def get_app_state(request: Request) -> AppStateProtocol:

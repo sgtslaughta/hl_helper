@@ -249,6 +249,8 @@ class AppState:
     lockout_tracker: Any | None = None
     session_service: Any | None = None
     secrets_broker: Any | None = None
+    risk_registry: Any | None = None
+    risk_recomputer: Any | None = None
     webauthn_service: Any | None = None
     webauthn_challenges: Any | None = None
     webauthn_rp_id: str | None = None
@@ -424,6 +426,29 @@ async def build_app_state(settings: FleetSettings) -> AppState:
             event_bus=bus,
         )
 
+    # Posture risk pillar registry + recomputer (multi-pillar aggregator).
+    from server.app.posture.risk.recomputer import RiskRecomputer
+    from server.app.posture.risk.registry import ScorerRegistry
+    from server.app.posture.risk.scorers.configuration import ConfigurationScorer
+    from server.app.posture.risk.scorers.hygiene import HygieneScorer
+    from server.app.posture.risk.scorers.identity import IdentityScorer
+    from server.app.posture.risk.scorers.vulnerabilities import VulnerabilitiesScorer
+
+    risk_registry = ScorerRegistry()
+    for scorer in (
+        VulnerabilitiesScorer(),
+        ConfigurationScorer(),
+        IdentityScorer(),
+        HygieneScorer(),
+    ):
+        risk_registry.register(scorer)
+    risk_recomputer = RiskRecomputer(
+        sm,
+        risk_registry,
+        bus=bus,
+        audit=audit_chain,
+    )
+
     return AppState(
         bus=bus,
         ca=ca,
@@ -442,6 +467,8 @@ async def build_app_state(settings: FleetSettings) -> AppState:
         lockout_tracker=lockout_tracker,
         session_service=session_service,
         secrets_broker=secrets_broker,
+        risk_registry=risk_registry,
+        risk_recomputer=risk_recomputer,
         public_url=settings.public_url,
         public_origin=settings.public_url,
         advertised_origins=advertised_origins,
@@ -639,9 +666,37 @@ async def app_lifespan(app: Any) -> AsyncIterator[None]:
         run_host_status_watcher(state.sessionmaker, state.bus)
     )
 
+    # Periodic risk recompute sweep — catches freshness decay even when no
+    # input events arrived (e.g. cert ages into the <30d window without any
+    # advisory match firing).
+    async def _risk_sweep() -> None:
+        from sqlalchemy import select
+
+        from server.app.models.host import Host
+
+        while True:
+            try:
+                async with state.sessionmaker() as session:
+                    ids = list(
+                        (await session.execute(select(Host.id))).scalars().all()
+                    )
+                if state.risk_recomputer is not None:
+                    for hid in ids:
+                        await state.risk_recomputer.request(
+                            hid, trigger_reason="periodic"
+                        )
+            except Exception:
+                logger.exception("risk_sweep.failed")
+            try:
+                await asyncio.sleep(15 * 60)
+            except asyncio.CancelledError:
+                return
+
+    risk_sweep_task = asyncio.create_task(_risk_sweep())
+
     yield
 
-    tasks_to_cancel = [bridge_task, sweeper_task, host_watcher_task]
+    tasks_to_cancel = [bridge_task, sweeper_task, host_watcher_task, risk_sweep_task]
     if advisory_task is not None:
         tasks_to_cancel.append(advisory_task)
     for t in tasks_to_cancel:
