@@ -17,7 +17,7 @@ describe('TopBar', () => {
 	it('renders status pips for non-zero counts only', () => {
 		render(
 			wrap(
-				<TopBar counts={{ critical: 2, pending: 1, online: 14, offline: 0 }} onEnroll={() => {}} />,
+				<TopBar counts={{ critical: 2, pending: 1, online: 14, offline: 0, stale: 0 }} onEnroll={() => {}} />,
 			),
 		);
 		expect(screen.getByText('CRIT')).toBeInTheDocument();
@@ -31,7 +31,7 @@ describe('TopBar', () => {
 		render(
 			wrap(
 				<TopBar
-					counts={{ critical: 2, pending: 0, online: 0, offline: 0 }}
+					counts={{ critical: 2, pending: 0, online: 0, offline: 0, stale: 0 }}
 					onEnroll={() => {}}
 					onPillClick={onPillClick}
 				/>,
@@ -45,7 +45,7 @@ describe('TopBar', () => {
 		const onEnroll = vi.fn();
 		render(
 			wrap(
-				<TopBar counts={{ critical: 0, pending: 0, online: 0, offline: 0 }} onEnroll={onEnroll} />,
+				<TopBar counts={{ critical: 0, pending: 0, online: 0, offline: 0, stale: 0 }} onEnroll={onEnroll} />,
 			),
 		);
 		fireEvent.click(screen.getByRole('button', { name: /Enroll Host/i }));

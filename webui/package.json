@@ -75,6 +75,7 @@
 		"serwist": "^9.5.11",
 		"shiki": "^4.0.2",
 		"sonner": "^1.5.0",
+		"swr": "^2.4.1",
 		"tailwindcss": "^4.0.0",
 		"typescript": "^5.4.2",
 		"zod": "^3.23.0",

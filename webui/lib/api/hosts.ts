@@ -64,6 +64,8 @@ export interface Host {
 	metrics_at?: string;
 	heartbeat_interval_s?: number;
 	agent_version?: string;
+	agent_version_latest?: string;
+	agent_update_status?: 'current' | 'available' | 'pinned' | 'unknown';
 }
 
 export interface ActionResponse {
