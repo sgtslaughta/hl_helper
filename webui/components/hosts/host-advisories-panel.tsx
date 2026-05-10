@@ -236,6 +236,7 @@ export function HostAdvisoriesPanel({ hostId }: { hostId: string }) {
 				{['all', 'open', 'suppressed', 'fixed'].map(status => (
 					<button
 						key={status}
+						type="button"
 						onClick={() => setStatusFilter(status)}
 						className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
 							statusFilter === status
@@ -296,6 +297,7 @@ export function HostAdvisoriesPanel({ hostId }: { hostId: string }) {
 						return (
 							<button
 								key={sev}
+								type="button"
 								onClick={() => toggleSevFilter(sev)}
 								className={`rounded border px-2 py-0.5 text-xs font-semibold transition ${
 									active
@@ -309,6 +311,7 @@ export function HostAdvisoriesPanel({ hostId }: { hostId: string }) {
 					})}
 					{sevFilter.size > 0 && (
 						<button
+							type="button"
 							onClick={() => setSevFilter(new Set())}
 							className="rounded border border-hairline px-2 py-0.5 text-xs text-text-dim hover:bg-surface-hover"
 						>
@@ -323,12 +326,15 @@ export function HostAdvisoriesPanel({ hostId }: { hostId: string }) {
 				<table className="w-full text-sm">
 					<thead className="border-b border-hairline bg-surface-hover">
 						<tr>
-							<th className="w-8 px-2 py-2"></th>
-							<th
-								className="cursor-pointer px-4 py-2 text-left font-semibold text-text-dim hover:text-text"
-								onClick={() => cycleSort('package')}
-							>
-								Package{sortIndicator('package')}
+							<th className="w-8 px-2 py-2" />
+							<th className="px-4 py-2 text-left font-semibold text-text-dim">
+								<button
+									type="button"
+									onClick={() => cycleSort('package')}
+									className="w-full cursor-pointer text-left hover:text-text"
+								>
+									Package{sortIndicator('package')}
+								</button>
 							</th>
 							<th
 								className="px-4 py-2 text-left font-semibold text-text-dim"
@@ -336,19 +342,23 @@ export function HostAdvisoriesPanel({ hostId }: { hostId: string }) {
 							>
 								Current → Fixed
 							</th>
-							<th
-								className="cursor-pointer px-4 py-2 text-left font-semibold text-text-dim hover:text-text"
-								onClick={() => cycleSort('severity')}
-								title="Severity classification from the advisory feed (critical/high/medium/low). Distro feeds publish their own severity; OSV records derive from CVSS when no distro rating is available."
-							>
-								Severity{sortIndicator('severity')}
+							<th className="px-4 py-2 text-left font-semibold text-text-dim" title="Severity classification from the advisory feed (critical/high/medium/low). Distro feeds publish their own severity; OSV records derive from CVSS when no distro rating is available.">
+								<button
+									type="button"
+									onClick={() => cycleSort('severity')}
+									className="w-full cursor-pointer text-left hover:text-text"
+								>
+									Severity{sortIndicator('severity')}
+								</button>
 							</th>
-							<th
-								className="cursor-pointer px-4 py-2 text-left font-semibold text-text-dim hover:text-text"
-								onClick={() => cycleSort('count')}
-								title="Number of distinct CVEs in this package + severity group. Click a row to expand the list."
-							>
-								CVEs{sortIndicator('count')}
+							<th className="px-4 py-2 text-left font-semibold text-text-dim" title="Number of distinct CVEs in this package + severity group. Click a row to expand the list.">
+								<button
+									type="button"
+									onClick={() => cycleSort('count')}
+									className="w-full cursor-pointer text-left hover:text-text"
+								>
+									CVEs{sortIndicator('count')}
+								</button>
 							</th>
 							<th
 								className="px-4 py-2 text-left font-semibold text-text-dim"
@@ -369,16 +379,20 @@ export function HostAdvisoriesPanel({ hostId }: { hostId: string }) {
 							const isOpen = expanded.has(row.key);
 							return (
 								<Fragment key={row.key}>
-									<tr
-										onClick={() => toggleExpanded(row.key)}
-										className="cursor-pointer hover:bg-surface-hover/50"
-									>
+									<tr className="hover:bg-surface-hover/50">
 										<td className="px-2 py-2 text-text-dim">
-											{isOpen ? (
-												<ChevronDown className="h-4 w-4" />
-											) : (
-												<ChevronRight className="h-4 w-4" />
-											)}
+											<button
+												type="button"
+												onClick={() => toggleExpanded(row.key)}
+												className="cursor-pointer text-text-dim hover:text-text"
+												aria-label={isOpen ? 'Collapse' : 'Expand'}
+											>
+												{isOpen ? (
+													<ChevronDown className="h-4 w-4" />
+												) : (
+													<ChevronRight className="h-4 w-4" />
+												)}
+											</button>
 										</td>
 										<td className="px-4 py-2 font-mono text-text">{row.package}</td>
 										<td className="px-4 py-2 text-text-dim">
@@ -418,7 +432,7 @@ export function HostAdvisoriesPanel({ hostId }: { hostId: string }) {
 									</tr>
 									{isOpen && (
 										<tr className="bg-canvas/40">
-											<td></td>
+											<td />
 											<td colSpan={6} className="px-4 py-3">
 												<table className="w-full text-xs">
 													<thead className="text-text-dim">
@@ -464,6 +478,7 @@ export function HostAdvisoriesPanel({ hostId }: { hostId: string }) {
 																<td className="px-2 py-1 text-right">
 																	{a.status === 'open' ? (
 																		<button
+																			type="button"
 																			onClick={(e) => {
 																				e.stopPropagation();
 																				handleSuppressClick(a);
@@ -475,6 +490,7 @@ export function HostAdvisoriesPanel({ hostId }: { hostId: string }) {
 																		</button>
 																	) : a.status === 'suppressed' ? (
 																		<button
+																			type="button"
 																			onClick={(e) => {
 																				e.stopPropagation();
 																				handleUnsuppressClick(a);
@@ -517,8 +533,9 @@ export function HostAdvisoriesPanel({ hostId }: { hostId: string }) {
 
 						<div className="space-y-4">
 							<div>
-								<label className="block text-sm font-semibold text-text-dim">Reason (optional)</label>
+								<label htmlFor="suppress-reason" className="block text-sm font-semibold text-text-dim">Reason (optional)</label>
 								<textarea
+									id="suppress-reason"
 									value={dialogState.reason}
 									onChange={e =>
 										setDialogState(prev => ({ ...prev, reason: e.target.value }))
@@ -530,10 +547,11 @@ export function HostAdvisoriesPanel({ hostId }: { hostId: string }) {
 							</div>
 
 							<div>
-								<label className="block text-sm font-semibold text-text-dim">
+								<label htmlFor="suppress-days" className="block text-sm font-semibold text-text-dim">
 									Suppress for (days)
 								</label>
 								<input
+									id="suppress-days"
 									type="number"
 									min="1"
 									max="365"
@@ -541,7 +559,7 @@ export function HostAdvisoriesPanel({ hostId }: { hostId: string }) {
 									onChange={e =>
 										setDialogState(prev => ({
 											...prev,
-											expiresInDays: parseInt(e.target.value) || 30,
+											expiresInDays: Number.parseInt(e.target.value) || 30,
 										}))
 									}
 									className="mt-1 w-full rounded border border-hairline bg-canvas px-3 py-2 text-sm text-text focus:border-accent focus:outline-none"
@@ -551,12 +569,14 @@ export function HostAdvisoriesPanel({ hostId }: { hostId: string }) {
 
 						<div className="mt-6 flex gap-3">
 							<button
+								type="button"
 								onClick={() => setDialogState(prev => ({ ...prev, open: false }))}
 								className="flex-1 rounded border border-hairline bg-surface px-4 py-2 font-semibold text-text hover:bg-surface-hover"
 							>
 								Cancel
 							</button>
 							<button
+								type="button"
 								onClick={handleSuppressConfirm}
 								disabled={suppressMutation.isPending}
 								className="flex-1 rounded bg-warn px-4 py-2 font-semibold text-canvas hover:bg-warn/80 disabled:opacity-50"

@@ -3,7 +3,7 @@
 // yields wildly wrong deltas. Append "Z" when no offset is present.
 export function parseServerTime(s: string): Date {
 	if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(s)) return new Date(s);
-	return new Date(s.replace(' ', 'T') + 'Z');
+	return new Date(`${s.replace(' ', 'T')}Z`);
 }
 
 export function fmtDuration(secs: number): string {

@@ -24,23 +24,23 @@ export function AgentReleaseUpload() {
       <Input type="file" name="binary" label="Binary" required />
       <Input name="version" label="Version" placeholder="0.4.2" required />
       <div className="flex flex-col gap-2">
-        <label className="text-small font-semibold text-text">Channel<span className="text-danger">*</span></label>
-        <select name="channel" className="rounded border border-hairline bg-surface px-3 py-2 text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-accent" required>
+        <label htmlFor="channel-select" className="text-small font-semibold text-text">Channel<span className="text-danger">*</span></label>
+        <select id="channel-select" name="channel" className="rounded border border-hairline bg-surface px-3 py-2 text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-accent" required>
           <option>stable</option>
           <option>beta</option>
           <option>canary</option>
         </select>
       </div>
       <div className="flex flex-col gap-2">
-        <label className="text-small font-semibold text-text">OS<span className="text-danger">*</span></label>
-        <select name="os" className="rounded border border-hairline bg-surface px-3 py-2 text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-accent" required>
+        <label htmlFor="os-select" className="text-small font-semibold text-text">OS<span className="text-danger">*</span></label>
+        <select id="os-select" name="os" className="rounded border border-hairline bg-surface px-3 py-2 text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-accent" required>
           <option>linux</option>
           <option>darwin</option>
         </select>
       </div>
       <div className="flex flex-col gap-2">
-        <label className="text-small font-semibold text-text">Arch<span className="text-danger">*</span></label>
-        <select name="arch" className="rounded border border-hairline bg-surface px-3 py-2 text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-accent" required>
+        <label htmlFor="arch-select" className="text-small font-semibold text-text">Arch<span className="text-danger">*</span></label>
+        <select id="arch-select" name="arch" className="rounded border border-hairline bg-surface px-3 py-2 text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-accent" required>
           <option>amd64</option>
           <option>arm64</option>
           <option>armv7</option>

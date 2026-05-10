@@ -20,7 +20,7 @@ export function WikiSidebar({ manifest, currentPath }: WikiSidebarProps) {
   for (const p of manifest.pages) {
     const top = p.path.split("/")[0];
     if (!groups.has(top)) groups.set(top, []);
-    groups.get(top)!.push(p);
+    groups.get(top)?.push(p);
   }
   return (
     <nav className="text-sm space-y-4">

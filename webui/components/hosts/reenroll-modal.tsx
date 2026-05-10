@@ -34,19 +34,16 @@ export function ReenrollModal({
 	}
 
 	return (
-		<div
-			role="dialog"
-			aria-modal="true"
+		<dialog
+			open
 			className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-			onClick={onClose}
 		>
 			<div
-				onClick={(e) => e.stopPropagation()}
 				className="w-full max-w-2xl rounded-lg border border-zinc-800 bg-zinc-950 p-6"
 			>
 				<header className="mb-4 flex items-center justify-between">
 					<h2 className="text-lg font-semibold">Re-enroll host</h2>
-					<button onClick={onClose} aria-label="Close" className="text-zinc-400 hover:text-zinc-200">
+					<button type="button" onClick={onClose} aria-label="Close" className="text-zinc-400 hover:text-zinc-200">
 						✕
 					</button>
 				</header>
@@ -91,6 +88,6 @@ export function ReenrollModal({
 					</div>
 				)}
 			</div>
-		</div>
+		</dialog>
 	);
 }

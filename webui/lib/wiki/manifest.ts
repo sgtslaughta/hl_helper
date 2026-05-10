@@ -26,7 +26,7 @@ export function buildTree(m: Manifest): TreeNode[] {
   for (const p of m.pages) {
     const top = p.path.split("/")[0];
     if (!sections.has(top)) sections.set(top, []);
-    sections.get(top)!.push(p);
+    sections.get(top)?.push(p);
   }
   return [...sections.entries()].map(([section, pages]) => ({ section, pages, subsections: [] }));
 }

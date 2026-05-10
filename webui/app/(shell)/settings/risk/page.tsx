@@ -1,7 +1,7 @@
 'use client';
 
 import { apiFetch } from '@/lib/api-client';
-import { useState } from 'react';
+import { useState, useId } from 'react';
 
 const TIERS = [
 	{ key: 'NETWORK_EXPOSED', label: 'Network-Exposed', defaultValue: 2.0 },
@@ -15,6 +15,7 @@ function ExposureMultiplierSettings() {
 		Object.fromEntries(TIERS.map(t => [t.key, t.defaultValue]))
 	);
 	const [saving, setSaving] = useState(false);
+	const fieldId = useId();
 
 	async function save(key: string, value: number) {
 		setSaving(true);
@@ -37,14 +38,15 @@ function ExposureMultiplierSettings() {
 			</p>
 			{TIERS.map((t) => (
 				<div key={t.key} className="flex items-center gap-3">
-					<label className="w-40 text-sm">{t.label}</label>
+					<label htmlFor={`${fieldId}-${t.key}`} className="w-40 text-sm">{t.label}</label>
 					<input
+						id={`${fieldId}-${t.key}`}
 						type="number"
 						step="0.1"
 						min="0"
 						max="10"
 						value={values[t.key]}
-						onChange={(e) => setValues({ ...values, [t.key]: parseFloat(e.target.value) })}
+						onChange={(e) => setValues({ ...values, [t.key]: Number.parseFloat(e.target.value) })}
 						onBlur={() => save(t.key, values[t.key])}
 						disabled={saving}
 						className="w-20 rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-sm disabled:opacity-50"

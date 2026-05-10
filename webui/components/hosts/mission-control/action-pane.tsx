@@ -146,6 +146,7 @@ export function ActionPane({ host, mode, onModeChange, width, onWidthChange }: P
 		>
 			<div className="space-y-3">
 				<button
+					type="button"
 					onClick={handleUpdateAgent}
 					disabled={updating}
 					className="w-full rounded-sm border border-accent bg-accent/15 px-3 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-accent hover:bg-accent/25 disabled:cursor-not-allowed disabled:opacity-40"
