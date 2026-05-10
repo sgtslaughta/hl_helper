@@ -118,6 +118,10 @@ module = ["grpc", "grpc.*", "grpc_status.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+module = "boto3"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = ["apscheduler", "apscheduler.*"]
 ignore_missing_imports = true
 
