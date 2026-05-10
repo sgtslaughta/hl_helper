@@ -15,7 +15,15 @@ jobs:
       - run: pip install -e .[dev]
       - run: ruff check .
       - run: mypy server/app/
-      - run: pytest server/tests/ --cov=server/app --cov-report=term-missing --cov-fail-under=70 -q
+      - name: pytest with coverage
+        run: pytest server/tests/ --cov=server/app --cov-report=term-missing --cov-report=xml --cov-fail-under=70 -q
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          retention-days: 7
   migrations:
     runs-on: ubuntu-latest
     steps:
@@ -29,6 +37,22 @@ jobs:
           alembic upgrade head
           alembic downgrade base
           alembic upgrade head
+  py-bootstrap-admin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e '.[dev]'
+      - name: Bootstrap admin seed check
+        env:
+          FLEET_BOOTSTRAP_ADMIN_EMAIL: ci-admin@example.test
+          FLEET_DB_URL: sqlite+aiosqlite:////tmp/ci-admin.db
+        run: |
+          rm -f /tmp/ci-admin.db
+          alembic upgrade head
+          python -m server.tests._helpers.check_admin_seed --db-url "sqlite:////tmp/ci-admin.db" --email "$FLEET_BOOTSTRAP_ADMIN_EMAIL"
   gitleaks:
     runs-on: ubuntu-latest
     steps:
@@ -86,6 +110,16 @@ jobs:
       - name: go test -race
         working-directory: agent
         run: go test -race -count=1 ./...
+  go-memcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - name: Heap-growth regression test
+        working-directory: agent
+        run: go test -count=1 -run TestHeapStable ./internal/outbox/...
   agent-tpm:
     runs-on: ubuntu-latest
     steps:
@@ -156,33 +190,3 @@ jobs:
       - run: cd webui && npm run lint
       - run: cd webui && npm run typecheck
       - run: cd webui && npm run test:unit
-  docs:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install -e '.[docs]'
-      - run: zensical build --clean
-  docs-deploy:
-    if: github.ref == 'refs/heads/main'
-    needs: [docs]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install -e '.[docs]'
-      - name: Deploy with mike
-        run: |
-          git config user.name "ci-bot"
-          git config user.email "ci-bot@users.noreply.github.com"
-          mike deploy --push dev
