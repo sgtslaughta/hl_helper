@@ -10,7 +10,6 @@ from server.app.models.approval import Approval
 from server.app.models.audit import AuditCheckpoint, AuditEntry
 from server.app.models.base import Base
 from server.app.models.binding import Binding
-from server.app.logs.models import AgentLog, AgentLogPolicy
 from server.app.models.bootstrap_token import BootstrapToken
 from server.app.models.command import Command
 from server.app.models.enrollment_token import EnrollmentToken
@@ -77,8 +76,6 @@ __all__ = [
     "ServiceAccount",
     "Role",
     "Binding",
-    "AgentLog",
-    "AgentLogPolicy",
     "Session",
     "BootstrapToken",
     "Task",
