@@ -9,6 +9,7 @@ require (
 	github.com/creack/pty v1.1.24
 	github.com/google/go-tpm v0.9.0
 	github.com/muesli/termenv v0.16.0
+	github.com/oklog/ulid/v2 v2.1.1
 	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/spf13/cobra v1.8.1
 	go.etcd.io/bbolt v1.4.3

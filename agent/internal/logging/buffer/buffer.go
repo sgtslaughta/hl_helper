@@ -143,6 +143,16 @@ func (b *Buffer) Ack(throughSeq uint64) error {
 	})
 }
 
+// Count returns the current number of entries in the buffer.
+func (b *Buffer) Count() int {
+	var n int
+	_ = b.db.View(func(tx *bolt.Tx) error {
+		n = tx.Bucket(entriesBucket).Stats().KeyN
+		return nil
+	})
+	return n
+}
+
 // DroppedCount returns the total count of evicted entries.
 func (b *Buffer) DroppedCount() uint64 {
 	var n uint64
