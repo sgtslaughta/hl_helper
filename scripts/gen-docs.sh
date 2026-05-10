@@ -50,8 +50,10 @@ gen_grpc() {
   local protos
   protos=$(find "$ROOT/proto" -name "*.proto" -print)
   [ -z "$protos" ] && { echo "no .proto files found"; return 1; }
+  # Emit autogen content to messages.md so we can keep our hand-curated index.md.
   # shellcheck disable=SC2086
-  protoc --proto_path="$ROOT/proto" --doc_out="$OUT/grpc" --doc_opt=markdown,index.md $protos || return 1
+  protoc --proto_path="$ROOT/proto" --doc_out="$OUT/grpc" --doc_opt=markdown,messages.md $protos || return 1
+  cp "$ROOT/scripts/grpc-index.md" "$OUT/grpc/index.md"
 }
 
 gen_rest() {
