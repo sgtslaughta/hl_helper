@@ -28,7 +28,7 @@ def _sync_engine():
     # Create all tables
     Base.metadata.create_all(engine)
 
-    # For SQLite, fix BigInteger PK issue by recreating agent_logs with INTEGER PK
+    # For SQLite, fix BigInteger PK issue by recreating tables with INTEGER PK
     with engine.begin() as conn:
         # Check if table exists
         result = conn.execute(text(
@@ -58,6 +58,26 @@ def _sync_engine():
                     error JSON,
                     ingested_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE (agent_session_id, seq)
+                )
+            """))
+
+        # Fix agent_log_policies similarly
+        result = conn.execute(text(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='agent_log_policies'"
+        )).scalar()
+
+        if result:
+            # Drop and recreate with INTEGER PK instead of BIGINT
+            conn.execute(text("DROP TABLE IF EXISTS agent_log_policies"))
+            conn.execute(text("""
+                CREATE TABLE agent_log_policies (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    scope TEXT NOT NULL UNIQUE,
+                    policy_json JSON NOT NULL,
+                    policy_version INTEGER NOT NULL DEFAULT 1,
+                    expires_at DATETIME,
+                    created_by TEXT,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
             """))
 
