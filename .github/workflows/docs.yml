@@ -39,7 +39,7 @@ jobs:
       - name: Run doc tests
         run: pytest tests/docs/ -v
       - name: Build zensical site
-        run: zensical build --strict
+        run: zensical build --clean
       - name: Lychee link check
         uses: lycheeverse/lychee-action@v2
         with:

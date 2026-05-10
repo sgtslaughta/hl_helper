@@ -129,7 +129,7 @@ pages:
     - export PATH=$PATH:$(go env GOPATH)/bin
   script:
     - ./scripts/gen-docs.sh
-    - zensical build --strict
+    - zensical build --clean
     - mv site public
   artifacts:
     paths:

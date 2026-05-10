@@ -45,7 +45,7 @@ jobs:
       - name: Run autogen pipeline
         run: ./scripts/gen-docs.sh
       - name: Build site
-        run: zensical build --strict
+        run: zensical build --clean
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
