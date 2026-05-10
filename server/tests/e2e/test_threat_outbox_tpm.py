@@ -8,11 +8,15 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
 
+AGENT_DIR = Path(__file__).resolve().parents[3] / "agent"
+
 
 @pytest.mark.skipif(shutil.which("go") is None, reason="go toolchain not available")
+@pytest.mark.skipif(not AGENT_DIR.is_dir(), reason="agent dir not present")
 def test_outbox_tamper_detected_on_replay() -> None:
     """Run Go outbox tamper detection tests.
 
@@ -21,7 +25,7 @@ def test_outbox_tamper_detected_on_replay() -> None:
     """
     result = subprocess.run(
         ["go", "test", "-run", "TestVerify|TestAck", "./internal/outbox/..."],
-        cwd="/home/user/code/hl_helper/agent",
+        cwd=str(AGENT_DIR),
         capture_output=True,
         text=True,
         timeout=60,
@@ -30,6 +34,7 @@ def test_outbox_tamper_detected_on_replay() -> None:
 
 
 @pytest.mark.skipif(shutil.which("go") is None, reason="go toolchain not available")
+@pytest.mark.skipif(not AGENT_DIR.is_dir(), reason="agent dir not present")
 def test_tpm_runtime_failure_fails_closed() -> None:
     """Run Go TPM keystore tests for fail-closed behavior.
 
@@ -38,7 +43,7 @@ def test_tpm_runtime_failure_fails_closed() -> None:
     """
     result = subprocess.run(
         ["go", "test", "-run", "TestTPM", "./internal/keystore/..."],
-        cwd="/home/user/code/hl_helper/agent",
+        cwd=str(AGENT_DIR),
         capture_output=True,
         text=True,
         timeout=60,
