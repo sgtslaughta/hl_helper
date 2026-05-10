@@ -118,6 +118,7 @@ function useSamples(
 	max = 60,
 ): number[] {
 	const [buf, setBuf] = useState<number[]>([]);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: tick forces sample on each cadence even when value reference is stable
 	useEffect(() => {
 		if (value == null) return;
 		setBuf(prev => {
@@ -231,6 +232,7 @@ function useDeltaSign(
 ): -1 | 0 | 1 | null {
 	const [sign, setSign] = useState<-1 | 0 | 1 | null>(0);
 	const lastRef = useRef<number | undefined>(undefined);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: tick forces re-eval on cadence
 	useEffect(() => {
 		if (value == null) return;
 		const last = lastRef.current;

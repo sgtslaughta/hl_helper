@@ -13,7 +13,6 @@ from unittest import mock
 import pytest
 from httpx import ASGITransport, AsyncClient
 from pydantic import SecretStr
-from sqlalchemy import select
 
 from server.app.api.app import create_app
 from server.app.models.advisory import Advisory

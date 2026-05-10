@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 import sqlalchemy as sa
-from sqlalchemy import DateTime, String, ForeignKey, Index, func
+from sqlalchemy import DateTime, String, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from server.app.models.base import Base

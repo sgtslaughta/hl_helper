@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/hlhelper/hl-agent/proto/fleet/v1"
@@ -425,9 +426,9 @@ func TestNonceLRUEviction(t *testing.T) {
 // canonicalBytesFn delegates to the package-internal canonicalMsg so tests
 // match production signing semantics exactly.
 func canonicalBytesFn(env *pb.CommandEnvelope) []byte {
-	cp := *env
+	cp := proto.Clone(env).(*pb.CommandEnvelope)
 	cp.Signature = nil
-	return canonicalMsg(&cp)
+	return canonicalMsg(cp)
 }
 
 func encodeUint64(v uint64) []byte {

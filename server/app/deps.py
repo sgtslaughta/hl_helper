@@ -47,7 +47,7 @@ async def current_principal(request: Request) -> Principal | None:
 
         # Try with request_meta validation first
         request_meta = make_request_meta(
-            ip=request.client.host if request.client else "0.0.0.0",
+            ip=request.client.host if request.client else "unknown",
             ua=request.headers.get("user-agent", ""),
         )
         session = await app_state.session_service.lookup(token, request_meta=request_meta)

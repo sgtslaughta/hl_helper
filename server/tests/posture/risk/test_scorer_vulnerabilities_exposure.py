@@ -3,8 +3,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-import json
-import pytest
 from unittest.mock import MagicMock
 
 

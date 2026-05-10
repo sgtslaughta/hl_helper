@@ -4,14 +4,12 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from unittest import mock
-from uuid import uuid4
 
 import pytest
 from httpx import AsyncClient, ASGITransport
 from pydantic import SecretStr
 
 from server.app.api.app import create_app
-from server.app.models import Host
 from server.app.models.host_risk import HostRisk
 from server.app.settings.config import FleetSettings
 from server.tests._helpers.app_state import make_test_app_state

@@ -331,7 +331,7 @@ async def auth_callback(
     if app_state.session_service is None:
         raise HTTPException(status_code=503, detail="session_service_unavailable")
     meta = make_request_meta(
-        ip=request.client.host if request.client else "0.0.0.0",
+        ip=request.client.host if request.client else "unknown",
         ua=request.headers.get("user-agent", ""),
     )
     issue = await app_state.session_service.issue(user, "oidc", meta)

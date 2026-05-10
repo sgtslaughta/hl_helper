@@ -2,19 +2,15 @@
 
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
-import pytest
 import pytest_asyncio
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, AsyncEngine, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 from server.app.models import Base
 from server.app.models.host import Host
-from server.app.models.host_advisory import HostAdvisory
 from server.app.models.host_risk import HostRisk
 from server.app.posture.model import PostureFindingRow
 from server.app.posture.risk.recomputer import RiskRecomputer
@@ -161,7 +157,7 @@ class TestRecomputer:
         recomputer: RiskRecomputer,
     ):
         """Test that request debounces calls within 30 seconds."""
-        writes_before = recomputer._writes
+        _ = recomputer._writes
 
         # Call request twice in rapid succession
         await recomputer.request(test_host, trigger_reason="test1")

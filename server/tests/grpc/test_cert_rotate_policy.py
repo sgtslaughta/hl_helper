@@ -1,7 +1,6 @@
 """Tests for cert rotation policy."""
 from __future__ import annotations
 
-import time
 
 import pytest
 

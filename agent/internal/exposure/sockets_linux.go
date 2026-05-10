@@ -132,7 +132,7 @@ func decodeAddrPort(s string, ipv6 bool) (string, uint32, error) {
 	}
 	// /proc gives little-endian; reverse.
 	for i, j := 0, len(addrBytes)-1; i < j; i, j = i+1, j-1 {
-		addrBytes[i], addrBytes[j] = addrBytes[j], addrBytes[j]
+		addrBytes[i], addrBytes[j] = addrBytes[j], addrBytes[i]
 	}
 	var addrStr string
 	if ipv6 && len(addrBytes) == 16 {

@@ -95,7 +95,7 @@ def _user_has_mfa(user: User) -> bool:
 def _request_meta(request: Request) -> dict[str, str]:
     """Extract request metadata (IP and User-Agent) for audit/session tracking."""
     return {
-        "ip": request.client.host if request.client else "0.0.0.0",
+        "ip": request.client.host if request.client else "unknown",
         "ua": request.headers.get("user-agent", ""),
     }
 

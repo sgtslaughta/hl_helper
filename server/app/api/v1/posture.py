@@ -21,7 +21,7 @@ from server.app.posture.inspector import run_inspection
 from server.app.posture.model import PostureFindingRow
 from server.app.posture.store import list_findings, suppress_finding, unsuppress_finding
 from server.app.settings.config import load_settings
-from sqlalchemy import func, select, and_
+from sqlalchemy import select
 
 log = structlog.get_logger(__name__)
 

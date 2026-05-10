@@ -1,9 +1,7 @@
 """Tests for derive_exposure()."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
 
-import pytest
 
 
 def _scan(processes=None, listeners=None, services=None, kernel_modules=None, container_exposure=None):

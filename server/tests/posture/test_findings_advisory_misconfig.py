@@ -7,8 +7,7 @@ import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from server.app.models.host import Host
-from server.app.models.advisory import Advisory, AffectedPackage
-from server.app.models.host_package import HostPackage
+from server.app.models.advisory import Advisory
 from server.app.models.host_advisory import HostAdvisory
 from server.app.posture.findings_advisory import collect_advisory_findings
 from server.app.posture.findings_misconfig import collect_misconfig_findings

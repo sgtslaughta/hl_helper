@@ -1,9 +1,7 @@
 """Tests for ReEnroll nonce cache + rate limiter."""
 from __future__ import annotations
 
-import time
 
-import pytest
 
 
 def test_nonce_cache_stores_and_consumes():

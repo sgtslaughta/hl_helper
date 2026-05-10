@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from uuid import uuid4
 
-import pytest
 import pytest_asyncio
 from google.protobuf.timestamp_pb2 import Timestamp
 from sqlalchemy import select

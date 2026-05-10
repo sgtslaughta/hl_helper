@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from server.app.posture.risk.registry import ScorerRegistry, RiskConfig
+from server.app.posture.risk.registry import ScorerRegistry
 from server.app.posture.risk.scorers.vulnerabilities import VulnerabilitiesScorer
 
 

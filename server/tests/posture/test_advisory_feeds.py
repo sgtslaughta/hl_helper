@@ -6,14 +6,13 @@ from datetime import datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
-import pytest_asyncio
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from server.app.advisory.feeds import (
     FeedAdvisory,
     FeedAffected,
 )
-from server.app.advisory.feeds.osv import OSVFeedSource, parse_osv_record
+from server.app.advisory.feeds.osv import parse_osv_record
 from server.app.advisory.feeds.epss import EPSSScoreFeed, parse_epss_csv
 from server.app.advisory.feeds.kev import KEVScoreFeed, parse_kev_json
 from server.app.advisory.store import upsert_advisories, apply_scores

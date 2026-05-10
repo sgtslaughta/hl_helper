@@ -151,11 +151,11 @@ func (v *Verifier) Accept(env *pb.CommandEnvelope, now time.Time) error {
 
 // verifySignature verifies the Ed25519 signature on the envelope.
 func (v *Verifier) verifySignature(env *pb.CommandEnvelope) error {
-	// Compute canonical bytes (copy without signature)
-	copy := *env
-	copy.Signature = nil
+	// Compute canonical bytes (clone without signature; proto.Clone is safe vs. embedded MessageState mutex)
+	cp := proto.Clone(env).(*pb.CommandEnvelope)
+	cp.Signature = nil
 
-	msg := canonicalMsg(&copy)
+	msg := canonicalMsg(cp)
 
 	if !ed25519.Verify(v.serverPub, msg, env.Signature) {
 		return ErrBadSignature
