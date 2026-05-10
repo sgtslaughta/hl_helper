@@ -7,11 +7,25 @@ DOCS_ROOT = Path(__file__).resolve().parents[2] / "docs"
 REQUIRED = {"title", "status"}
 ALLOWED_STATUS = {"stable", "partial", "planned"}
 EXEMPT_DIRS = {"superpowers"}
+# Auto-generated API docs are emitted by scripts/gen-docs.sh and don't carry
+# our frontmatter. Hand-curated index.md stubs in those dirs DO carry it.
+AUTOGEN_API_PARENTS = {"agent", "grpc", "python"}
+
+
+def is_autogen(p: Path) -> bool:
+    rel = p.relative_to(DOCS_ROOT)
+    parts = rel.parts
+    if len(parts) >= 4 and parts[0] == "developer" and parts[1] == "api" \
+            and parts[2] in AUTOGEN_API_PARENTS and parts[-1] != "index.md":
+        return True
+    return False
 
 
 def iter_pages():
     for p in DOCS_ROOT.rglob("*.md"):
         if any(part in EXEMPT_DIRS for part in p.relative_to(DOCS_ROOT).parts):
+            continue
+        if is_autogen(p):
             continue
         yield p
 
