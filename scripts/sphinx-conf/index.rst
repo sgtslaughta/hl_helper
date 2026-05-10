@@ -1,9 +1,22 @@
 hl_helper Python API
 ====================
 
+Auto-generated from docstrings.
+
 .. toctree::
    :maxdepth: 2
 
-.. automodule:: hl_helper
+server
+======
+
+.. automodule:: server
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+server.app
+----------
+
+.. automodule:: server.app
    :members:
    :undoc-members:
