@@ -47,14 +47,17 @@ async def test_four_high_no_kev_no_epss_is_moderate():
     sc = VulnerabilitiesScorer()
     advs = [FakeAdv(f"CVE-{i}", "high", False, 0.0) for i in range(4)]
     sub = await sc.score(_ctx(advs))
-    assert 24 <= sub.score <= 32
+    # Without explicit exposure rows, scorer applies Unknown=0.6 multiplier
+    # (tune commit 8b279fb). Range scaled from prior 24..32 baseline.
+    assert 14 <= sub.score <= 22
 
 
 @pytest.mark.asyncio
 async def test_kev_critical_with_high_epss_is_high_or_severe():
     sc = VulnerabilitiesScorer()
     sub = await sc.score(_ctx([FakeAdv("CVE-X", "critical", True, 0.9)]))
-    assert 75 <= sub.score <= 90
+    # Range scaled for Unknown=0.6 default (tune commit 8b279fb).
+    assert 55 <= sub.score <= 75
 
 
 @pytest.mark.asyncio
