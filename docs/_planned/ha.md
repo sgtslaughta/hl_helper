@@ -44,4 +44,4 @@ Operators deploying HA will follow a topology guide that prescribes Postgres set
 
 - Operator guide: `docs/admin/operations/ha-topology.md`
 - Spec (engineering): not yet written; linked from this page once available.
-- Related: [Observability](/docs/_planned/observability.md), [Plugins](/docs/_planned/plugins.md)
+- Related: [Observability](./observability.md), [Plugins](./plugins.md)

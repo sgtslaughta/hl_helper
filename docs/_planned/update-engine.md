@@ -38,4 +38,4 @@ Operators see an Advisory page with CVE details, affected hosts, and a "patch th
 ## References
 
 - Spec: `docs/superpowers/specs/2026-05-02-hlh-c4-update-engine-design.md`
-- Related: [Exposure](/docs/_planned/exposure.md), [Posture](/docs/_planned/posture.md)
+- Related: [Exposure](./exposure.md), [Posture](./posture.md)

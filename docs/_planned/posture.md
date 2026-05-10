@@ -39,4 +39,4 @@ On the host overview, operators see a gauge needle, a big risk number, and a pla
 ## References
 
 - Spec: `docs/superpowers/specs/2026-05-09-posture-risk-aggregator-design.md`
-- Related: [Exposure](/docs/_planned/exposure.md), [Observability](/docs/_planned/observability.md)
+- Related: [Exposure](./exposure.md), [Observability](./observability.md)

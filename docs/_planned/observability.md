@@ -42,4 +42,4 @@ A Posture tab aggregates findings from all sources, sortable by severity, age, o
 ## References
 
 - Spec: `docs/superpowers/specs/2026-05-02-hlh-c12-observability-design.md`
-- Related: [Posture](/docs/_planned/posture.md), [Plugins](/docs/_planned/plugins.md)
+- Related: [Posture](./posture.md), [Plugins](./plugins.md)

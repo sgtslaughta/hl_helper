@@ -41,4 +41,4 @@ Operators see a Containers tab listing all stacks and standalone containers. Eac
 ## References
 
 - Spec: `docs/superpowers/specs/2026-05-02-hlh-c7-docker-mgmt-design.md`
-- Related: [Update Engine](/docs/_planned/update-engine.md), [Plugins](/docs/_planned/plugins.md)
+- Related: [Update Engine](./update-engine.md), [Plugins](./plugins.md)

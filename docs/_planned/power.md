@@ -39,4 +39,4 @@ On the host overview, a Power section shows current power state, last-seen times
 ## References
 
 - Spec: `docs/superpowers/specs/2026-05-02-hlh-c10-power-design.md`
-- Related: [Update Engine](/docs/_planned/update-engine.md), [Plugins](/docs/_planned/plugins.md)
+- Related: [Update Engine](./update-engine.md), [Plugins](./plugins.md)

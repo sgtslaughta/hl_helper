@@ -258,7 +258,7 @@ Recap from [Threat Model](../secure-dev/threat-model.md):
 
 ## Secrets Broker (Session Integration)
 
-The secrets broker is accessed by all auth components to store/retrieve sensitive data (TOTP secrets, OIDC client secrets, etc.). See [C3 Auth + Secrets Broker Design Spec](../../superpowers/specs/2026-05-02-hlh-c3-auth-secrets-design.md) for full details.
+The secrets broker is accessed by all auth components to store/retrieve sensitive data (TOTP secrets, OIDC client secrets, etc.). See the C3 Auth + Secrets Broker design spec under `docs/superpowers/specs/` for full details.
 
 ---
 
@@ -284,4 +284,4 @@ All auth events are audit-logged (hash-chained):
 ## Related
 
 - [Threat Model](../secure-dev/threat-model.md) — T8 (weak password), T10 (stolen session), T7 (bootstrap token)
-- [C3 Auth + Secrets Broker Design Spec](../../superpowers/specs/2026-05-02-hlh-c3-auth-secrets-design.md) — Full implementation details
+- C3 Auth + Secrets Broker design spec (in `docs/superpowers/specs/`) — Full implementation details

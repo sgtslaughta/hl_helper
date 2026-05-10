@@ -38,4 +38,4 @@ On advisory detail, a badge shows "NETWORK_EXPOSED" or "INSTALLED_ONLY" with too
 ## References
 
 - Spec: `docs/superpowers/specs/2026-05-09-runtime-exposure-and-net-iface-design.md`
-- Related: [Posture](/docs/_planned/posture.md), [Update Engine](/docs/_planned/update-engine.md)
+- Related: [Posture](./posture.md), [Update Engine](./update-engine.md)

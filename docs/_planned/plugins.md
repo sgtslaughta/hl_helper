@@ -41,4 +41,4 @@ A Plugins page lists installed plugins with their manifest (name, description, v
 ## References
 
 - Spec: `docs/superpowers/specs/2026-05-02-hlh-c6-plugin-system-design.md`
-- Related: [Power Controls](/docs/_planned/power.md), [Update Engine](/docs/_planned/update-engine.md), [Observability](/docs/_planned/observability.md)
+- Related: [Power Controls](./power.md), [Update Engine](./update-engine.md), [Observability](./observability.md)
