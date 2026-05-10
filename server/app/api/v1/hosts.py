@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, AsyncIterator
 
@@ -135,6 +137,26 @@ class HostAdvisoryListResponse(BaseModel):
     items: list[HostAdvisoryOut]
 
 
+class HostCertOut(BaseModel):
+    """Host certificate lifecycle state."""
+
+    serial: str | None
+    issued_at: datetime | None  # cert_rotated_at OR enrolled_at
+    expires_at: datetime | None
+    rotation_count: int
+    last_rotated_at: datetime | None
+    last_reenroll_at: datetime | None
+    status: str  # healthy | rotating | halted | expired
+
+
+class HostExposureOut(BaseModel):
+    """Exposure summary for a host."""
+
+    last_scan_at: datetime | None
+    counts: dict[str, int]  # tier → count
+    advisories: list[dict]   # [{advisory_id, exposure_tier, evidence}]
+
+
 async def _emit_dispatch_ticker(
     request: "Request",
     host_id: str,
@@ -265,6 +287,11 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
         yield session
 
 
+def get_agent_bridge(request: Request):
+    """Get agent_bridge from app state."""
+    return get_app_state(request).agent_bridge
+
+
 def get_revocation_service(request: Request) -> RevocationService:
     """Get revocation service from app state."""
 
@@ -325,6 +352,171 @@ async def get_host(
     if row is None:
         raise HTTPException(status_code=404, detail="host_not_found")
     return HostOut.model_validate(row)
+
+
+@router.get("/{host_id}/cert", response_model=HostCertOut)
+async def get_host_cert(
+    host_id: str,
+    actor: str = Depends(admin_required),
+    session: AsyncSession = Depends(get_session),
+) -> HostCertOut:
+    """Get certificate lifecycle state for a host."""
+    row = await session.get(Host, host_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="host_not_found")
+
+    now = datetime.now(timezone.utc)
+    expires = row.cert_expires_at
+    if expires is not None and expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+
+    if expires is None:
+        status_str = "halted"
+    elif expires < now:
+        status_str = "expired"
+    else:
+        status_str = "healthy"
+
+    issued = row.cert_rotated_at or row.enrolled_at
+    if issued is not None and issued.tzinfo is None:
+        issued = issued.replace(tzinfo=timezone.utc)
+
+    return HostCertOut(
+        serial=row.cert_serial,
+        issued_at=issued,
+        expires_at=expires,
+        rotation_count=row.cert_rotation_count or 0,
+        last_rotated_at=row.cert_rotated_at,
+        last_reenroll_at=row.last_reenroll_at,
+        status=status_str,
+    )
+
+
+@router.post("/{host_id}/cert/rotate-now", status_code=202)
+async def rotate_cert_now(
+    host_id: str,
+    actor: str = Depends(admin_required),
+    session: AsyncSession = Depends(get_session),
+    bridge=Depends(get_agent_bridge),
+):
+    """Request immediate certificate rotation for a host.
+
+    Returns 202 Accepted with delivery status. If the host is offline,
+    delivered will be False.
+    """
+    row = await session.get(Host, host_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="host_not_found")
+
+    delivered = await bridge.push_run_cert_rotate(host_id, reason="operator-initiated")
+    return {"delivered": bool(delivered)}
+
+
+@router.post("/{host_id}/reenroll-token")
+async def mint_reenroll_token(
+    host_id: str,
+    actor: str = Depends(admin_required),
+    session: AsyncSession = Depends(get_session),
+):
+    """Mint a reenroll enrollment token for a host.
+
+    Returns a plaintext token and install command for agent reenrollment.
+    """
+    from server.app.enrollment.tokens import generate_token, hash_token
+    from server.app.models.enrollment_token import EnrollmentToken
+
+    row = await session.get(Host, host_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="host_not_found")
+
+    token_str = generate_token()
+    token_hash = hash_token(token_str)
+    now = datetime.now(timezone.utc)
+    tok = EnrollmentToken(
+        id=str(uuid.uuid4()),
+        token_hash=token_hash,
+        issued_at=now,
+        expires_at=now + timedelta(minutes=30),
+        issued_by=actor,
+        purpose="reenroll",
+        bind_host_id=host_id,
+    )
+    session.add(tok)
+    await session.commit()
+    await session.refresh(tok)
+
+    enrollment_url = os.environ.get("HL_ENROLLMENT_URL", "https://localhost:7443")
+    install_command = (
+        f"sudo hl-agent reenroll \\\n"
+        f"  --url {enrollment_url} \\\n"
+        f"  --token {token_str}"
+    )
+    return {
+        "token_id": tok.id,
+        "token": token_str,
+        "expires_at": tok.expires_at.isoformat(),
+        "install_command": install_command,
+    }
+
+
+@router.get("/{host_id}/exposure", response_model=HostExposureOut)
+async def get_host_exposure(
+    host_id: str,
+    actor: str = Depends(admin_required),
+    session: AsyncSession = Depends(get_session),
+) -> HostExposureOut:
+    """Fetch exposure summary for a host."""
+    import json
+    from server.app.models.host_advisory_exposure import HostAdvisoryExposure
+
+    row = await session.get(Host, host_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="host_not_found")
+
+    rows = (
+        await session.execute(
+            select(HostAdvisoryExposure)
+            .where(HostAdvisoryExposure.host_id == host_id)
+            .order_by(HostAdvisoryExposure.scanned_at.desc())
+        )
+    ).scalars().all()
+
+    counts: dict[str, int] = {
+        "NETWORK_EXPOSED": 0, "ACTIVE": 0, "INSTALLED_ONLY": 0,
+    }
+    advisories = []
+    for r in rows:
+        counts[r.exposure_tier] = counts.get(r.exposure_tier, 0) + 1
+        advisories.append(
+            {
+                "advisory_id": r.advisory_id,
+                "exposure_tier": r.exposure_tier,
+                "evidence": json.loads(r.evidence_json),
+            }
+        )
+    last = rows[0].scanned_at if rows else None
+    return HostExposureOut(
+        last_scan_at=last, counts=counts, advisories=advisories
+    )
+
+
+def _get_agent_bridge(request: Request):
+    return get_app_state(request).agent_bridge
+
+
+@router.post("/{host_id}/exposure/rescan", status_code=202)
+async def rescan_exposure(
+    host_id: str,
+    actor: str = Depends(admin_required),
+    session: AsyncSession = Depends(get_session),
+    bridge=Depends(_get_agent_bridge),
+):
+    """Request a runtime exposure scan for a host."""
+    row = await session.get(Host, host_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="host_not_found")
+    delivered = await bridge.push_run_exposure_scan(host_id, reason="operator-initiated")
+    return {"delivered": bool(delivered)}
 
 
 @router.patch("/{host_id}", response_model=HostOut)
@@ -467,6 +659,15 @@ async def rescan_host(
     )
     if not _ab.push_control(host_id, msg):
         raise HTTPException(status_code=409, detail="host_not_connected")
+
+    # Also kick off a runtime exposure scan so risk reflects current
+    # processes/sockets/services. Best-effort: ignore push failure.
+    _ab.push_control(
+        host_id,
+        agent_bridge_pb2.ServerToAgent(
+            run_exposure_scan=agent_bridge_pb2.RunExposureScan(reason="manual_rescan")
+        ),
+    )
 
     task = Task(
         id=str(uuid4()),

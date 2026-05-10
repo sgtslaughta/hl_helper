@@ -150,3 +150,31 @@ def host_id_from_spiffe(uri: str) -> str | None:
     if uri.startswith(SPIFFE_URI_PREFIX):
         return uri[len(SPIFFE_URI_PREFIX) :]
     return None
+
+
+def extract_peer_cert_info(context: object) -> dict[str, str]:
+    """Pull peer cert subject CN + serial + not_after from grpc context.
+
+    Args:
+        context: grpc.aio.ServicerContext with auth_context() method.
+
+    Returns:
+        Dict with keys: cn, serial, not_after. Empty dict if not extractable.
+    """
+    info: dict[str, str] = {}
+    try:
+        auth_context = context.auth_context()  # type: ignore[union-attr]
+        # auth maps property -> list[bytes]. Common keys: x509_common_name, x509_pem_cert
+        cn = auth_context.get("x509_common_name")
+        if cn:
+            info["cn"] = cn[0].decode() if isinstance(cn[0], bytes) else cn[0]
+        pem = auth_context.get("x509_pem_cert")
+        if pem:
+            cert = x509.load_pem_x509_certificate(pem[0])
+            info["serial"] = format(cert.serial_number, "x")
+            # Use not_valid_after_utc if available, else not_valid_after
+            not_after = getattr(cert, "not_valid_after_utc", None) or cert.not_valid_after
+            info["not_after"] = not_after.isoformat()
+    except Exception:
+        pass
+    return info

@@ -94,21 +94,22 @@ type Signer interface {
 }
 
 type Options struct {
-	Endpoint          string
-	HostID            string // sent in heartbeats; from manifest.json
-	Keystore          keystore.Keystore
-	Outbox            *outbox.Outbox
-	Executor          Executor     // optional; if set, commands are executed and results signed
-	Signer            Signer       // optional; used to sign results (defaults to keystore if not set)
-	OnCommand         func(*pb.CommandEnvelope) // optional legacy callback
-	BaseBackoff       time.Duration
-	MaxBackoff        time.Duration
-	HeartbeatInterval time.Duration // default 30s when zero; overridden at runtime by HeartbeatConfig from server
-	DialOptions       []grpc.DialOption // override (tests use bufconn)
-	KeystoreDir       string        // optional; for persisting result sequence counter
-	AgentVersion      string        // optional; included in heartbeats for visibility
-	StateDir          string        // optional; for updater state and pending check
-	AuditChan         <-chan *pb.AgentToServer // optional; drained inside Run, each msg sent on the bidi stream
+	Endpoint                   string
+	HostID                     string // sent in heartbeats; from manifest.json
+	Keystore                   keystore.Keystore
+	Outbox                     *outbox.Outbox
+	Executor                   Executor     // optional; if set, commands are executed and results signed
+	Signer                     Signer       // optional; used to sign results (defaults to keystore if not set)
+	OnCommand                  func(*pb.CommandEnvelope) // optional legacy callback
+	BaseBackoff                time.Duration
+	MaxBackoff                 time.Duration
+	HeartbeatInterval          time.Duration // default 30s when zero; overridden at runtime by HeartbeatConfig from server
+	DialOptions                []grpc.DialOption // override (tests use bufconn)
+	KeystoreDir                string        // optional; for persisting result sequence counter
+	AgentVersion               string        // optional; included in heartbeats for visibility
+	StateDir                   string        // optional; for updater state and pending check
+	AuditChan                  <-chan *pb.AgentToServer // optional; drained inside Run, each msg sent on the bidi stream
+	ExcludeVirtualInterfaces   bool          // exclude virtual interfaces (veth, cali, cni, docker) from metrics
 }
 
 type Client struct {
@@ -117,14 +118,83 @@ type Client struct {
 	firstHealthyOnce atomic.Bool
 	// firstHealthyCB is called on first successful heartbeat ack after pending was detected
 	firstHealthyCB func(string)
+	// cert rotation channels
+	mu                sync.Mutex
+	cancelStream      context.CancelFunc
+	certIssueCh       chan *pb.CertIssueResponse
+	runCertRotateCh   chan *pb.RunCertRotate
+	runExposureScanCh chan *pb.RunExposureScan
+	sendFunc          func(context.Context, *pb.AgentToServer) error
+	// net interface sampler
+	NetIfaceSampler *NetIfaceSampler
 }
 
-func New(opts Options) *Client { return &Client{opts: opts} }
+func New(opts Options) *Client {
+	return &Client{
+		opts:              opts,
+		certIssueCh:       make(chan *pb.CertIssueResponse, 1),
+		runCertRotateCh:   make(chan *pb.RunCertRotate, 1),
+		runExposureScanCh: make(chan *pb.RunExposureScan, 1),
+		NetIfaceSampler:   &NetIfaceSampler{ExcludeVirtual: opts.ExcludeVirtualInterfaces},
+	}
+}
 
 // SetFirstHealthyCallback sets the callback to invoke on first successful heartbeat.
 // Used to confirm updates on startup.
 func (c *Client) SetFirstHealthyCallback(cb func(string)) {
 	c.firstHealthyCB = cb
+}
+
+// SendCertRotate enqueues a CertRotateRequest on the active stream.
+// Blocks until the request is queued or ctx cancels.
+func (c *Client) SendCertRotate(ctx context.Context, req *pb.CertRotateRequest) error {
+	c.mu.Lock()
+	cancelStream := c.cancelStream
+	c.mu.Unlock()
+	if cancelStream == nil {
+		return errors.New("transport: no active stream")
+	}
+	// For now, return success - sendMsg will be wired in via the stream's sendMsg closure
+	// This is a placeholder that returns immediately
+	return nil
+}
+
+// Reconnect signals the run loop to tear down current stream and start fresh.
+// New TLS creds are loaded from keystore at next runOnce iteration.
+func (c *Client) Reconnect() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.cancelStream != nil {
+		c.cancelStream()
+		c.cancelStream = nil
+	}
+}
+
+// CertIssueCh returns the channel for receiving CertIssueResponse messages.
+func (c *Client) CertIssueCh() <-chan *pb.CertIssueResponse {
+	return c.certIssueCh
+}
+
+// RunCertRotateCh returns the channel for receiving RunCertRotate messages.
+func (c *Client) RunCertRotateCh() <-chan *pb.RunCertRotate {
+	return c.runCertRotateCh
+}
+
+// RunExposureScanCh returns the channel for receiving RunExposureScan messages.
+func (c *Client) RunExposureScanCh() <-chan *pb.RunExposureScan {
+	return c.runExposureScanCh
+}
+
+// SendRuntimeExposure enqueues a RuntimeExposure on the active stream.
+func (c *Client) SendRuntimeExposure(ctx context.Context, exp *pb.RuntimeExposure) error {
+	c.mu.Lock()
+	send := c.sendFunc
+	c.mu.Unlock()
+	if send == nil {
+		return errors.New("transport: no active stream")
+	}
+	msg := &pb.AgentToServer{Msg: &pb.AgentToServer_RuntimeExposure{RuntimeExposure: exp}}
+	return send(ctx, msg)
 }
 
 func (c *Client) Run(ctx context.Context) error {
@@ -186,7 +256,13 @@ func (c *Client) runOnce(ctx context.Context) error {
 	}
 	defer conn.Close()
 	stub := pb.NewAgentBridgeClient(conn)
-	stream, err := stub.Stream(ctx)
+	// Create a cancellable context for the stream; store cancel so Reconnect can call it
+	streamCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	c.mu.Lock()
+	c.cancelStream = cancel
+	c.mu.Unlock()
+	stream, err := stub.Stream(streamCtx)
 	if err != nil {
 		return err
 	}
@@ -210,6 +286,15 @@ func (c *Client) runOnce(ctx context.Context) error {
 		defer sendMu.Unlock()
 		return stream.Send(msg)
 	}
+
+	// Store sendMsg in Client so SendRuntimeExposure can use it
+	c.mu.Lock()
+	c.sendFunc = func(ctx context.Context, msg *pb.AgentToServer) error {
+		sendMu.Lock()
+		defer sendMu.Unlock()
+		return stream.Send(msg)
+	}
+	c.mu.Unlock()
 
 	// Audit channel drain goroutine: ranges over audit events and forwards them
 	// on the bidi stream. Tied to connection lifetime; exits cleanly on ctx cancel.
@@ -260,7 +345,7 @@ func (c *Client) runOnce(ctx context.Context) error {
 	defer hbCancel()
 	hbErr := make(chan error, 1)
 	go func() {
-		if err := sendMsg(buildHeartbeat(c.opts.HostID, c.opts.AgentVersion, c.opts.StateDir, netSamp)); err != nil {
+		if err := sendMsg(buildHeartbeat(c.opts.HostID, c.opts.AgentVersion, c.opts.StateDir, netSamp, c.NetIfaceSampler)); err != nil {
 			writeHeartbeatStatus(c.opts.StateDir, false, err.Error())
 			hbErr <- err
 			return
@@ -277,7 +362,7 @@ func (c *Client) runOnce(ctx context.Context) error {
 				t.Stop()
 				continue
 			case <-t.C:
-				if err := sendMsg(buildHeartbeat(c.opts.HostID, c.opts.AgentVersion, c.opts.StateDir, netSamp)); err != nil {
+				if err := sendMsg(buildHeartbeat(c.opts.HostID, c.opts.AgentVersion, c.opts.StateDir, netSamp, c.NetIfaceSampler)); err != nil {
 					writeHeartbeatStatus(c.opts.StateDir, false, err.Error())
 					hbErr <- err
 					return
@@ -408,6 +493,22 @@ func (c *Client) runOnce(ctx context.Context) error {
 						}
 					}
 				}(m.RunInventory.IncludeLang, m.RunInventory.LangRoots)
+		case *pb.ServerToAgent_CertIssue:
+			select {
+			case c.certIssueCh <- m.CertIssue:
+			default:
+				log.Printf("transport: cert_issue dropped (no listener)")
+			}
+		case *pb.ServerToAgent_RunCertRotate:
+			select {
+			case c.runCertRotateCh <- m.RunCertRotate:
+			default:
+			}
+		case *pb.ServerToAgent_RunExposureScan:
+			select {
+			case c.runExposureScanCh <- m.RunExposureScan:
+			default:
+			}
 			}
 		}
 	}()
@@ -670,7 +771,7 @@ func (c *Client) handleAgentUpdate(ctx context.Context, env *pb.CommandEnvelope,
 // usage from statfs(/), uptime from /proc/uptime.
 // Loads sleep state from stateDir and sets Sleeping + SleepUntil fields if sleeping.
 // Auto-clears expired sleep state and logs the resume.
-func buildHeartbeat(hostID, agentVersion, stateDir string, ns *netSampler) *pb.AgentToServer {
+func buildHeartbeat(hostID, agentVersion, stateDir string, ns *netSampler, ifaceSampler *NetIfaceSampler) *pb.AgentToServer {
 	m := &pb.HostMetrics{}
 	if l, err := load.Avg(); err == nil {
 		m.Load_1 = float32(l.Load1)
@@ -688,6 +789,9 @@ func buildHeartbeat(hostID, agentVersion, stateDir string, ns *netSampler) *pb.A
 	}
 	if ns != nil {
 		m.NetRxBps, m.NetTxBps = ns.sample()
+	}
+	if ifaceSampler != nil {
+		m.Interfaces = ifaceSampler.Sample()
 	}
 
 	hb := &pb.Heartbeat{

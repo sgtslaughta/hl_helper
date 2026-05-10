@@ -1,6 +1,6 @@
 'use client';
 
-import type { Host, HostMetrics, HostSurvey } from '@/lib/api/hosts';
+import type { Host, HostMetrics, HostSurvey, NetInterface } from '@/lib/api/hosts';
 import {
 	ChevronRight,
 	Cpu,
@@ -37,6 +37,42 @@ function formatTimestamp(ts: string | undefined): string {
 	if (!ts) return '—';
 	const d = new Date(ts);
 	return d.toLocaleTimeString();
+}
+
+function bytesPerSec(n: number): string {
+	if (n === 0) return "0 B/s";
+	const units = ["B", "KB", "MB", "GB"];
+	let i = 0;
+	let v = n;
+	while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+	return `${v.toFixed(1)} ${units[i]}/s`;
+}
+
+function NetInterfacesSection({ interfaces }: { interfaces: NetInterface[] }) {
+	if (!interfaces || interfaces.length === 0) return null;
+	return (
+		<div className="flex flex-col">
+			<RibbonHeader icon={Network} title="Network Interfaces" />
+			<div className="mc-bezel space-y-2 px-2.5 py-2 font-mono text-[11px]">
+				<ul className="space-y-1 text-sm font-mono">
+					{interfaces.map((iface) => (
+						<li key={iface.name} className="flex items-center gap-3 text-[10px]">
+							<span className={iface.up ? "text-emerald-400" : "text-zinc-600"}>
+								{iface.up ? "●" : "○"}
+							</span>
+							<span className="w-20">{iface.name}</span>
+							<span className="w-32 text-zinc-400">{iface.ipv4?.[0] ?? "—"}</span>
+							<span className="w-24">↓ {bytesPerSec(iface.rx_bps)}</span>
+							<span className="w-24">↑ {bytesPerSec(iface.tx_bps)}</span>
+							{iface.rx_errors + iface.tx_errors > 0 && (
+								<span className="text-amber-400">⚠ {iface.rx_errors + iface.tx_errors} err</span>
+							)}
+						</li>
+					))}
+				</ul>
+			</div>
+		</div>
+	);
 }
 
 function RibbonHeader({
@@ -263,6 +299,9 @@ export function HardwarePanel({ host }: { host: Host }) {
 					</div>
 				)}
 			</div>
+
+			{/* Network interfaces section */}
+			<NetInterfacesSection interfaces={metrics?.interfaces ?? []} />
 		</div>
 	);
 }

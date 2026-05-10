@@ -1,0 +1,32 @@
+syntax = "proto3";
+package fleet.v1;
+
+option go_package = "github.com/hlhelper/hl-agent/proto/fleet/v1";
+
+import "google/protobuf/timestamp.proto";
+import "fleet/v1/agent_bridge.proto";  // for CertIssueResponse
+
+// ReEnroll is dialed TLS-only (no client cert). Auth is via Ed25519 challenge
+// signed with the host's durable signing key.
+service ReEnroll {
+  rpc Challenge(ChallengeRequest) returns (ChallengeResponse);
+  rpc Complete(CompleteRequest) returns (CertIssueResponse);
+}
+
+message ChallengeRequest {
+  string host_id = 1;
+  bytes signing_pubkey = 2;  // 32-byte Ed25519 public key
+}
+
+message ChallengeResponse {
+  bytes nonce = 1;  // 32 bytes from crypto/rand
+  google.protobuf.Timestamp expires_at = 2;
+}
+
+message CompleteRequest {
+  string host_id = 1;
+  bytes nonce = 2;
+  bytes signature = 3;  // Ed25519 over sha256("reenroll-v1|" + host_id + "|" + nonce + "|" + ts)
+  bytes csr_pem = 4;
+  google.protobuf.Timestamp ts = 5;
+}

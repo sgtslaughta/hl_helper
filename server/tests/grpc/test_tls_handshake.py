@@ -110,7 +110,7 @@ async def test_end_to_end_mtls_handshake(tmp_path: Path) -> None:
     ca_chain_pem = root_crt_pem + int_crt_pem
 
     # Create server
-    server, bound_addr, _dispatcher = make_grpc_server(
+    server, bound_addr, _dispatcher, _bridge = make_grpc_server(
         server_cert_chain_pem=server_cert_pem + int_crt_pem,
         server_key_pem=server_key_pem,
         client_ca_pem=ca_chain_pem,
@@ -173,7 +173,7 @@ async def test_handshake_rejects_unknown_client_ca(tmp_path: Path) -> None:
     ca1_int_pem = ca1.int_cert.public_bytes(serialization.Encoding.PEM)
     ca1_chain = ca1_root_pem + ca1_int_pem
 
-    server, bound_addr, _dispatcher = make_grpc_server(
+    server, bound_addr, _dispatcher, _bridge = make_grpc_server(
         server_cert_chain_pem=server_cert_pem + ca1_int_pem,
         server_key_pem=server_key_pem,
         client_ca_pem=ca1_chain,
@@ -226,7 +226,7 @@ async def test_handshake_requires_client_cert(tmp_path: Path) -> None:
     ca_int_pem = ca.int_cert.public_bytes(serialization.Encoding.PEM)
     ca_chain = ca_root_pem + ca_int_pem
 
-    server, bound_addr, _dispatcher = make_grpc_server(
+    server, bound_addr, _dispatcher, _bridge = make_grpc_server(
         server_cert_chain_pem=server_cert_pem + ca_int_pem,
         server_key_pem=server_key_pem,
         client_ca_pem=ca_chain,

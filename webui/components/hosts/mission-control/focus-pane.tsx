@@ -2,6 +2,8 @@
 
 import { HostAdvisoriesPanel } from '@/components/hosts/host-advisories-panel';
 import { HostAuditPanel } from '@/components/hosts/host-audit-panel';
+import { HostCertPanel } from '@/components/hosts/host-cert-panel';
+import { HostExposurePanel } from '@/components/hosts/host-exposure-panel';
 import { HostPosturePanel } from '@/components/hosts/host-posture-panel';
 import { HostTasksPanel } from '@/components/hosts/host-tasks-panel';
 import type { Host } from '@/lib/api/hosts';
@@ -78,9 +80,15 @@ export function FocusPane({ host, mode, onModeChange }: Props) {
 						<div className="flex flex-col gap-3">
 							<HardwarePanel host={host} />
 							<AgentConfig host={host} />
+							<HostCertPanel hostId={host.id} />
 						</div>
 					) : null}
-					{tabMode === 'posture' ? <HostPosturePanel hostId={host.id} /> : null}
+					{tabMode === 'posture' ? (
+						<div className="flex flex-col gap-3">
+							<HostExposurePanel hostId={host.id} />
+							<HostPosturePanel hostId={host.id} />
+						</div>
+					) : null}
 					{tabMode === 'audit' ? <HostAuditPanel hostId={host.id} /> : null}
 					{tabMode === 'tasks' ? <HostTasksPanel hostId={host.id} host={host} /> : null}
 					{tabMode === 'advisories' ? <HostAdvisoriesPanel hostId={host.id} /> : null}

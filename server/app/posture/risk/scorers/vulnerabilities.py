@@ -10,7 +10,7 @@ See spec section 'Per-pillar scoring rules'.
 from __future__ import annotations
 
 import math
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from server.app.posture.risk.types import Driver, ScoreContext, SubScore
@@ -35,6 +35,40 @@ _BASE: dict[str, float] = {
 
 _DECAY_DENOM = 50.0
 
+DEFAULT_EXPOSURE_MULTIPLIERS = {
+    "NETWORK_EXPOSED": 2.0,   # internet-facing listener: amplify
+    "ACTIVE": 1.5,            # process running / lib loaded
+    "INSTALLED_ONLY": 0.1,    # dormant pkg: heavily dampen
+    "UNKNOWN": 0.6,           # no scan yet: lean low (don't oversell unscanned hosts)
+}
+
+
+def _resolve_tier(
+    *,
+    advisory_id: str,
+    exposures: list,
+    now: datetime,
+    scan_interval_seconds: int,
+) -> str:
+    """Find the tier for `advisory_id`. Stale exposures (>2× interval) → UNKNOWN."""
+    cutoff = now - timedelta(seconds=2 * scan_interval_seconds)
+    for e in exposures:
+        if getattr(e, "advisory_id", None) != advisory_id:
+            continue
+        scanned = getattr(e, "scanned_at", None)
+        if scanned is None:
+            continue
+        if scanned.tzinfo is None:
+            scanned = scanned.replace(tzinfo=timezone.utc)
+        if scanned < cutoff:
+            return "UNKNOWN"
+        return getattr(e, "exposure_tier", "UNKNOWN")
+    return "UNKNOWN"
+
+
+def _apply_exposure_weight(*, base: float, tier: str, multipliers: dict[str, float]) -> float:
+    return base * multipliers.get(tier, 1.0)
+
 
 class VulnerabilitiesScorer:
     name = "vulnerabilities"
@@ -51,6 +85,12 @@ class VulnerabilitiesScorer:
     async def score(self, ctx: ScoreContext) -> SubScore:
         advs = [a for a in ctx.advisories if getattr(a, "status", "open") == "open"]
 
+        exposures = getattr(ctx, "host_advisory_exposure", None) or []
+        multipliers = (
+            getattr(ctx, "exposure_multipliers", None) or DEFAULT_EXPOSURE_MULTIPLIERS
+        )
+        scan_interval = getattr(ctx, "scan_interval_seconds", 6 * 3600)
+
         contributions: list[tuple[float, Any]] = []
         raw = 0.0
         for a in advs:
@@ -61,7 +101,15 @@ class VulnerabilitiesScorer:
             epss = max(0.0, min(1.0, float(getattr(a, "epss", 0.0) or 0.0)))
             kev = bool(getattr(a, "kev", False))
             mult = 1.0 + (4.0 if kev else 0.0) + 3.0 * epss
-            c = base * mult
+            tier = _resolve_tier(
+                advisory_id=getattr(a, "advisory_id", ""),
+                exposures=exposures,
+                now=ctx.now,
+                scan_interval_seconds=scan_interval,
+            )
+            c = _apply_exposure_weight(
+                base=base * mult, tier=tier, multipliers=multipliers
+            )
             raw += c
             contributions.append((c, a))
 

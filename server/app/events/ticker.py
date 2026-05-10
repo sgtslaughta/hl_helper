@@ -234,3 +234,38 @@ def format_task_result(
         "link": f"/hosts/{host_id}",
         "meta": {"command_id": command_id, "host_id": host_id, "exit_code": exit_code},
     }
+
+
+def format_cert_rotated(*, host_id: str, hostname: str) -> TickerEvent:
+    """Format a cert rotation completion message."""
+    return {
+        "type": "host",
+        "severity": "ok",
+        "text": f"Cert rotated on {hostname}",
+        "link": f"/hosts/{host_id}",
+        "meta": {"host_id": host_id},
+    }
+
+
+def format_cert_halted(*, host_id: str, hostname: str, reason: str) -> TickerEvent:
+    """Format a cert halted critical message."""
+    return {
+        "type": "host",
+        "severity": "error",
+        "text": f"Cert HALTED on {hostname}: {reason}",
+        "link": f"/hosts/{host_id}",
+        "meta": {"host_id": host_id, "reason": reason},
+    }
+
+
+def format_host_reenrolled(
+    *, host_id: str, hostname: str, old_serial: str, new_serial: str
+) -> TickerEvent:
+    """Format a host re-enrollment message."""
+    return {
+        "type": "host",
+        "severity": "warn",
+        "text": f"Host {hostname} re-enrolled (serial {old_serial[:8]}→{new_serial[:8]})",
+        "link": f"/hosts/{host_id}",
+        "meta": {"host_id": host_id, "old_serial": old_serial, "new_serial": new_serial},
+    }

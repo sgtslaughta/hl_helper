@@ -79,7 +79,7 @@ async def test_stream_rejected_at_handshake_when_host_revoked(
     revocation_service = RevocationService(dispatcher=dispatcher, audit=audit_chain)
 
     # Start gRPC server with revocation service
-    server, bound_addr, _ = make_grpc_server(
+    server, bound_addr, _, _ = make_grpc_server(
         server_cert_chain_pem=tls_creds["server_cert_pem"],
         server_key_pem=tls_creds["server_key_pem"],
         client_ca_pem=tls_creds["ca_chain_pem"],

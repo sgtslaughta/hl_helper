@@ -19,6 +19,17 @@ export interface HostSurvey {
 	collected_at: string;
 }
 
+export interface NetInterface {
+	name: string;
+	rx_bps: number;
+	tx_bps: number;
+	rx_errors: number;
+	tx_errors: number;
+	up: boolean;
+	ipv4?: string[];
+	ipv6?: string[];
+}
+
 export interface HostMetrics {
 	load_1: number;
 	load_5: number;
@@ -28,6 +39,7 @@ export interface HostMetrics {
 	uptime_seconds: number;
 	net_rx_bps?: number;
 	net_tx_bps?: number;
+	interfaces?: NetInterface[];
 }
 
 export interface Host {
@@ -169,4 +181,53 @@ export function updateHeartbeatInterval(id: string, intervalS: number): Promise<
 		method: 'PATCH',
 		body: JSON.stringify({ heartbeat_interval_s: intervalS }),
 	});
+}
+
+export type HostCert = {
+	serial: string | null;
+	issued_at: string | null;
+	expires_at: string | null;
+	rotation_count: number;
+	last_rotated_at: string | null;
+	last_reenroll_at: string | null;
+	status: 'healthy' | 'rotating' | 'halted' | 'expired';
+};
+
+export function getHostCert(hostId: string): Promise<HostCert> {
+	return apiFetch<HostCert>(`/v1/hosts/${encodeURIComponent(hostId)}/cert`);
+}
+
+export function rotateCertNow(hostId: string): Promise<{ delivered: boolean }> {
+	return apiFetch<{ delivered: boolean }>(`/v1/hosts/${encodeURIComponent(hostId)}/cert/rotate-now`, { method: 'POST' });
+}
+
+export type ReenrollMint = {
+	token_id: string;
+	token: string;
+	expires_at: string;
+	install_command: string;
+};
+
+export function mintReenrollToken(hostId: string): Promise<ReenrollMint> {
+	return apiFetch<ReenrollMint>(`/v1/hosts/${encodeURIComponent(hostId)}/reenroll-token`, { method: 'POST' });
+}
+
+export type ExposureTier = 'NETWORK_EXPOSED' | 'ACTIVE' | 'INSTALLED_ONLY' | 'UNKNOWN';
+
+export type HostExposureSummary = {
+	last_scan_at: string | null;
+	counts: Record<ExposureTier, number>;
+	advisories: Array<{
+		advisory_id: string;
+		exposure_tier: ExposureTier;
+		evidence: string[];
+	}>;
+};
+
+export function getHostExposure(hostId: string): Promise<HostExposureSummary> {
+	return apiFetch<HostExposureSummary>(`/v1/hosts/${encodeURIComponent(hostId)}/exposure`);
+}
+
+export function rescanExposure(hostId: string): Promise<{ delivered: boolean }> {
+	return apiFetch<{ delivered: boolean }>(`/v1/hosts/${encodeURIComponent(hostId)}/exposure/rescan`, { method: 'POST' });
 }

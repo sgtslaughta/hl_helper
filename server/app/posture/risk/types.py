@@ -50,6 +50,9 @@ class ScoreContext:
     survey: dict | None
     metrics: dict | None
     now: datetime
+    host_advisory_exposure: list[Any] = field(default_factory=list)
+    exposure_multipliers: dict[str, float] | None = None
+    scan_interval_seconds: int = 6 * 3600
 
 
 @dataclass(frozen=True)

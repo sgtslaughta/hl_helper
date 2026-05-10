@@ -76,6 +76,13 @@ class Host(Base):
     sleep_until: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    cert_rotated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    cert_rotation_count: Mapped[int] = mapped_column(default=0, nullable=False)
+    last_reenroll_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     memberships: Mapped[list[GroupMembership]] = relationship(
         "GroupMembership",

@@ -33,7 +33,10 @@ def make_grpc_server(
     audit_chain: Any | None = None,
     advisory_worker: Any | None = None,
     event_bus: Any | None = None,
-) -> tuple[Server, str, CommandDispatcher]:
+    rotation_orchestrator: Any | None = None,
+    exposure_handler: Any | None = None,
+    risk_recomputer: Any | None = None,
+) -> tuple[Server, str, CommandDispatcher, AgentBridgeService]:
     """Build configured async gRPC server with mTLS + servicer wired.
 
     Args:
@@ -47,21 +50,25 @@ def make_grpc_server(
         audit_chain: Optional audit chain for persisting audit events.
 
     Returns:
-        (server, bound_address, dispatcher) tuple. Caller must `await server.start()`.
+        (server, bound_address, dispatcher, agent_bridge) tuple. Caller must `await server.start()`.
         If bind_address ends with ":0", bound_address contains the actual port.
     """
     dispatcher = dispatcher or CommandDispatcher()
     server = aio_server()
+    agent_bridge = AgentBridgeService(  # type: ignore[no-untyped-call]
+        dispatcher,
+        result_handler=result_handler,
+        revocation=revocation,
+        sessionmaker=sessionmaker,
+        audit_chain=audit_chain,
+        advisory_worker=advisory_worker,
+        event_bus=event_bus,
+        rotation_orchestrator=rotation_orchestrator,
+        exposure_handler=exposure_handler,
+        risk_recomputer=risk_recomputer,
+    )
     agent_bridge_pb2_grpc.add_AgentBridgeServicer_to_server(
-        AgentBridgeService(  # type: ignore[no-untyped-call]
-            dispatcher,
-            result_handler=result_handler,
-            revocation=revocation,
-            sessionmaker=sessionmaker,
-            audit_chain=audit_chain,
-            advisory_worker=advisory_worker,
-            event_bus=event_bus,
-        ),
+        agent_bridge,
         server,
     )
     creds = make_server_credentials(server_cert_chain_pem, server_key_pem, client_ca_pem)
@@ -74,4 +81,4 @@ def make_grpc_server(
     else:
         actual_address = bind_address
 
-    return server, actual_address, dispatcher
+    return server, actual_address, dispatcher, agent_bridge

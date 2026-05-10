@@ -63,13 +63,16 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
 
     def __init__(
         self,
-        dispatcher: CommandDispatcher,
+        dispatcher: CommandDispatcher | None = None,
         result_handler: ResultHandler | None = None,
         revocation: RevocationService | None = None,
         sessionmaker: Any | None = None,
         audit_chain: Any | None = None,
         advisory_worker: Any | None = None,
         event_bus: Any | None = None,
+        rotation_orchestrator: Any | None = None,
+        exposure_handler: Any | None = None,
+        risk_recomputer: Any | None = None,
     ) -> None:
         self._dispatcher = dispatcher
         self._result_handler = result_handler
@@ -78,6 +81,9 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
         self._audit_chain = audit_chain
         self._advisory_worker = advisory_worker
         self._event_bus = event_bus
+        self._rotation_orchestrator = rotation_orchestrator
+        self._exposure_handler = exposure_handler
+        self._risk_recomputer = risk_recomputer
 
     async def _enqueue_match(self, host_id: str) -> None:
         """Best-effort: ask the advisory worker to re-match this host.
@@ -91,6 +97,124 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
             await worker.enqueue_match(host_id)
         except Exception:
             log.warning("agent_bridge.enqueue_match_failed", host_id=host_id, exc_info=True)
+
+    async def handle_cert_rotate_for_test(
+        self,
+        *,
+        host_id: str,
+        csr_pem: bytes,
+        signing_pubkey: bytes,
+        prev_serial: str,
+        peer_ip: str,
+        push,
+    ):
+        """Test-only entrypoint mirroring the recv_loop cert_rotate branch."""
+        from server.app.grpc.cert_rotate_policy import RotationContext
+
+        resp = await self._rotation_orchestrator.rotate(
+            RotationContext(
+                host_id=host_id,
+                csr_pem=csr_pem,
+                signing_pubkey=signing_pubkey,
+                prev_serial=prev_serial,
+                peer_ip=peer_ip,
+            )
+        )
+        out = agent_bridge_pb2.ServerToAgent(
+            cert_issue=agent_bridge_pb2.CertIssueResponse(
+                cert_chain_pem=resp.cert_chain_pem,
+            )
+        )
+        out.cert_issue.not_after.FromDatetime(resp.not_after)
+        push(out)
+
+    def set_test_pusher(self, host_id: str, fn) -> None:  # type: ignore[no-untyped-def]
+        """Test override for per-host send queue.
+
+        Allows tests to inject a callback that receives ServerToAgent messages
+        instead of pushing to the control queue.
+        """
+        if not hasattr(self, "_test_pushers"):
+            self._test_pushers = {}
+        self._test_pushers[host_id] = fn
+
+    async def push_run_cert_rotate(self, host_id: str, reason: str) -> bool:
+        """Send RunCertRotate to a connected agent. Returns False if not connected.
+
+        Args:
+            host_id: Target host identifier.
+            reason: Reason for rotation (e.g. "operator-initiated").
+
+        Returns:
+            True if the message was queued; False if the host is offline.
+        """
+        msg = agent_bridge_pb2.ServerToAgent(
+            run_cert_rotate=agent_bridge_pb2.RunCertRotate(reason=reason)
+        )
+        if hasattr(self, "_test_pushers") and host_id in self._test_pushers:
+            self._test_pushers[host_id](msg)
+            return True
+        return push_control(host_id, msg)
+
+    async def handle_runtime_exposure_for_test(
+        self, *, host_id, scanned_at, scan, host_packages, advisories
+    ):
+        """Test-only entrypoint for runtime_exposure ingestion."""
+        from server.app.posture.exposure.derive import derive_exposure
+
+        derived = derive_exposure(scan, host_packages, advisories)
+        await self._exposure_handler.ingest(
+            host_id=host_id, scanned_at=scanned_at, derived=derived
+        )
+
+    async def push_run_exposure_scan(self, host_id: str, reason: str) -> bool:
+        """Send RunExposureScan to a connected agent. Returns False if not connected."""
+        msg = agent_bridge_pb2.ServerToAgent(
+            run_exposure_scan=agent_bridge_pb2.RunExposureScan(reason=reason)
+        )
+        if hasattr(self, "_test_pushers") and host_id in self._test_pushers:
+            self._test_pushers[host_id](msg)
+            return True
+        return push_control(host_id, msg)
+
+    async def _load_host_packages(self, host_id: str) -> list[dict]:
+        """Load installed packages for derive_exposure."""
+        from sqlalchemy import select
+        from server.app.models.host_package import HostPackage
+
+        async with self._sessionmaker() as session:
+            rows = (
+                await session.execute(
+                    select(HostPackage).where(HostPackage.host_id == host_id)
+                )
+            ).scalars().all()
+        return [{"name": r.name, "version": r.version} for r in rows]
+
+    async def _load_advisories_for_host(self, host_id: str) -> list[dict]:
+        """Load open advisories already matched to this host's packages.
+
+        Pulls from HostAdvisory rows (already populated by the advisory
+        matching worker). Each row maps an advisory_id to a package on the
+        host. derive_exposure() uses {id, package, affected_paths} shape; we
+        leave affected_paths empty (catalog doesn't expose it yet — exposure
+        derivation falls through to package-name and process-pkg matches).
+        """
+        from sqlalchemy import select
+        from server.app.models.host_advisory import HostAdvisory
+
+        async with self._sessionmaker() as session:
+            rows = (
+                await session.execute(
+                    select(HostAdvisory).where(
+                        HostAdvisory.host_id == host_id,
+                        HostAdvisory.status == "open",
+                    )
+                )
+            ).scalars().all()
+        return [
+            {"id": r.advisory_id, "package": r.package, "affected_paths": []}
+            for r in rows
+        ]
 
     async def Stream(
         self,
@@ -155,7 +279,7 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
                 )
 
             recv_task = asyncio.create_task(
-                self._recv_loop(host_id, request_iterator)
+                self._recv_loop(host_id, request_iterator, context, control_q)
             )
             try:
                 while True:
@@ -228,6 +352,8 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
         self,
         host_id: str,
         request_iterator: AsyncIterable[agent_bridge_pb2.AgentToServer],
+        context: Any,
+        control_q: asyncio.Queue[agent_bridge_pb2.ServerToAgent],
     ) -> None:
         """Receive and process messages from agent.
 
@@ -240,7 +366,16 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
             Exception: If the stream is closed (normal exit).
         """
         from datetime import datetime, timezone
+        from server.app.grpc.tls import extract_peer_cert_info
 
+        peer_info = extract_peer_cert_info(context)
+        log.info(
+            "mtls.handshake.ok",
+            host_id=host_id,
+            cn=peer_info.get("cn", "?"),
+            serial=peer_info.get("serial", "?"),
+            not_after=peer_info.get("not_after", "?"),
+        )
         log.info("recv_loop.start", host_id=host_id)
         async for msg in request_iterator:
             kind = msg.WhichOneof("msg")
@@ -449,6 +584,88 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
                             host_id=host_id,
                             error=str(e),
                         )
+            elif kind == "cert_rotate":
+                if self._rotation_orchestrator is None:
+                    log.warning("cert_rotate.no_orchestrator", host_id=host_id)
+                    continue
+                try:
+                    from server.app.grpc.cert_rotate_policy import (
+                        PolicyDeniedError,
+                        RateLimitedError,
+                        RotationContext,
+                    )
+
+                    resp = await self._rotation_orchestrator.rotate(
+                        RotationContext(
+                            host_id=host_id,
+                            csr_pem=msg.cert_rotate.csr_pem,
+                            signing_pubkey=msg.cert_rotate.signing_pubkey,
+                            prev_serial=msg.cert_rotate.prev_serial,
+                            peer_ip="",
+                        )
+                    )
+                    out = agent_bridge_pb2.ServerToAgent(
+                        cert_issue=agent_bridge_pb2.CertIssueResponse(
+                            cert_chain_pem=resp.cert_chain_pem,
+                        )
+                    )
+                    out.cert_issue.not_after.FromDatetime(resp.not_after)
+                    # Push via control queue (this method used in tests)
+                    control_q.put_nowait(out)
+                except RateLimitedError as e:
+                    log.warning(
+                        "cert_rotate.rate_limited", host_id=host_id, error=str(e)
+                    )
+                except PolicyDeniedError as e:
+                    log.warning(
+                        "cert_rotate.denied", host_id=host_id, error=str(e)
+                    )
+                except Exception as e:
+                    log.exception(
+                        "cert_rotate.unhandled", host_id=host_id, error=str(e)
+                    )
+            elif kind == "runtime_exposure":
+                if self._exposure_handler is None:
+                    log.warning("runtime_exposure.no_handler", host_id=host_id)
+                    continue
+                try:
+                    from google.protobuf.json_format import MessageToDict
+
+                    scan_dict = MessageToDict(
+                        msg.runtime_exposure, preserving_proto_field_name=True
+                    )
+                    # Load host packages + advisories
+                    host_packages = await self._load_host_packages(host_id)
+                    advisories = await self._load_advisories_for_host(host_id)
+                    from server.app.posture.exposure.derive import derive_exposure
+
+                    derived = derive_exposure(scan_dict, host_packages, advisories)
+                    procs = scan_dict.get("processes") or []
+                    procs_with_pkg = sum(1 for p in procs if p.get("pkg"))
+                    log.info(
+                        "runtime_exposure.derive",
+                        host_id=host_id,
+                        procs=len(procs),
+                        procs_with_pkg=procs_with_pkg,
+                        listeners=len(scan_dict.get("listeners") or []),
+                        services=len(scan_dict.get("services") or []),
+                        host_packages=len(host_packages),
+                        advisories=len(advisories),
+                        derived_rows=len(derived),
+                    )
+                    await self._exposure_handler.ingest(
+                        host_id=host_id,
+                        scanned_at=msg.runtime_exposure.scanned_at.ToDatetime(),
+                        derived=derived,
+                    )
+                    if self._risk_recomputer is not None:
+                        await self._risk_recomputer.request(
+                            host_id, trigger_reason="exposure_scan"
+                        )
+                except Exception as e:
+                    log.exception(
+                        "runtime_exposure.handle_failed", host_id=host_id, error=str(e)
+                    )
             else:
                 log.warning("agent.unknown_message", host_id=host_id, kind=kind)
 

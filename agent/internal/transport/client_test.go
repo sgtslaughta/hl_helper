@@ -257,3 +257,93 @@ func TestHeartbeatWithoutSleepState(t *testing.T) {
 		t.Errorf("Heartbeat not received within timeout")
 	}
 }
+
+// TestCertIssueChannelReceivesMessages tests that CertIssueResponse messages are received on the channel.
+func TestCertIssueChannelReceivesMessages(t *testing.T) {
+	srv := &stubServer{
+		onConnect: func(stream grpc.BidiStreamingServer[pb.AgentToServer, pb.ServerToAgent]) error {
+			msg := &pb.ServerToAgent{
+				Msg: &pb.ServerToAgent_CertIssue{
+					CertIssue: &pb.CertIssueResponse{
+						CertChainPem: []byte("test-cert"),
+					},
+				},
+			}
+			return stream.Send(msg)
+		},
+	}
+
+	_, lis := newBufServer(t, srv)
+
+	cli := transport.New(transport.Options{
+		Endpoint:    "localhost:9999",
+		DialOptions: bufDialOpts(lis),
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	_ = cli.RunOnce(ctx)
+
+	select {
+	case issue := <-cli.CertIssueCh():
+		if issue == nil {
+			t.Errorf("Expected cert issue, got nil")
+		}
+	case <-time.After(1 * time.Second):
+		t.Errorf("CertIssue not received within timeout")
+	}
+}
+
+// TestReconnectCancelsActiveStream tests that Reconnect triggers stream cancellation.
+func TestReconnectCancelsActiveStream(t *testing.T) {
+	connectCount := atomic.Int32{}
+
+	srv := &stubServer{
+		onConnect: func(stream grpc.BidiStreamingServer[pb.AgentToServer, pb.ServerToAgent]) error {
+			connectCount.Add(1)
+			// Hold stream open
+			<-time.After(10 * time.Second)
+			return nil
+		},
+	}
+
+	_, lis := newBufServer(t, srv)
+
+	cli := transport.New(transport.Options{
+		Endpoint:    "localhost:9999",
+		BaseBackoff: 10 * time.Millisecond,
+		MaxBackoff:  30 * time.Millisecond,
+		DialOptions: bufDialOpts(lis),
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- cli.Run(ctx)
+	}()
+
+	// Wait a bit for first connection
+	<-time.After(100 * time.Millisecond)
+
+	initialCount := connectCount.Load()
+	if initialCount == 0 {
+		t.Fatalf("Expected at least 1 connection, got 0")
+	}
+
+	// Trigger reconnect
+	cli.Reconnect()
+
+	// Wait for reconnection attempt
+	<-time.After(100 * time.Millisecond)
+
+	// Should have started a new connection
+	if connectCount.Load() <= initialCount {
+		t.Errorf("Expected new connection after Reconnect, count still %d", connectCount.Load())
+	}
+
+	cancel()
+	<-errCh
+}

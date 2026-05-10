@@ -259,6 +259,8 @@ class AppState:
     public_origin: str | None = None
     advertised_origins: list[str] | None = None
     grpc_server: Server | None = None
+    reenroll_server: Server | None = None
+    agent_bridge: Any | None = None
 
 
 async def build_app_state(settings: FleetSettings) -> AppState:
@@ -603,8 +605,25 @@ async def _start_grpc_server(state: AppState, grpc_host: str) -> None:
         # Build cert chain (leaf + intermediate)
         cert_chain_pem = server_cert_pem + int_crt_pem
 
+        # Build rotation orchestrator
+        from server.app.grpc.cert_rotate_policy import (
+            RotationOrchestrator,
+            RotationRateLimiter,
+        )
+
+        rotation_orchestrator = RotationOrchestrator(
+            session_factory=state.sessionmaker,
+            ca=state.ca,
+            rate_limiter=RotationRateLimiter(window_seconds=3600),
+            ttl_days=int(os.environ.get("HL_CERT_TTL_DAYS", "7")),
+        )
+
+        from server.app.grpc.exposure_handler import ExposureHandler
+
+        exposure_handler = ExposureHandler(state.sessionmaker)
+
         # Create and start gRPC server
-        server, bound_addr, _ = make_grpc_server(
+        server, bound_addr, _, agent_bridge = make_grpc_server(
             server_cert_chain_pem=cert_chain_pem,
             server_key_pem=key_pem,
             client_ca_pem=ca_chain_pem,
@@ -616,11 +635,56 @@ async def _start_grpc_server(state: AppState, grpc_host: str) -> None:
             audit_chain=state.audit_chain,
             advisory_worker=state.advisory_worker,
             event_bus=state.bus,
+            rotation_orchestrator=rotation_orchestrator,
+            exposure_handler=exposure_handler,
+            risk_recomputer=state.risk_recomputer,
         )
 
         await server.start()
         state.grpc_server = server
+        state.agent_bridge = agent_bridge
         logger.info(f"gRPC server started at {bound_addr}")
+
+        # Start ReEnroll gRPC server (TLS-only, no mTLS)
+        try:
+            import grpc
+
+            from server.app.grpc._pb.fleet.v1 import reenroll_pb2_grpc
+            from server.app.grpc.reenroll_servicer import ReEnrollServicer
+            from server.app.grpc.reenroll_state import (
+                NonceCache,
+                ReEnrollRateLimiter,
+            )
+
+            reenroll_servicer = ReEnrollServicer(
+                session_factory=state.sessionmaker,
+                nonce_cache=NonceCache(ttl_seconds=60),
+                rate_limiter=ReEnrollRateLimiter(
+                    window_seconds=86400, max_per_window=3
+                ),
+                ca=state.ca,
+                ttl_days=int(os.environ.get("HL_CERT_TTL_DAYS", "7")),
+            )
+
+            reenroll_server = grpc.aio.server()
+            reenroll_pb2_grpc.add_ReEnrollServicer_to_server(
+                reenroll_servicer, reenroll_server
+            )
+
+            reenroll_creds = grpc.ssl_server_credentials(
+                [(key_pem, server_cert_pem)],
+                root_certificates=None,
+                require_client_auth=False,
+            )
+            reenroll_port = int(os.environ.get("HL_REENROLL_PORT", "7444"))
+            reenroll_server.add_secure_port(f"0.0.0.0:{reenroll_port}", reenroll_creds)
+            await reenroll_server.start()
+            state.reenroll_server = reenroll_server
+            logger.info(f"ReEnroll gRPC server started on port {reenroll_port}")
+        except Exception as e:
+            logger.warning(
+                f"Failed to start ReEnroll gRPC server: {e}. Continuing without ReEnroll."
+            )
 
     except Exception as e:
         logger.warning(f"Failed to start gRPC server: {e}. Continuing with HTTP-only mode.")
@@ -709,7 +773,14 @@ async def app_lifespan(app: Any) -> AsyncIterator[None]:
         except (asyncio.CancelledError, Exception):
             pass
 
-    # Shutdown: stop gRPC server, session service, and close engine
+    # Shutdown: stop gRPC servers, session service, and close engine
+    if state.reenroll_server:
+        try:
+            await state.reenroll_server.stop(grace=5)
+            logger.info("ReEnroll gRPC server stopped")
+        except Exception as e:
+            logger.warning(f"Error stopping ReEnroll gRPC server: {e}")
+
     if state.grpc_server:
         try:
             await state.grpc_server.stop(grace=5)

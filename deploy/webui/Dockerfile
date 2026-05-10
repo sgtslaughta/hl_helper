@@ -15,8 +15,11 @@ FROM node:${NODE_VERSION} AS builder
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1 \
     NODE_ENV=production
-COPY --from=deps /app/node_modules ./node_modules
-COPY webui ./
+COPY --from=deps /app/node_modules ./webui/node_modules
+COPY docs ./docs
+COPY scripts/build-wiki-index.ts ./scripts/build-wiki-index.ts
+COPY webui ./webui
+WORKDIR /app/webui
 RUN npm run build
 
 FROM node:${NODE_VERSION} AS runtime
@@ -27,9 +30,9 @@ ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3000 \
     HOSTNAME=0.0.0.0
-COPY --from=builder --chown=hl:hl /app/.next/standalone ./
-COPY --from=builder --chown=hl:hl /app/.next/static ./.next/static
-COPY --from=builder --chown=hl:hl /app/public ./public
+COPY --from=builder --chown=hl:hl /app/webui/.next/standalone ./
+COPY --from=builder --chown=hl:hl /app/webui/.next/static ./.next/static
+COPY --from=builder --chown=hl:hl /app/webui/public ./public
 USER hl
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \

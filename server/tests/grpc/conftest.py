@@ -93,7 +93,7 @@ async def grpc_server_and_dispatcher(
     The caller should use bound_address to connect a client.
     """
     dispatcher = CommandDispatcher()
-    server, bound_addr, _ = make_grpc_server(
+    server, bound_addr, _, _ = make_grpc_server(
         server_cert_chain_pem=tls_creds["server_cert_pem"],
         server_key_pem=tls_creds["server_key_pem"],
         client_ca_pem=tls_creds["ca_chain_pem"],
@@ -198,3 +198,48 @@ async def published_release_id(sm: async_sessionmaker) -> str:
         session.add(release)
         await session.commit()
         return release.id
+
+
+class _FakeCA:
+    """Test CA. Returns deterministic cert PEM keyed off CSR + serial counter."""
+
+    def __init__(self) -> None:
+        self._counter = 0
+
+    def issue_host_cert(
+        self, csr_pem: bytes, *, host_id: str, ttl
+    ) -> tuple[bytes, str, object]:
+        from datetime import datetime, timezone
+
+        self._counter += 1
+        serial = f"NEWSERIAL{self._counter:04d}"
+        not_after = datetime.now(timezone.utc) + ttl
+        chain_pem = f"-----BEGIN CERTIFICATE-----\nFAKE-{serial}\n-----END CERTIFICATE-----\n".encode()
+        return chain_pem, serial, not_after
+
+
+@pytest.fixture
+def fake_ca():
+    return _FakeCA()
+
+
+@pytest.fixture
+def agent_bridge_servicer(sm, fake_ca):
+    from server.app.grpc.agent_bridge import AgentBridgeService
+    from server.app.grpc.cert_rotate_policy import (
+        RotationOrchestrator,
+        RotationRateLimiter,
+    )
+    from server.app.grpc.exposure_handler import ExposureHandler
+
+    orch = RotationOrchestrator(
+        session_factory=sm,
+        ca=fake_ca,
+        rate_limiter=RotationRateLimiter(),
+        ttl_days=7,
+    )
+    return AgentBridgeService(
+        dispatcher=None,
+        rotation_orchestrator=orch,
+        exposure_handler=ExposureHandler(sm),
+    )

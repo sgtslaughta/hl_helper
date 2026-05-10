@@ -13,6 +13,7 @@ from server.app.crypto.signing import FileBackend
 from server.app.dispatcher.dispatcher import CommandDispatcher as ApiCommandDispatcher
 from server.app.enrollment.service import EnrollmentService
 from server.app.events.bus import Bus
+from server.app.grpc.agent_bridge import AgentBridgeService
 from server.app.grpc.dispatcher import CommandDispatcher
 from server.app.lifespan import AppState
 from server.app.revocation.service import RevocationService
@@ -151,6 +152,18 @@ def make_test_app_state(
             absolute_ttl_seconds=43200,
         )
 
+    # Create agent_bridge servicer
+    agent_bridge = AgentBridgeService(
+        dispatcher=dispatcher,
+        result_handler=result_handler,
+        revocation=revocation_service,
+        sessionmaker=sessionmaker,
+        audit_chain=audit_chain,
+        advisory_worker=None,
+        event_bus=bus,
+        rotation_orchestrator=None,
+    )
+
     return AppState(
         bus=bus,
         ca=ca,
@@ -165,4 +178,5 @@ def make_test_app_state(
         enrollment_service=enrollment_service,
         session_service=session_service,
         secrets_broker=secrets_broker,
+        agent_bridge=agent_bridge,
     )

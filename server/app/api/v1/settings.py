@@ -51,6 +51,27 @@ def _redacted(key: str, value: Any) -> tuple[Any, bool]:
     return (value, False)
 
 
+EXPOSURE_MULTIPLIER_KEYS = {
+    "risk.exposure_multiplier.NETWORK_EXPOSED",
+    "risk.exposure_multiplier.ACTIVE",
+    "risk.exposure_multiplier.INSTALLED_ONLY",
+    "risk.exposure_multiplier.UNKNOWN",
+}
+
+
+def _validate_setting(key: str, value: object) -> object:
+    """Validate + normalize setting values. Raises HTTPException on bad input."""
+    if key in EXPOSURE_MULTIPLIER_KEYS:
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="value must be a number")
+        if not (0.0 <= v <= 10.0):
+            raise HTTPException(status_code=400, detail="value out of range [0.0, 10.0]")
+        return v
+    return value
+
+
 @router.get("", response_model=list[EffectiveSetting],
             dependencies=[Depends(admin_required)])
 async def list_settings(req: Request) -> list[EffectiveSetting]:
@@ -119,6 +140,8 @@ async def patch_setting(req: Request, body: PatchRequest) -> EffectiveSetting:
                     403,
                     detail=f"boot_only_immutable: {body.key} (restart required)",
                 )
+            # Validate the value
+            body.value = _validate_setting(body.key, body.value)
             existing = Setting(
                 key=body.key,
                 value=body.value,
@@ -137,6 +160,8 @@ async def patch_setting(req: Request, body: PatchRequest) -> EffectiveSetting:
                     detail=f"env_locked: {body.key} (managed by FLEET_* env var; "
                            "unset env or change scope to runtime-mutable)")
             old_value = existing.value
+            # Validate the value
+            body.value = _validate_setting(body.key, body.value)
 
         new_value = body.value
         audit_old: object

@@ -21,8 +21,10 @@ import (
 	"github.com/hlhelper/hl-agent/internal/enrollment"
 	xexec "github.com/hlhelper/hl-agent/internal/exec"
 	"github.com/hlhelper/hl-agent/internal/executor"
+	"github.com/hlhelper/hl-agent/internal/exposure"
 	"github.com/hlhelper/hl-agent/internal/keystore"
 	"github.com/hlhelper/hl-agent/internal/outbox"
+	"github.com/hlhelper/hl-agent/internal/rotator"
 	"github.com/hlhelper/hl-agent/internal/sleep"
 	"github.com/hlhelper/hl-agent/internal/transport"
 	"github.com/hlhelper/hl-agent/internal/updater"
@@ -90,6 +92,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(
 		versionCmd(),
 		enrollCmd(),
+		newReenrollCmd(),
 		runCmd(),
 		decommissionCmd(),
 		// Getters
@@ -305,7 +308,150 @@ func runCmd() *cobra.Command {
 			defer cancel()
 
 			fmt.Fprintf(cmd.OutOrStdout(), "hl-agent connecting to %s\n", endpoint)
-			return client.Run(ctx)
+
+			// Start transport client in background
+			transportDone := make(chan error, 1)
+			go func() {
+				transportDone <- client.Run(ctx)
+			}()
+
+			// Build rotator transport adapter
+			rotatorTransport := &rotatorTransportAdapter{client: client}
+			ksAdapter := &rotatorKeystoreAdapter{Keystore: ks}
+
+			// Build rotator
+			rot := rotator.New(rotator.Config{
+				HostID:       hostID,
+				Transport:    rotatorTransport,
+				Keystore:     ksAdapter,
+				StatePath:    filepath.Join(stateDir, "rotator.state.json"),
+				PrevSerialFn: func() (string, error) {
+					_, _, serial, err := certInfoFromKeystore(ks)()
+					return serial, err
+				},
+			})
+
+			// Build recovery with reenroll client
+			rootCAPEM, _ := ks.RootCAPEM()
+			reenrollEndpoint := os.Getenv("HL_REENROLL_ENDPOINT")
+			if reenrollEndpoint == "" {
+				log.Printf("warn: HL_REENROLL_ENDPOINT not set, recovery disabled")
+				reenrollEndpoint = "unknown:7444"
+			}
+
+			reenrollSrv := &enrollment.GRPCReenrollServer{
+				Endpoint:  reenrollEndpoint,
+				RootCAPEM: rootCAPEM,
+			}
+			reenrollClient := &enrollment.ReenrollClient{
+				HostID:   hostID,
+				Keystore: &reenrollKSAdapter{keystore: ks},
+				Server:   reenrollSrv,
+			}
+			rec := rotator.NewRecovery(rotator.RecoveryConfig{
+				StatePath:  filepath.Join(stateDir, "rotator.state.json"),
+				CertInfoFn: certInfoFromKeystore(ks),
+				ReEnroller: reenrollClient,
+				Keystore:   ksAdapter,
+				Transport:  rotatorTransport,
+			})
+
+			// Start rotator (long-running)
+			go func() {
+				if err := rot.Run(ctx, certInfoFromKeystore(ks)); err != nil {
+					log.Printf("rotator: %v", err)
+				}
+			}()
+
+			// Start recovery supervisor (periodic check)
+			go func() {
+				t := time.NewTicker(60 * time.Second)
+				defer t.Stop()
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-t.C:
+						if err := rec.CheckAndRecover(ctx); err != nil {
+							log.Printf("recovery: %v", err)
+						}
+					}
+				}
+			}()
+
+			// Listen for server-pushed RunCertRotate
+			go func() {
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-client.RunCertRotateCh():
+						if err := rot.RotateOnce(ctx); err != nil {
+							log.Printf("rotator (forced): %v", err)
+						}
+					}
+				}
+			}()
+
+			// Build exposure scanner
+			scanner := &exposure.Scanner{
+				HostID:     hostID,
+				Timeout:    60 * time.Second,
+				Resolver:   exposure.NewCachedResolver(exposure.AutoResolver()),
+				Collectors: []exposure.Collector{
+					&exposure.ProcessCollector{},
+					&exposure.SocketCollector{},
+					&exposure.SystemdServiceCollector{},
+					&exposure.KmodCollector{},
+					&exposure.ContainerCollector{},
+				},
+			}
+
+			doScan := func() {
+				sctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+				defer cancel()
+				exp := scanner.Scan(sctx)
+				if err := client.SendRuntimeExposure(sctx, exp); err != nil {
+					log.Printf("exposure scan send: %v", err)
+				} else {
+					log.Printf("exposure scan sent host=%s procs=%d listeners=%d truncated=%v",
+						hostID, len(exp.Processes), len(exp.Listeners), exp.Truncated)
+				}
+			}
+
+			// Long-running scan loop: every exposureInterval (default 6h)
+			go func() {
+				exposureInterval := 6 * time.Hour
+				if v := os.Getenv("HL_EXPOSURE_INTERVAL_HOURS"); v != "" {
+					if n, err := strconv.Atoi(v); err == nil && n > 0 {
+						exposureInterval = time.Duration(n) * time.Hour
+					}
+				}
+				t := time.NewTicker(exposureInterval)
+				defer t.Stop()
+
+				// First scan ~30s after boot to give transport time to settle.
+				select {
+				case <-time.After(30 * time.Second):
+					doScan()
+				case <-ctx.Done():
+					return
+				}
+
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-t.C:
+						doScan()
+					case req := <-client.RunExposureScanCh():
+						log.Printf("exposure scan triggered (reason=%s)", req.Reason)
+						doScan()
+					}
+				}
+			}()
+
+			return <-transportDone
 		},
 	}
 	cmd.Flags().String("dir", "/var/lib/hl-agent", "keystore directory")

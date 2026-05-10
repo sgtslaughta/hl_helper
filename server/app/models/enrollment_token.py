@@ -26,6 +26,12 @@ class EnrollmentToken(Base):
     redeemed_host_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     one_time: Mapped[bool] = mapped_column(default=True)
     note: Mapped[str | None] = mapped_column(String, nullable=True)
+    purpose: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="enroll"
+    )
+    bind_host_id: Mapped[str | None] = mapped_column(
+        String(36), nullable=True
+    )
 
     __table_args__ = (
         UniqueConstraint("token_hash", name="uq_token_hash"),
