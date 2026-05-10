@@ -1,4 +1,4 @@
-package buffer_test
+package logging_test
 
 import (
 	"os"
@@ -6,12 +6,11 @@ import (
 	"testing"
 
 	"github.com/hlhelper/hl-agent/internal/logging"
-	"github.com/hlhelper/hl-agent/internal/logging/buffer"
 )
 
 func TestEmitWritesToBuffer(t *testing.T) {
 	dir := t.TempDir()
-	em, err := buffer.New(buffer.Config{
+	em, err := logging.New(logging.Config{
 		BufferPath:   filepath.Join(dir, "logs.db"),
 		AgentID:      "a",
 		SessionID:    "s",
@@ -32,7 +31,7 @@ func TestEmitWritesToBuffer(t *testing.T) {
 
 func TestEmitSequenceMonotonic(t *testing.T) {
 	dir := t.TempDir()
-	em, _ := buffer.New(buffer.Config{
+	em, _ := logging.New(logging.Config{
 		BufferPath:   filepath.Join(dir, "l.db"),
 		AgentID:      "a",
 		SessionID:    "s",
@@ -56,7 +55,7 @@ func TestEmitSequenceMonotonic(t *testing.T) {
 
 func TestEmitErrPopulatesErrorFields(t *testing.T) {
 	dir := t.TempDir()
-	em, _ := buffer.New(buffer.Config{
+	em, _ := logging.New(logging.Config{
 		BufferPath:   filepath.Join(dir, "l.db"),
 		AgentID:      "a",
 		SessionID:    "s",
@@ -83,7 +82,7 @@ func TestEmitErrPopulatesErrorFields(t *testing.T) {
 
 func TestEmitPanicIsRecovered(t *testing.T) {
 	dir := t.TempDir()
-	em, _ := buffer.New(buffer.Config{
+	em, _ := logging.New(logging.Config{
 		BufferPath:   filepath.Join(dir, "l.db"),
 		AgentID:      "a",
 		SessionID:    "s",
@@ -105,7 +104,7 @@ func TestEmitPanicIsRecovered(t *testing.T) {
 
 func TestPendingCountReflectsBuffer(t *testing.T) {
 	dir := t.TempDir()
-	em, _ := buffer.New(buffer.Config{
+	em, _ := logging.New(logging.Config{
 		BufferPath:   filepath.Join(dir, "l.db"),
 		AgentID:      "a",
 		SessionID:    "s",

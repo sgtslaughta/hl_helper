@@ -11,7 +11,7 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
-	"github.com/hlhelper/hl-agent/internal/logging"
+	"github.com/hlhelper/hl-agent/internal/logtypes"
 )
 
 var (
@@ -86,7 +86,7 @@ func seqKey(seq uint64) []byte {
 // Append adds an event to the buffer.
 // The event's Sequence field is used as the key.
 // Eviction is performed if age or size limits are exceeded.
-func (b *Buffer) Append(ev logging.Event) error {
+func (b *Buffer) Append(ev logtypes.Event) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	blob, err := json.Marshal(ev)
@@ -103,8 +103,8 @@ func (b *Buffer) Append(ev logging.Event) error {
 
 // PeekFrom returns events starting from the first key strictly greater than fromSeq,
 // up to limit entries. If fromSeq is 0, starts from the beginning.
-func (b *Buffer) PeekFrom(fromSeq uint64, limit int) ([]logging.Event, error) {
-	out := make([]logging.Event, 0, limit)
+func (b *Buffer) PeekFrom(fromSeq uint64, limit int) ([]logtypes.Event, error) {
+	out := make([]logtypes.Event, 0, limit)
 	err := b.db.View(func(tx *bolt.Tx) error {
 		c := tx.Bucket(entriesBucket).Cursor()
 		var k, v []byte
@@ -115,7 +115,7 @@ func (b *Buffer) PeekFrom(fromSeq uint64, limit int) ([]logging.Event, error) {
 			k, v = c.Seek(seqKey(fromSeq + 1))
 		}
 		for ; k != nil && len(out) < limit; k, v = c.Next() {
-			var ev logging.Event
+			var ev logtypes.Event
 			if err := json.Unmarshal(v, &ev); err != nil {
 				return err
 			}
@@ -187,7 +187,7 @@ func (b *Buffer) evictIfNeeded() error {
 			if k == nil {
 				break
 			}
-			var ev logging.Event
+			var ev logtypes.Event
 			if err := json.Unmarshal(v, &ev); err == nil && ev.TS.Before(deadline) {
 				if err := bkt.Delete(k); err != nil {
 					return err

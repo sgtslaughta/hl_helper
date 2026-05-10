@@ -1,4 +1,4 @@
-package buffer
+package logging
 
 import (
 	"fmt"
@@ -8,7 +8,8 @@ import (
 
 	"github.com/oklog/ulid/v2"
 
-	"github.com/hlhelper/hl-agent/internal/logging"
+	"github.com/hlhelper/hl-agent/internal/logging/buffer"
+	"github.com/hlhelper/hl-agent/internal/logtypes"
 )
 
 type Config struct {
@@ -25,7 +26,7 @@ type Config struct {
 
 type Emitter struct {
 	cfg      Config
-	buf      *Buffer
+	buf      *buffer.Buffer
 	seq      uint64
 	fallback *os.File
 }
@@ -40,7 +41,7 @@ func New(cfg Config) (*Emitter, error) {
 	if cfg.FallbackFile == "" {
 		cfg.FallbackFile = "/var/log/hl-agent/fallback.log"
 	}
-	b, err := Open(cfg.BufferPath, Options{MaxBytes: cfg.MaxBytes, MaxAge: cfg.MaxAge})
+	b, err := buffer.Open(cfg.BufferPath, buffer.Options{MaxBytes: cfg.MaxBytes, MaxAge: cfg.MaxAge})
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +56,7 @@ func (e *Emitter) Close() error {
 	return e.buf.Close()
 }
 
-func (e *Emitter) Buffer() *Buffer {
+func (e *Emitter) Buffer() *buffer.Buffer {
 	return e.buf
 }
 
@@ -63,34 +64,34 @@ func (e *Emitter) PendingCount() int {
 	return e.buf.Count()
 }
 
-func (e *Emitter) Emit(level logging.Level, category, action, message string, details map[string]any) {
+func (e *Emitter) Emit(level logtypes.Level, category, action, message string, details map[string]any) {
 	e.emit(level, category, action, message, details, nil)
 }
 
-func (e *Emitter) EmitErr(level logging.Level, category, action, message, errCode, errMessage string, details map[string]any) {
-	e.emit(level, category, action, message, details, &logging.ErrorFields{Code: errCode, Message: errMessage})
+func (e *Emitter) EmitErr(level logtypes.Level, category, action, message, errCode, errMessage string, details map[string]any) {
+	e.emit(level, category, action, message, details, &logtypes.ErrorFields{Code: errCode, Message: errMessage})
 }
 
-func (e *Emitter) emit(level logging.Level, category, action, message string, details map[string]any, ef *logging.ErrorFields) {
+func (e *Emitter) emit(level logtypes.Level, category, action, message string, details map[string]any, ef *logtypes.ErrorFields) {
 	defer func() {
 		if r := recover(); r != nil && e.fallback != nil {
 			_, _ = fmt.Fprintf(e.fallback, "[logger-panic] %v\n", r)
 		}
 	}()
 	seq := atomic.AddUint64(&e.seq, 1)
-	ev := logging.Event{
+	ev := logtypes.Event{
 		TS:         time.Now().UTC(),
 		ECSVersion: "8.11",
-		Event: logging.EventFields{
+		Event: logtypes.EventFields{
 			Kind:     "event",
 			Category: []string{category},
 			Action:   action,
 			Sequence: seq,
 			ID:       ulid.Make().String(),
 		},
-		Agent: logging.AgentFields{ID: e.cfg.AgentID, Version: e.cfg.AgentVer, Type: "hl-agent", SessionID: e.cfg.SessionID},
-		Host:  logging.HostFields{ID: e.cfg.HostID, Name: e.cfg.HostName},
-		Log:   logging.LogFields{Level: logging.LevelString(level)},
+		Agent: logtypes.AgentFields{ID: e.cfg.AgentID, Version: e.cfg.AgentVer, Type: "hl-agent", SessionID: e.cfg.SessionID},
+		Host:  logtypes.HostFields{ID: e.cfg.HostID, Name: e.cfg.HostName},
+		Log:   logtypes.LogFields{Level: logtypes.LevelString(level)},
 		Message: message,
 		Details: details,
 	}
