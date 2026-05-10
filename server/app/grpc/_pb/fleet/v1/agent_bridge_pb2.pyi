@@ -121,8 +121,92 @@ class HostMetrics(_message.Message):
     net_tx_bps: int
     def __init__(self, load_1: _Optional[float] = ..., load_5: _Optional[float] = ..., load_15: _Optional[float] = ..., mem_used_pct: _Optional[float] = ..., disk_used_pct: _Optional[float] = ..., uptime_seconds: _Optional[int] = ..., net_rx_bps: _Optional[int] = ..., net_tx_bps: _Optional[int] = ...) -> None: ...
 
+class LogEntry(_message.Message):
+    __slots__ = ("seq", "ts", "level", "action", "category", "outcome", "payload")
+    SEQ_FIELD_NUMBER: _ClassVar[int]
+    TS_FIELD_NUMBER: _ClassVar[int]
+    LEVEL_FIELD_NUMBER: _ClassVar[int]
+    ACTION_FIELD_NUMBER: _ClassVar[int]
+    CATEGORY_FIELD_NUMBER: _ClassVar[int]
+    OUTCOME_FIELD_NUMBER: _ClassVar[int]
+    PAYLOAD_FIELD_NUMBER: _ClassVar[int]
+    seq: int
+    ts: _timestamp_pb2.Timestamp
+    level: str
+    action: str
+    category: str
+    outcome: str
+    payload: bytes
+    def __init__(self, seq: _Optional[int] = ..., ts: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., level: _Optional[str] = ..., action: _Optional[str] = ..., category: _Optional[str] = ..., outcome: _Optional[str] = ..., payload: _Optional[bytes] = ...) -> None: ...
+
+class LogBatch(_message.Message):
+    __slots__ = ("entries", "first_seq", "last_seq", "overflow_flush", "dict_version")
+    ENTRIES_FIELD_NUMBER: _ClassVar[int]
+    FIRST_SEQ_FIELD_NUMBER: _ClassVar[int]
+    LAST_SEQ_FIELD_NUMBER: _ClassVar[int]
+    OVERFLOW_FLUSH_FIELD_NUMBER: _ClassVar[int]
+    DICT_VERSION_FIELD_NUMBER: _ClassVar[int]
+    entries: _containers.RepeatedCompositeFieldContainer[LogEntry]
+    first_seq: int
+    last_seq: int
+    overflow_flush: bool
+    dict_version: int
+    def __init__(self, entries: _Optional[_Iterable[_Union[LogEntry, _Mapping]]] = ..., first_seq: _Optional[int] = ..., last_seq: _Optional[int] = ..., overflow_flush: bool = ..., dict_version: _Optional[int] = ...) -> None: ...
+
+class LogDictionary(_message.Message):
+    __slots__ = ("version", "strings")
+    STRINGS_FIELD_NUMBER: _ClassVar[int]
+    VERSION_FIELD_NUMBER: _ClassVar[int]
+    version: int
+    strings: _containers.ScalarMap[int, str]
+    def __init__(self, version: _Optional[int] = ..., strings: _Optional[_Mapping[int, str]] = ...) -> None: ...
+
+class DictionaryAck(_message.Message):
+    __slots__ = ("version", "ok")
+    VERSION_FIELD_NUMBER: _ClassVar[int]
+    OK_FIELD_NUMBER: _ClassVar[int]
+    version: int
+    ok: bool
+    def __init__(self, version: _Optional[int] = ..., ok: bool = ...) -> None: ...
+
+class CategoryRule(_message.Message):
+    __slots__ = ("category", "level", "sample_rate", "drop")
+    CATEGORY_FIELD_NUMBER: _ClassVar[int]
+    LEVEL_FIELD_NUMBER: _ClassVar[int]
+    SAMPLE_RATE_FIELD_NUMBER: _ClassVar[int]
+    DROP_FIELD_NUMBER: _ClassVar[int]
+    category: str
+    level: str
+    sample_rate: float
+    drop: bool
+    def __init__(self, category: _Optional[str] = ..., level: _Optional[str] = ..., sample_rate: _Optional[float] = ..., drop: bool = ...) -> None: ...
+
+class LogPolicy(_message.Message):
+    __slots__ = ("policy_version", "default_level", "batch_max_bytes", "batch_max_interval_s", "buffer_max_mb", "buffer_max_days", "default_sample_rate", "categories", "expires_at", "backoff_ms")
+    POLICY_VERSION_FIELD_NUMBER: _ClassVar[int]
+    DEFAULT_LEVEL_FIELD_NUMBER: _ClassVar[int]
+    BATCH_MAX_BYTES_FIELD_NUMBER: _ClassVar[int]
+    BATCH_MAX_INTERVAL_S_FIELD_NUMBER: _ClassVar[int]
+    BUFFER_MAX_MB_FIELD_NUMBER: _ClassVar[int]
+    BUFFER_MAX_DAYS_FIELD_NUMBER: _ClassVar[int]
+    DEFAULT_SAMPLE_RATE_FIELD_NUMBER: _ClassVar[int]
+    CATEGORIES_FIELD_NUMBER: _ClassVar[int]
+    EXPIRES_AT_FIELD_NUMBER: _ClassVar[int]
+    BACKOFF_MS_FIELD_NUMBER: _ClassVar[int]
+    policy_version: int
+    default_level: str
+    batch_max_bytes: int
+    batch_max_interval_s: int
+    buffer_max_mb: int
+    buffer_max_days: int
+    default_sample_rate: float
+    categories: _containers.RepeatedCompositeFieldContainer[CategoryRule]
+    expires_at: _timestamp_pb2.Timestamp
+    backoff_ms: int
+    def __init__(self, policy_version: _Optional[int] = ..., default_level: _Optional[str] = ..., batch_max_bytes: _Optional[int] = ..., batch_max_interval_s: _Optional[int] = ..., buffer_max_mb: _Optional[int] = ..., buffer_max_days: _Optional[int] = ..., default_sample_rate: _Optional[float] = ..., categories: _Optional[_Iterable[_Union[CategoryRule, _Mapping]]] = ..., expires_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., backoff_ms: _Optional[int] = ...) -> None: ...
+
 class Heartbeat(_message.Message):
-    __slots__ = ("host_id", "at", "last_acked_seq", "metrics", "agent_version", "update_status", "update_target_version", "sleeping", "sleep_until", "signature")
+    __slots__ = ("host_id", "at", "last_acked_seq", "metrics", "agent_version", "update_status", "update_target_version", "sleeping", "sleep_until", "signature", "logs", "agent_session_id")
     class AgentUpdateStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
         __slots__ = ()
         AGENT_UPDATE_STATUS_UNSPECIFIED: _ClassVar[Heartbeat.AgentUpdateStatus]
@@ -149,6 +233,8 @@ class Heartbeat(_message.Message):
     SLEEPING_FIELD_NUMBER: _ClassVar[int]
     SLEEP_UNTIL_FIELD_NUMBER: _ClassVar[int]
     SIGNATURE_FIELD_NUMBER: _ClassVar[int]
+    LOGS_FIELD_NUMBER: _ClassVar[int]
+    AGENT_SESSION_ID_FIELD_NUMBER: _ClassVar[int]
     host_id: str
     at: _timestamp_pb2.Timestamp
     last_acked_seq: int
@@ -159,15 +245,21 @@ class Heartbeat(_message.Message):
     sleeping: bool
     sleep_until: _timestamp_pb2.Timestamp
     signature: bytes
-    def __init__(self, host_id: _Optional[str] = ..., at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., last_acked_seq: _Optional[int] = ..., metrics: _Optional[_Union[HostMetrics, _Mapping]] = ..., agent_version: _Optional[str] = ..., update_status: _Optional[_Union[Heartbeat.AgentUpdateStatus, str]] = ..., update_target_version: _Optional[str] = ..., sleeping: bool = ..., sleep_until: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., signature: _Optional[bytes] = ...) -> None: ...
+    logs: LogBatch
+    agent_session_id: str
+    def __init__(self, host_id: _Optional[str] = ..., at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., last_acked_seq: _Optional[int] = ..., metrics: _Optional[_Union[HostMetrics, _Mapping]] = ..., agent_version: _Optional[str] = ..., update_status: _Optional[_Union[Heartbeat.AgentUpdateStatus, str]] = ..., update_target_version: _Optional[str] = ..., sleeping: bool = ..., sleep_until: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., signature: _Optional[bytes] = ..., logs: _Optional[_Union[LogBatch, _Mapping]] = ..., agent_session_id: _Optional[str] = ...) -> None: ...
 
 class HeartbeatAck(_message.Message):
-    __slots__ = ("server_at", "next_expected_seq")
+    __slots__ = ("server_at", "next_expected_seq", "log_policy", "logs_acked_seq")
     SERVER_AT_FIELD_NUMBER: _ClassVar[int]
     NEXT_EXPECTED_SEQ_FIELD_NUMBER: _ClassVar[int]
+    LOG_POLICY_FIELD_NUMBER: _ClassVar[int]
+    LOGS_ACKED_SEQ_FIELD_NUMBER: _ClassVar[int]
     server_at: _timestamp_pb2.Timestamp
     next_expected_seq: int
-    def __init__(self, server_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., next_expected_seq: _Optional[int] = ...) -> None: ...
+    log_policy: LogPolicy
+    logs_acked_seq: int
+    def __init__(self, server_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., next_expected_seq: _Optional[int] = ..., log_policy: _Optional[_Union[LogPolicy, _Mapping]] = ..., logs_acked_seq: _Optional[int] = ...) -> None: ...
 
 class ResumeRequest(_message.Message):
     __slots__ = ("host_id", "stream_session_id", "last_seq")
