@@ -16,6 +16,9 @@ from server.tests.grpc.conftest import (  # noqa: E402, F401
     signing_backend,
 )
 
+# Re-export sync session fixtures from logs tests
+from server.tests.logs.conftest import _sync_engine, db_session  # noqa: F401
+
 
 def make_envelope(
     host_id: str,

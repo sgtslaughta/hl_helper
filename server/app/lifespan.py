@@ -44,6 +44,116 @@ from server.app.settings.config import FleetSettings
 logger = logging.getLogger(__name__)
 
 
+def register_log_retention_jobs(scheduler: Any, session: Any) -> None:
+    """Register log retention jobs with APScheduler.
+
+    Registers three scheduled jobs when FLEET_LOG_RETENTION_ENABLED is True:
+    1. archive_once: daily at 03:00 (local)
+    2. purge_archive: daily at 04:00 (local)
+    3. policy_ttl_expire: every 60 seconds
+
+    Args:
+        scheduler: APScheduler scheduler instance (or mock for testing)
+        session: SQLAlchemy session for database operations
+    """
+    enabled = os.environ.get("FLEET_LOG_RETENTION_ENABLED", "true").lower() == "true"
+    if not enabled:
+        logger.info("Log retention jobs disabled (FLEET_LOG_RETENTION_ENABLED=false)")
+        return
+
+    from server.app.logs.retention import LocalSink, S3Sink, archive_once, purge_archive
+    from server.app.logs.policy import apply_ttl_expiry
+
+    # Read settings
+    hot_days = int(os.environ.get("FLEET_LOG_HOT_DAYS", "30"))
+    retention_days = int(os.environ.get("FLEET_LOG_ARCHIVE_RETENTION_DAYS", "365"))
+    s3_uri = os.environ.get("FLEET_LOG_ARCHIVE_S3_URI")
+    local_path = os.environ.get("FLEET_LOG_ARCHIVE_LOCAL_PATH", "/var/lib/hl-fleet/log-archive")
+
+    # Determine sink
+    if s3_uri:
+        sink = S3Sink(s3_uri)
+    else:
+        sink = LocalSink(Path(local_path))
+
+    # Archive job: daily at 03:00 UTC
+    def _archive_job() -> None:
+        """Archive logs older than hot_days threshold."""
+        try:
+            result = archive_once(session, sink, hot_days=hot_days)
+            logger.info(
+                "archive_once completed: archived_rows=%d files_written=%d",
+                result["archived_rows"],
+                result["files_written"],
+            )
+        except Exception as e:
+            logger.exception("archive_once failed: %s", e)
+
+    # Purge job: daily at 04:00 UTC
+    def _purge_job() -> None:
+        """Delete archive files older than retention_days."""
+        try:
+            deleted = purge_archive(sink, retention_days=retention_days)
+            logger.info("purge_archive completed: deleted=%d", deleted)
+        except Exception as e:
+            logger.exception("purge_archive failed: %s", e)
+
+    # Policy TTL job: every 60 seconds
+    def _policy_ttl_job() -> None:
+        """Remove expired policies."""
+        try:
+            count = apply_ttl_expiry(session)
+            if count > 0:
+                logger.info("policy_ttl_expire completed: removed=%d", count)
+        except Exception as e:
+            logger.exception("policy_ttl_expire failed: %s", e)
+
+    # Register jobs with scheduler
+    # Note: in production, the scheduler will be an APScheduler instance.
+    # In tests, it will be a FakeScheduler for verification.
+    try:
+        from apscheduler.triggers.cron import CronTrigger
+        from zoneinfo import ZoneInfo
+
+        tz = ZoneInfo("UTC")
+
+        # Archive at 03:00 UTC daily
+        scheduler.add_job(
+            _archive_job,
+            trigger=CronTrigger(hour=3, minute=0, timezone=tz),
+            id="archive_once_job",
+            name="archive_once",
+            replace_existing=True,
+        )
+
+        # Purge at 04:00 UTC daily
+        scheduler.add_job(
+            _purge_job,
+            trigger=CronTrigger(hour=4, minute=0, timezone=tz),
+            id="purge_archive_job",
+            name="purge_archive",
+            replace_existing=True,
+        )
+
+        # Policy TTL every 60 seconds
+        scheduler.add_job(
+            _policy_ttl_job,
+            trigger="interval",
+            seconds=60,
+            id="policy_ttl_expire_job",
+            name="policy_ttl_expire",
+            replace_existing=True,
+        )
+
+        logger.info("Log retention jobs registered: archive (03:00), purge (04:00), policy-ttl (60s)")
+    except ImportError:
+        # If APScheduler is not available, try to use the scheduler directly.
+        # This handles test cases with FakeScheduler.
+        scheduler.add_job(_archive_job, trigger=None, id="archive_once_job")
+        scheduler.add_job(_purge_job, trigger=None, id="purge_archive_job")
+        scheduler.add_job(_policy_ttl_job, trigger=None, id="policy_ttl_expire_job")
+
+
 def _reconcile_added_columns(connection) -> None:
     """ALTER TABLE ADD COLUMN for any model column missing on the live DB.
 
