@@ -19,12 +19,23 @@ class AgentBridgeStub(object):
                 request_serializer=fleet_dot_v1_dot_agent__bridge__pb2.AgentToServer.SerializeToString,
                 response_deserializer=fleet_dot_v1_dot_agent__bridge__pb2.ServerToAgent.FromString,
                 )
+        self.RegisterLogDictionary = channel.unary_unary(
+                '/fleet.v1.AgentBridge/RegisterLogDictionary',
+                request_serializer=fleet_dot_v1_dot_agent__bridge__pb2.LogDictionary.SerializeToString,
+                response_deserializer=fleet_dot_v1_dot_agent__bridge__pb2.DictionaryAck.FromString,
+                )
 
 
 class AgentBridgeServicer(object):
     """Missing associated documentation comment in .proto file."""
 
     def Stream(self, request_iterator, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def RegisterLogDictionary(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -37,6 +48,11 @@ def add_AgentBridgeServicer_to_server(servicer, server):
                     servicer.Stream,
                     request_deserializer=fleet_dot_v1_dot_agent__bridge__pb2.AgentToServer.FromString,
                     response_serializer=fleet_dot_v1_dot_agent__bridge__pb2.ServerToAgent.SerializeToString,
+            ),
+            'RegisterLogDictionary': grpc.unary_unary_rpc_method_handler(
+                    servicer.RegisterLogDictionary,
+                    request_deserializer=fleet_dot_v1_dot_agent__bridge__pb2.LogDictionary.FromString,
+                    response_serializer=fleet_dot_v1_dot_agent__bridge__pb2.DictionaryAck.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -62,5 +78,22 @@ class AgentBridge(object):
         return grpc.experimental.stream_stream(request_iterator, target, '/fleet.v1.AgentBridge/Stream',
             fleet_dot_v1_dot_agent__bridge__pb2.AgentToServer.SerializeToString,
             fleet_dot_v1_dot_agent__bridge__pb2.ServerToAgent.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def RegisterLogDictionary(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/fleet.v1.AgentBridge/RegisterLogDictionary',
+            fleet_dot_v1_dot_agent__bridge__pb2.LogDictionary.SerializeToString,
+            fleet_dot_v1_dot_agent__bridge__pb2.DictionaryAck.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)

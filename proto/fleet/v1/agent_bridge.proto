@@ -94,6 +94,54 @@ message HostMetrics {
   repeated NetInterface interfaces = 9;
 }
 
+message LogEntry {
+  uint64 seq = 1;
+  google.protobuf.Timestamp ts = 2;
+  string level = 3;        // debug|info|warn|error|critical
+  string action = 4;
+  string category = 5;
+  string outcome = 6;      // success|failure|unknown (optional)
+  bytes payload = 7;       // gzipped ECS JSON (entire remaining doc)
+}
+
+message LogBatch {
+  repeated LogEntry entries = 1;
+  uint64 first_seq = 2;
+  uint64 last_seq = 3;
+  bool overflow_flush = 4;
+  uint32 dict_version = 5;
+}
+
+message LogDictionary {
+  uint32 version = 1;
+  map<uint32, string> strings = 2;
+}
+
+message DictionaryAck {
+  uint32 version = 1;
+  bool ok = 2;
+}
+
+message CategoryRule {
+  string category = 1;       // exact name or glob like "plugin.*"
+  string level = 2;
+  float sample_rate = 3;
+  bool drop = 4;
+}
+
+message LogPolicy {
+  uint32 policy_version = 1;
+  string default_level = 2;
+  uint32 batch_max_bytes = 3;
+  uint32 batch_max_interval_s = 4;
+  uint32 buffer_max_mb = 5;
+  uint32 buffer_max_days = 6;
+  float  default_sample_rate = 7;
+  repeated CategoryRule categories = 8;
+  google.protobuf.Timestamp expires_at = 9;
+  uint32 backoff_ms = 10;
+}
+
 message Heartbeat {
   enum AgentUpdateStatus {
     AGENT_UPDATE_STATUS_UNSPECIFIED = 0;
@@ -115,11 +163,15 @@ message Heartbeat {
   bool sleeping = 8;
   google.protobuf.Timestamp sleep_until = 9;
   bytes signature = 200;
+  LogBatch logs = 100;
+  string agent_session_id = 101;
 }
 
 message HeartbeatAck {
   google.protobuf.Timestamp server_at = 1;
   uint64 next_expected_seq = 2;
+  LogPolicy log_policy = 100;
+  uint64 logs_acked_seq = 101;
 }
 
 message ResumeRequest {
@@ -204,4 +256,5 @@ message ServerToAgent {
 
 service AgentBridge {
   rpc Stream(stream AgentToServer) returns (stream ServerToAgent);
+  rpc RegisterLogDictionary(LogDictionary) returns (DictionaryAck);
 }

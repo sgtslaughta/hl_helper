@@ -19,7 +19,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AgentBridge_Stream_FullMethodName = "/fleet.v1.AgentBridge/Stream"
+	AgentBridge_Stream_FullMethodName                = "/fleet.v1.AgentBridge/Stream"
+	AgentBridge_RegisterLogDictionary_FullMethodName = "/fleet.v1.AgentBridge/RegisterLogDictionary"
 )
 
 // AgentBridgeClient is the client API for AgentBridge service.
@@ -27,6 +28,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type AgentBridgeClient interface {
 	Stream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[AgentToServer, ServerToAgent], error)
+	RegisterLogDictionary(ctx context.Context, in *LogDictionary, opts ...grpc.CallOption) (*DictionaryAck, error)
 }
 
 type agentBridgeClient struct {
@@ -50,11 +52,22 @@ func (c *agentBridgeClient) Stream(ctx context.Context, opts ...grpc.CallOption)
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AgentBridge_StreamClient = grpc.BidiStreamingClient[AgentToServer, ServerToAgent]
 
+func (c *agentBridgeClient) RegisterLogDictionary(ctx context.Context, in *LogDictionary, opts ...grpc.CallOption) (*DictionaryAck, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DictionaryAck)
+	err := c.cc.Invoke(ctx, AgentBridge_RegisterLogDictionary_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AgentBridgeServer is the server API for AgentBridge service.
 // All implementations must embed UnimplementedAgentBridgeServer
 // for forward compatibility.
 type AgentBridgeServer interface {
 	Stream(grpc.BidiStreamingServer[AgentToServer, ServerToAgent]) error
+	RegisterLogDictionary(context.Context, *LogDictionary) (*DictionaryAck, error)
 	mustEmbedUnimplementedAgentBridgeServer()
 }
 
@@ -67,6 +80,9 @@ type UnimplementedAgentBridgeServer struct{}
 
 func (UnimplementedAgentBridgeServer) Stream(grpc.BidiStreamingServer[AgentToServer, ServerToAgent]) error {
 	return status.Errorf(codes.Unimplemented, "method Stream not implemented")
+}
+func (UnimplementedAgentBridgeServer) RegisterLogDictionary(context.Context, *LogDictionary) (*DictionaryAck, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RegisterLogDictionary not implemented")
 }
 func (UnimplementedAgentBridgeServer) mustEmbedUnimplementedAgentBridgeServer() {}
 func (UnimplementedAgentBridgeServer) testEmbeddedByValue()                     {}
@@ -96,13 +112,36 @@ func _AgentBridge_Stream_Handler(srv interface{}, stream grpc.ServerStream) erro
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AgentBridge_StreamServer = grpc.BidiStreamingServer[AgentToServer, ServerToAgent]
 
+func _AgentBridge_RegisterLogDictionary_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LogDictionary)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentBridgeServer).RegisterLogDictionary(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentBridge_RegisterLogDictionary_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentBridgeServer).RegisterLogDictionary(ctx, req.(*LogDictionary))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AgentBridge_ServiceDesc is the grpc.ServiceDesc for AgentBridge service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var AgentBridge_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "fleet.v1.AgentBridge",
 	HandlerType: (*AgentBridgeServer)(nil),
-	Methods:     []grpc.MethodDesc{},
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "RegisterLogDictionary",
+			Handler:    _AgentBridge_RegisterLogDictionary_Handler,
+		},
+	},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "Stream",
