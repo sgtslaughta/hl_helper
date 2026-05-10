@@ -622,6 +622,10 @@ async def _start_grpc_server(state: AppState, grpc_host: str) -> None:
 
         exposure_handler = ExposureHandler(state.sessionmaker)
 
+        # Get or create log broker for real-time log event streaming
+        from server.app.api.v1.logs import LogBroker
+        log_broker = LogBroker()
+
         # Create and start gRPC server
         server, bound_addr, _, agent_bridge = make_grpc_server(
             server_cert_chain_pem=cert_chain_pem,
@@ -638,6 +642,7 @@ async def _start_grpc_server(state: AppState, grpc_host: str) -> None:
             rotation_orchestrator=rotation_orchestrator,
             exposure_handler=exposure_handler,
             risk_recomputer=state.risk_recomputer,
+            log_broker=log_broker,
         )
 
         await server.start()

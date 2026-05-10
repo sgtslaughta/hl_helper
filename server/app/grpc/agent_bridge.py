@@ -73,6 +73,7 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
         rotation_orchestrator: Any | None = None,
         exposure_handler: Any | None = None,
         risk_recomputer: Any | None = None,
+        log_broker: Any | None = None,
     ) -> None:
         self._dispatcher = dispatcher
         self._result_handler = result_handler
@@ -84,6 +85,9 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
         self._rotation_orchestrator = rotation_orchestrator
         self._exposure_handler = exposure_handler
         self._risk_recomputer = risk_recomputer
+        self._log_broker = log_broker
+        # Per-session log dictionaries: session_id -> {int_key -> string_value}
+        self._log_dicts: dict[str, dict[int, str]] = {}
 
     async def _enqueue_match(self, host_id: str) -> None:
         """Best-effort: ask the advisory worker to re-match this host.
@@ -176,6 +180,56 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
             self._test_pushers[host_id](msg)
             return True
         return push_control(host_id, msg)
+
+    async def RegisterLogDictionary(self, request, context):
+        """Cache a session-scoped string dictionary for log payload compression.
+
+        The dictionary is stored keyed by agent_session_id on the next heartbeat,
+        or by a temporary peer-based key if the session_id is not yet known.
+        Allows agent to send @id:N references in log payloads instead of full strings.
+
+        Args:
+            request: LogDictionary proto with version and strings map.
+            context: gRPC service context.
+
+        Returns:
+            DictionaryAck proto with version and ok=True on success.
+        """
+        # Store dictionary with a fallback to a temp key if session_id unknown
+        # The next heartbeat from this peer will reassign it to the correct session_id
+        dict_data = dict(request.strings)
+        # Use a peer-based temp key; when heartbeat arrives, we move it to the
+        # correct session_id
+        temp_key = f"_pending_{id(context)}"
+        self._log_dicts[temp_key] = dict_data
+
+        log.info(
+            "log_dictionary.registered",
+            version=request.version,
+            dict_size=len(dict_data),
+        )
+
+        return agent_bridge_pb2.DictionaryAck(version=request.version, ok=True)
+
+    async def _load_host_tags(self, host_id: str) -> list[str]:
+        """Load tags assigned to a host for policy resolution."""
+        if self._sessionmaker is None:
+            return []
+        try:
+            from server.app.models.host import Host
+
+            async with self._sessionmaker() as session:
+                host = await session.get(Host, host_id)
+                if host is None:
+                    return []
+                labels = host.labels or {}
+                tags = labels.get("tags", [])
+                if isinstance(tags, list):
+                    return tags
+                return []
+        except Exception as e:
+            log.warning("host_tags.load_failed", host_id=host_id, error=str(e))
+            return []
 
     async def _load_host_packages(self, host_id: str) -> list[dict]:
         """Load installed packages for derive_exposure."""
@@ -456,6 +510,107 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
                                     make_ticker_payload(**fmt),  # type: ignore[arg-type]
                                 )
                             await session.commit()
+
+                            # Ingest log batch if present
+                            hb = msg.heartbeat
+                            if hb.HasField("logs") and len(hb.logs.entries) > 0:
+                                try:
+                                    from server.app.logs.ingest import ingest_batch
+                                    from server.app.logs.policy import resolve as resolve_policy
+
+                                    # Convert proto entries to ingest-friendly dicts
+                                    entries = [
+                                        {
+                                            "seq": e.seq,
+                                            "ts": e.ts.ToDatetime() if e.ts else None,
+                                            "level": e.level,
+                                            "action": e.action,
+                                            "category": e.category,
+                                            "outcome": e.outcome,
+                                            "payload": bytes(e.payload),
+                                        }
+                                        for e in hb.logs.entries
+                                    ]
+
+                                    # Resolve or move session's log dictionary
+                                    dictionary = None
+                                    session_id = hb.agent_session_id
+                                    # Check for pending dict keyed by context
+                                    for k in list(self._log_dicts.keys()):
+                                        if k.startswith("_pending_"):
+                                            dictionary = self._log_dicts.pop(k)
+                                            if session_id:
+                                                self._log_dicts[session_id] = dictionary
+                                            break
+                                    if not dictionary and session_id:
+                                        dictionary = self._log_dicts.get(session_id)
+
+                                    # Ingest the batch (run sync function in thread pool to avoid blocking)
+                                    try:
+                                        last_seq = await asyncio.to_thread(
+                                            lambda: ingest_batch(
+                                                session,
+                                                self._log_broker,
+                                                host_id=host_id,
+                                                agent_id=host_id,  # use host_id as agent_id for now
+                                                agent_session_id=session_id,
+                                                agent_version=hb.agent_version,
+                                                entries=entries,
+                                                dictionary=dictionary,
+                                            )
+                                        )
+                                        backoff_ms = 0
+                                    except Exception as ingest_err:
+                                        log.warning(
+                                            "log_ingest.failed",
+                                            host_id=host_id,
+                                            error=str(ingest_err),
+                                        )
+                                        last_seq = 0
+                                        backoff_ms = 1000
+
+                                    # Resolve effective policy
+                                    host_tags = await self._load_host_tags(host_id)
+                                    eff = resolve_policy(session, host_id=host_id, host_tags=host_tags)
+
+                                    # Build HeartbeatAck with policy
+                                    ack = agent_bridge_pb2.HeartbeatAck()
+                                    ack.logs_acked_seq = last_seq
+                                    ack.log_policy.policy_version = eff.policy_version or 1
+                                    ack.log_policy.default_level = eff.default_level
+                                    ack.log_policy.batch_max_bytes = eff.batch_max_bytes
+                                    ack.log_policy.batch_max_interval_s = eff.batch_max_interval_s
+                                    ack.log_policy.buffer_max_mb = eff.buffer_max_mb
+                                    ack.log_policy.buffer_max_days = eff.buffer_max_days
+                                    ack.log_policy.default_sample_rate = eff.default_sample_rate
+                                    ack.log_policy.backoff_ms = backoff_ms
+                                    if eff.expires_at:
+                                        ack.log_policy.expires_at.FromDatetime(eff.expires_at)
+                                    for cr in eff.categories:
+                                        rule = ack.log_policy.categories.add()
+                                        rule.category = cr.category
+                                        if cr.level:
+                                            rule.level = cr.level
+                                        if cr.sample_rate is not None:
+                                            rule.sample_rate = cr.sample_rate
+                                        rule.drop = cr.drop
+
+                                    # Send HbAck via control queue
+                                    control_q.put_nowait(
+                                        agent_bridge_pb2.ServerToAgent(hb_ack=ack)
+                                    )
+                                    log.info(
+                                        "log_ingest.success",
+                                        host_id=host_id,
+                                        entries=len(entries),
+                                        last_seq=last_seq,
+                                    )
+                                except Exception as e:
+                                    log.exception(
+                                        "log_ingest.handle_failed",
+                                        host_id=host_id,
+                                        error=str(e),
+                                    )
                     except Exception as e:
                         log.warning(
                             "heartbeat.update_failed",

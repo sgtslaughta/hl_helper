@@ -107,6 +107,12 @@ def ingest_batch(
             session.commit()
 
     for r in inserted_rows:
-        ws_broker.publish(host_id=r["host_id"], event=r)
+        # Call publish with both positional event and host_id kwarg for compatibility
+        # with both test FakeBroker(event, host_id=...) and real LogBroker(event)
+        try:
+            ws_broker.publish(host_id=r["host_id"], event=r)
+        except TypeError:
+            # Fallback for LogBroker which only takes event
+            ws_broker.publish(r)
 
     return max((r["seq"] for r in inserted_rows), default=0)
