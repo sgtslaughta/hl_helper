@@ -1,5 +1,6 @@
 'use client';
 
+import { getFeatureFlag } from '@/lib/feature-flags';
 import { ignoreEventInInputs } from '@/lib/hotkeys';
 import { useSidebarStore } from '@/stores/sidebar';
 import * as Tooltip from '@radix-ui/react-tooltip';
@@ -38,6 +39,7 @@ interface NavItem {
 	label: string;
 	href: string;
 	hotkey?: string;
+	flag?: string;
 }
 
 interface NavSection {
@@ -61,6 +63,7 @@ const SECTIONS: NavSection[] = [
 			{ icon: Download, label: 'Updates', href: '/updates', hotkey: 'g u' },
 			{ icon: Inbox, label: 'Approvals', href: '/approvals' },
 			{ icon: Calendar, label: 'Schedules', href: '/schedules' },
+			{ icon: ScrollText, label: 'Logs', href: '/logs', flag: 'webui.logs.enabled' },
 		],
 	},
 	{
@@ -196,9 +199,11 @@ export function Sidebar() {
 								</h3>
 							)}
 							<div className="space-y-1">
-								{section.items.map(item => {
-									const Icon = item.icon;
-									const link = (
+								{section.items
+									.filter(item => !item.flag || getFeatureFlag(item.flag))
+									.map(item => {
+										const Icon = item.icon;
+										const link = (
 										<Link
 											href={item.href}
 											className={`flex items-center rounded text-sm text-text-dim hover:text-text hover:bg-surface-2 transition-colors ${
