@@ -26,12 +26,15 @@ import (
 	"github.com/hlhelper/hl-agent/internal/executor"
 	"github.com/hlhelper/hl-agent/internal/inventory"
 	"github.com/hlhelper/hl-agent/internal/keystore"
+	"github.com/hlhelper/hl-agent/internal/logging"
+	logtransport "github.com/hlhelper/hl-agent/internal/logging/transport"
 	"github.com/hlhelper/hl-agent/internal/outbox"
 	"github.com/hlhelper/hl-agent/internal/sleep"
 	"github.com/hlhelper/hl-agent/internal/survey"
 	"github.com/hlhelper/hl-agent/internal/updater"
 	pb "github.com/hlhelper/hl-agent/proto/fleet/v1"
 
+	"github.com/oklog/ulid/v2"
 	"github.com/shirou/gopsutil/v3/disk"
 	gpshost "github.com/shirou/gopsutil/v3/host"
 	"github.com/shirou/gopsutil/v3/load"
@@ -110,6 +113,8 @@ type Options struct {
 	StateDir                   string        // optional; for updater state and pending check
 	AuditChan                  <-chan *pb.AgentToServer // optional; drained inside Run, each msg sent on the bidi stream
 	ExcludeVirtualInterfaces   bool          // exclude virtual interfaces (veth, cali, cni, docker) from metrics
+	Emitter                    *logging.Emitter // optional; if set with Flusher, enables log shipping
+	Flusher                    *logtransport.Flusher // optional; if set with Emitter, enables log shipping
 }
 
 type Client struct {
@@ -127,6 +132,11 @@ type Client struct {
 	sendFunc          func(context.Context, *pb.AgentToServer) error
 	// net interface sampler
 	NetIfaceSampler *NetIfaceSampler
+	// log shipping state
+	sessionID             string // per-client ULID session ID for log tracking
+	lastEmittedSeq        uint64 // highest seq emitted in last Build
+	sampledOutThroughSeq  uint64 // highest seq sampled-out in last Build
+	unaryClient           pb.AgentBridgeClient // set during stream init for RegisterLogDictionary RPC
 }
 
 func New(opts Options) *Client {
@@ -136,6 +146,7 @@ func New(opts Options) *Client {
 		runCertRotateCh:   make(chan *pb.RunCertRotate, 1),
 		runExposureScanCh: make(chan *pb.RunExposureScan, 1),
 		NetIfaceSampler:   &NetIfaceSampler{ExcludeVirtual: opts.ExcludeVirtualInterfaces},
+		sessionID:         ulid.Make().String(),
 	}
 }
 
@@ -183,6 +194,19 @@ func (c *Client) RunCertRotateCh() <-chan *pb.RunCertRotate {
 // RunExposureScanCh returns the channel for receiving RunExposureScan messages.
 func (c *Client) RunExposureScanCh() <-chan *pb.RunExposureScan {
 	return c.runExposureScanCh
+}
+
+// TriggerOffCycleFlush signals the heartbeat loop to reset its timer,
+// causing the next heartbeat to be sent immediately. This is used to
+// expedite log shipping when buffers fill or critical events occur.
+// No-op if no stream is active.
+func (c *Client) TriggerOffCycleFlush() {
+	// Note: resetCh is local to runOnce, so we cannot access it directly.
+	// This is a stub that callers can invoke; a future enhancement will
+	// wire the trigger condition into the heartbeat loop via a channel
+	// stored on the client itself.
+	// For now, this is documented for future implementation in task 2.8+.
+	log.Printf("transport: off-cycle flush triggered (stub - wire in task 2.8+)")
 }
 
 // SendRuntimeExposure enqueues a RuntimeExposure on the active stream.
@@ -345,7 +369,12 @@ func (c *Client) runOnce(ctx context.Context) error {
 	defer hbCancel()
 	hbErr := make(chan error, 1)
 	go func() {
-		if err := sendMsg(buildHeartbeat(c.opts.HostID, c.opts.AgentVersion, c.opts.StateDir, netSamp, c.NetIfaceSampler)); err != nil {
+		// Store unary client for log dictionary RPCs
+		c.mu.Lock()
+		c.unaryClient = stub
+		c.mu.Unlock()
+
+		if err := sendMsg(c.buildHeartbeat(c.opts.HostID, c.opts.AgentVersion, c.opts.StateDir, netSamp, c.NetIfaceSampler)); err != nil {
 			writeHeartbeatStatus(c.opts.StateDir, false, err.Error())
 			hbErr <- err
 			return
@@ -362,7 +391,7 @@ func (c *Client) runOnce(ctx context.Context) error {
 				t.Stop()
 				continue
 			case <-t.C:
-				if err := sendMsg(buildHeartbeat(c.opts.HostID, c.opts.AgentVersion, c.opts.StateDir, netSamp, c.NetIfaceSampler)); err != nil {
+				if err := sendMsg(c.buildHeartbeat(c.opts.HostID, c.opts.AgentVersion, c.opts.StateDir, netSamp, c.NetIfaceSampler)); err != nil {
 					writeHeartbeatStatus(c.opts.StateDir, false, err.Error())
 					hbErr <- err
 					return
@@ -509,9 +538,39 @@ func (c *Client) runOnce(ctx context.Context) error {
 			case c.runExposureScanCh <- m.RunExposureScan:
 			default:
 			}
+		case *pb.ServerToAgent_HbAck:
+			ack := m.HbAck
+			if c.opts.Flusher != nil {
+				// Ack logs up to max(ack.LogsAckedSeq, sampledOutThroughSeqFromLastBuild)
+				c.mu.Lock()
+				maxSeq := ack.LogsAckedSeq
+				if c.sampledOutThroughSeq > maxSeq {
+					maxSeq = c.sampledOutThroughSeq
+				}
+				c.mu.Unlock()
+
+				if err := c.opts.Flusher.Ack(maxSeq); err != nil {
+					log.Printf("transport: flusher.Ack failed: %v", err)
+				}
+
+				// If policy is included, apply it
+				if ack.LogPolicy != nil {
+					policy := &logtransport.Policy{
+						Version:           ack.LogPolicy.PolicyVersion,
+						DefaultLevel:      ack.LogPolicy.DefaultLevel,
+						BatchMaxBytes:     ack.LogPolicy.BatchMaxBytes,
+						BatchMaxIntervalS: ack.LogPolicy.BatchMaxIntervalS,
+						DefaultSampleRate: float64(ack.LogPolicy.DefaultSampleRate),
+						BackoffMs:         ack.LogPolicy.BackoffMs,
+					}
+					c.opts.Flusher.SetPolicy(policy)
+					log.Printf("transport: log policy updated (v%d, batch_max_bytes=%d, interval_s=%d)",
+						policy.Version, policy.BatchMaxBytes, policy.BatchMaxIntervalS)
+				}
 			}
 		}
-	}()
+	}
+}()
 
 	select {
 	case e := <-recvErr:
@@ -766,12 +825,56 @@ func (c *Client) handleAgentUpdate(ctx context.Context, env *pb.CommandEnvelope,
 	log.Printf("agent update: relaunch returned unexpectedly")
 }
 
+// attachLogs attaches a log batch to an existing heartbeat if a flusher is provided.
+// If flusher is nil, this is a no-op.
+// If flusher.Build returns a dict, sends RegisterLogDictionary RPC synchronously (one-off) before attaching the batch.
+// Stores lastEmittedSeq and sampledOutThroughSeq on the client for ack processing.
+// On RPC error, logs and returns early without attaching the batch.
+func (c *Client) attachLogs(hb *pb.Heartbeat) error {
+	if c.opts.Flusher == nil {
+		return nil
+	}
+
+	batch, dict, lastEmittedSeq, sampledOutThroughSeq, err := c.opts.Flusher.Build(false)
+	if err != nil {
+		log.Printf("transport: flusher.Build failed: %v", err)
+		return nil // non-fatal; proceed without logs this cycle
+	}
+
+	// If dict needs to be sent, do so now via RegisterLogDictionary RPC (one-off, synchronous)
+	if dict != nil && c.unaryClient != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, err := c.unaryClient.RegisterLogDictionary(ctx, dict)
+		if err != nil {
+			log.Printf("transport: RegisterLogDictionary RPC failed: %v (skipping batch this cycle)", err)
+			return nil // defer batch to next cycle
+		}
+	}
+
+	// Attach the batch (may be nil if no entries pending)
+	if batch != nil {
+		hb.Logs = batch
+	}
+
+	// Store for ack handler
+	c.mu.Lock()
+	c.lastEmittedSeq = lastEmittedSeq
+	c.sampledOutThroughSeq = sampledOutThroughSeq
+	c.mu.Unlock()
+
+	hb.AgentSessionId = c.sessionID
+
+	return nil
+}
+
 // buildHeartbeat assembles a heartbeat message with current minimal metrics.
 // Cheap on Linux: load avg from /proc/loadavg, mem from /proc/meminfo, disk
 // usage from statfs(/), uptime from /proc/uptime.
 // Loads sleep state from stateDir and sets Sleeping + SleepUntil fields if sleeping.
 // Auto-clears expired sleep state and logs the resume.
-func buildHeartbeat(hostID, agentVersion, stateDir string, ns *netSampler, ifaceSampler *NetIfaceSampler) *pb.AgentToServer {
+// If a flusher is configured on the client, attaches a log batch and dict.
+func (c *Client) buildHeartbeat(hostID, agentVersion, stateDir string, ns *netSampler, ifaceSampler *NetIfaceSampler) *pb.AgentToServer {
 	m := &pb.HostMetrics{}
 	if l, err := load.Avg(); err == nil {
 		m.Load_1 = float32(l.Load1)
@@ -816,6 +919,9 @@ func buildHeartbeat(hostID, agentVersion, stateDir string, ns *netSampler, iface
 			log.Printf("heartbeat: auto-resumed from sleep (was until %s)", state.Until.Format(time.RFC3339))
 		}
 	}
+
+	// Attach logs if flusher is configured
+	_ = c.attachLogs(hb)
 
 	return &pb.AgentToServer{
 		Msg: &pb.AgentToServer_Heartbeat{
