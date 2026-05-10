@@ -114,13 +114,26 @@ docs-build:
 pages:
   stage: deploy
   image: python:3.12
-  script:
-    - pip install -e '.[docs]'
-    - zensical build --clean
-  pages:
-    publish: site
   rules:
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - docs/**/*
+        - zensical.toml
+        - scripts/gen-docs.sh
+        - scripts/sphinx-conf/**/*
+  before_script:
+    - apt-get update && apt-get install -y protobuf-compiler curl golang-go
+    - pip install -e ".[docs]" zensical
+    - go install github.com/princjef/gomarkdoc/cmd/gomarkdoc@latest
+    - go install github.com/pseudomuto/protoc-gen-doc/cmd/protoc-gen-doc@latest
+    - export PATH=$PATH:$(go env GOPATH)/bin
+  script:
+    - ./scripts/gen-docs.sh
+    - zensical build --strict
+    - mv site public
+  artifacts:
+    paths:
+      - public
 
 sast:
   stage: test

@@ -11,6 +11,18 @@ Self-hosted, security-focused fleet manager for Linux/Unix homelabs.
 
 ---
 
+## Documentation
+
+- **Online (combined site):** GitHub Pages and GitLab Pages — link will be live after first `main` deploy.
+- **Local preview:** install `zensical` and run `zensical serve` from the repo root.
+- **In-app wiki:** after login, browse `/wiki` for User Guide + Administration content (offline-friendly).
+- **Source:** all docs live in `docs/` as markdown. Two top-level branches:
+  - `docs/developer/` — architecture, design, contributing, secure-dev (engineers)
+  - `docs/user-guide/` + `docs/admin/` — end-user and operator content (also embedded in the in-app wiki)
+- **Spec:** `docs/superpowers/specs/2026-05-09-comprehensive-docs-design.md`
+
+---
+
 ## What it is
 
 One control plane for many Linux/Unix hosts. Pulls together fleet update management, container ops, terminal access, power control, and observability into a single self-hosted application.

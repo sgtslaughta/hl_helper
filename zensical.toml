@@ -31,7 +31,12 @@ toggle.name = "Switch to light mode"
 
 [project.markdown_extensions.admonition]
 [project.markdown_extensions."pymdownx.details"]
-[project.markdown_extensions."pymdownx.superfences"]
+
+[[project.markdown_extensions."pymdownx.superfences".custom_fences]]
+name = "mermaid"
+class = "mermaid"
+format = "!!python/name:pymdownx.superfences.fence_code_format"
+
 [project.markdown_extensions."pymdownx.highlight"]
 anchor_linenums = true
 [project.markdown_extensions."pymdownx.tabbed"]
@@ -39,39 +44,70 @@ alternate_style = true
 [project.markdown_extensions.toc]
 permalink = true
 
+[project.theme.extra_css]
+files = ["shared/_admonitions.css"]
+
 [project.extra.version]
 provider = "mike"
 
 [[project.nav]]
-"Home" = "index.md"
+name = "Home"
+path = "index.md"
 
 [[project.nav]]
-"Getting Started" = [
-  { "Installation" = "getting-started/installation.md" },
-  { "Quick Start" = "getting-started/quickstart.md" },
-]
+name = "Developer"
+[[project.nav.children]]
+name = "Architecture"
+path = "developer/architecture/index.md"
+[[project.nav.children]]
+name = "Design"
+path = "developer/design/"
+[[project.nav.children]]
+name = "Contributing"
+path = "developer/contributing/index.md"
+[[project.nav.children]]
+name = "Secure Development"
+path = "developer/secure-dev/"
 
 [[project.nav]]
-"User Guide" = [{ "Overview" = "user-guide/overview.md" }]
+name = "User & Admin"
+[[project.nav.children]]
+name = "Getting Started"
+path = "user-guide/getting-started/"
+[[project.nav.children]]
+name = "Features"
+path = "user-guide/features/"
+[[project.nav.children]]
+name = "Deployment"
+path = "admin/deployment/"
+[[project.nav.children]]
+name = "Operations"
+path = "admin/operations/"
+[[project.nav.children]]
+name = "Security Fundamentals"
+path = "admin/security-fundamentals/"
+[[project.nav.children]]
+name = "Runbooks"
+path = "admin/runbooks/"
+[[project.nav.children]]
+name = "Troubleshooting"
+path = "user-guide/troubleshooting/"
 
 [[project.nav]]
-"API Reference" = [
-  { "REST API" = "api/rest.md" },
-  { "gRPC" = "api/grpc.md" },
-  { "Enrollment" = "api/enrollment.md" },
-]
+name = "Reference"
+[[project.nav.children]]
+name = "Python API"
+path = "developer/api/python/"
+[[project.nav.children]]
+name = "Agent (Go) API"
+path = "developer/api/agent/"
+[[project.nav.children]]
+name = "REST API"
+path = "developer/api/rest/"
+[[project.nav.children]]
+name = "gRPC API"
+path = "developer/api/grpc/"
 
 [[project.nav]]
-"Security" = [
-  { "Threat Model" = "security/threat-model.md" },
-  { "Key Management" = "security/key-management.md" },
-  { "Agent Privilege Model" = "security/agent-privilege-model.md" },
-  { "Recovery" = "security/recovery.md" },
-  { "Enrollment" = "security/enrollment.md" },
-]
-
-[[project.nav]]
-"Developer Guide" = [
-  { "Architecture" = "developer/architecture.md" },
-  { "Contributing" = "developer/contributing.md" },
-]
+name = "Roadmap"
+path = "_planned/index.md"

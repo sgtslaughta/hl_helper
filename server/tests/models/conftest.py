@@ -24,7 +24,7 @@ _ALL_PERMISSIONS = (
     "audit:verify", "setting:read", "setting:write", "notification:read", "notification:write",
     "notification:test", "webhook:read", "webhook:write", "webhook:trigger", "power:wol",
     "power:event_subscribe", "session:read", "session:terminate", "session:record_view",
-    "integration:read", "integration:write", "events:subscribe"
+    "integration:read", "integration:write", "events:subscribe", "docs:read",
 )
 
 
