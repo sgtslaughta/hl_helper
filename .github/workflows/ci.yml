@@ -186,7 +186,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - run: cd webui && npm ci
+      - run: cd webui && npm install --no-audit --no-fund
       - run: cd webui && npm run lint
       - run: cd webui && npm run typecheck
       - run: cd webui && npm run test:unit
