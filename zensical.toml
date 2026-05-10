@@ -47,67 +47,29 @@ permalink = true
 [project.theme.extra_css]
 files = ["shared/_admonitions.css"]
 
-[project.extra.version]
-provider = "mike"
-
-[[project.nav]]
-name = "Home"
-path = "index.md"
-
-[[project.nav]]
-name = "Developer"
-[[project.nav.children]]
-name = "Architecture"
-path = "developer/architecture/index.md"
-[[project.nav.children]]
-name = "Design"
-path = "developer/design/"
-[[project.nav.children]]
-name = "Contributing"
-path = "developer/contributing/index.md"
-[[project.nav.children]]
-name = "Secure Development"
-path = "developer/secure-dev/"
-
-[[project.nav]]
-name = "User & Admin"
-[[project.nav.children]]
-name = "Getting Started"
-path = "user-guide/getting-started/"
-[[project.nav.children]]
-name = "Features"
-path = "user-guide/features/"
-[[project.nav.children]]
-name = "Deployment"
-path = "admin/deployment/"
-[[project.nav.children]]
-name = "Operations"
-path = "admin/operations/"
-[[project.nav.children]]
-name = "Security Fundamentals"
-path = "admin/security-fundamentals/"
-[[project.nav.children]]
-name = "Runbooks"
-path = "admin/runbooks/"
-[[project.nav.children]]
-name = "Troubleshooting"
-path = "user-guide/troubleshooting/"
-
-[[project.nav]]
-name = "Reference"
-[[project.nav.children]]
-name = "Python API"
-path = "developer/api/python/"
-[[project.nav.children]]
-name = "Agent (Go) API"
-path = "developer/api/agent/"
-[[project.nav.children]]
-name = "REST API"
-path = "developer/api/rest/"
-[[project.nav.children]]
-name = "gRPC API"
-path = "developer/api/grpc/"
-
-[[project.nav]]
-name = "Roadmap"
-path = "_planned/index.md"
+# Navigation: zensical/mkdocs-style — each entry is a single-key inline table
+# where key = title, value = url (md path) or list of children.
+project.nav = [
+  { Home = "index.md" },
+  { Developer = [
+    { Architecture = "developer/architecture/index.md" },
+    { Design = "developer/design/index.md" },
+    { Contributing = "developer/contributing/index.md" },
+    { "Secure Development" = "developer/secure-dev/index.md" },
+  ] },
+  { "User & Admin" = [
+    { "Getting Started" = "user-guide/getting-started/overview.md" },
+    { Features = "user-guide/features/index.md" },
+    { Deployment = "admin/deployment/index.md" },
+    { Operations = "admin/operations/index.md" },
+    { "Security Fundamentals" = "admin/security-fundamentals/index.md" },
+    { Runbooks = "admin/runbooks/index.md" },
+  ] },
+  { Reference = [
+    { "Python API" = "developer/api/python/index.md" },
+    { "Agent (Go) API" = "developer/api/agent/index.md" },
+    { "REST API" = "developer/api/rest/index.md" },
+    { "gRPC API" = "developer/api/grpc/index.md" },
+  ] },
+  { Roadmap = "_planned/index.md" },
+]
