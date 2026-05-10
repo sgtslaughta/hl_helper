@@ -23,12 +23,18 @@ import (
 	"github.com/hlhelper/hl-agent/internal/executor"
 	"github.com/hlhelper/hl-agent/internal/exposure"
 	"github.com/hlhelper/hl-agent/internal/keystore"
+	"github.com/hlhelper/hl-agent/internal/logging"
+	logtransport "github.com/hlhelper/hl-agent/internal/logging/transport"
+	"github.com/hlhelper/hl-agent/internal/logtypes"
 	"github.com/hlhelper/hl-agent/internal/outbox"
 	"github.com/hlhelper/hl-agent/internal/rotator"
 	"github.com/hlhelper/hl-agent/internal/sleep"
 	"github.com/hlhelper/hl-agent/internal/transport"
 	"github.com/hlhelper/hl-agent/internal/updater"
 	pb "github.com/hlhelper/hl-agent/proto/fleet/v1"
+
+	"github.com/oklog/ulid/v2"
+	"sync/atomic"
 )
 
 var (
@@ -273,6 +279,44 @@ func runCmd() *cobra.Command {
 			}
 			defer ob.Close()
 
+			// Create session ID for logging
+			sessionID := ulid.Make().String()
+
+			// Construct emitter + transport pipeline
+			bufferPath := filepath.Join(stateDir, "logs.db")
+			em, err := logging.New(logging.Config{
+				BufferPath:   bufferPath,
+				AgentID:      hostID,
+				SessionID:    sessionID,
+				HostID:       hostID,
+				HostName:     "",
+				AgentVer:     version,
+				FallbackFile: "/var/log/hl-agent/fallback.log",
+			})
+			if err != nil {
+				log.Printf("warn: create emitter: %v", err)
+			} else {
+				defer em.Close()
+			}
+
+			// Build transport logging components
+			var transportEmitter *logging.Emitter
+			var flusher *logtransport.Flusher
+			if em != nil {
+				dict := logtransport.New()
+				sampler := &logtransport.Sampler{DefaultRate: 1.0}
+				coalescer := &logtransport.Coalescer{}
+				policyPtr := &atomic.Pointer[logtransport.Policy]{}
+				transportEmitter = em
+				flusher = logtransport.NewFlusher(logtransport.Config{
+					Emitter:   em,
+					Dict:      dict,
+					Sampler:   sampler,
+					Coalescer: coalescer,
+					Policy:    policyPtr,
+				})
+			}
+
 			elev := xexec.DetectElevator()
 			log.Printf("elevator: kind=%s path=%s", elev.Kind, elev.Path)
 			auditCh := make(chan *pb.AgentToServer, 32)
@@ -286,12 +330,14 @@ func runCmd() *cobra.Command {
 				HostID:       hostID,
 				Keystore:     ks,
 				Outbox:       ob,
-				Executor:     &ShellExecutor{StateDir: stateDir, Elevator: elev, Sink: sink},
+				Executor:     &ShellExecutor{StateDir: stateDir, Elevator: elev, Sink: sink, Emitter: em},
 				Signer:       ks,
 				KeystoreDir:  dir,
 				AgentVersion: version,
 				StateDir:     stateDir,
 				AuditChan:    auditCh,
+				Emitter:      transportEmitter,
+				Flusher:      flusher,
 				OnCommand: func(env *pb.CommandEnvelope) {
 					fmt.Fprintf(cmd.OutOrStdout(), "command received: id=%s\n", env.GetCommandId())
 				},
@@ -329,6 +375,7 @@ func runCmd() *cobra.Command {
 					_, _, serial, err := certInfoFromKeystore(ks)()
 					return serial, err
 				},
+				Emitter: em,
 			})
 
 			// Build recovery with reenroll client
@@ -398,6 +445,7 @@ func runCmd() *cobra.Command {
 				HostID:     hostID,
 				Timeout:    60 * time.Second,
 				Resolver:   exposure.NewCachedResolver(exposure.AutoResolver()),
+				Emitter:    em,
 				Collectors: []exposure.Collector{
 					&exposure.ProcessCollector{},
 					&exposure.SocketCollector{},
@@ -487,6 +535,7 @@ type ShellExecutor struct {
 	StateDir string
 	Elevator xexec.Elevator
 	Sink     executor.AuditSink
+	Emitter  logging.EventEmitter
 }
 
 func (e *ShellExecutor) Execute(ctx context.Context, cmd *pb.CommandEnvelope) *pb.ResultEnvelope {
@@ -549,6 +598,24 @@ func (e *ShellExecutor) Execute(ctx context.Context, cmd *pb.CommandEnvelope) *p
 		StdoutChunk: stdout,
 		StderrChunk: stderr,
 		Status:      status,
+	}
+
+	// Emit activity event
+	if e.Emitter != nil {
+		durationMs := result.CompletedAt.AsTime().Sub(result.StartedAt.AsTime()).Milliseconds()
+		if exitCode == 0 {
+			e.Emitter.Emit(logtypes.LevelInfo, "task", "task.exec.completed", fmt.Sprintf("shell_exec rc=0 in %dms", durationMs), map[string]any{
+				"command_id":   cmd.CommandId,
+				"rc":           exitCode,
+				"duration_ms":  durationMs,
+			})
+		} else {
+			e.Emitter.EmitErr(logtypes.LevelError, "task", "task.exec.failed", fmt.Sprintf("shell_exec rc=%d in %dms", exitCode, durationMs), "EXEC_FAILED", fmt.Sprintf("exit code %d", exitCode), map[string]any{
+				"command_id":   cmd.CommandId,
+				"rc":           exitCode,
+				"duration_ms":  durationMs,
+			})
+		}
 	}
 
 	return result

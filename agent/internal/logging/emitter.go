@@ -64,10 +64,12 @@ func (e *Emitter) PendingCount() int {
 	return e.buf.Count()
 }
 
+// Emit records a successful event. Implements EventEmitter.
 func (e *Emitter) Emit(level logtypes.Level, category, action, message string, details map[string]any) {
 	e.emit(level, category, action, message, details, nil)
 }
 
+// EmitErr records a failure event with error details. Implements EventEmitter.
 func (e *Emitter) EmitErr(level logtypes.Level, category, action, message, errCode, errMessage string, details map[string]any) {
 	e.emit(level, category, action, message, details, &logtypes.ErrorFields{Code: errCode, Message: errMessage})
 }

@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+
+	"github.com/hlhelper/hl-agent/internal/logging"
 )
 
 type Cmd struct {
@@ -27,6 +29,7 @@ type Cmd struct {
 // RelaunchFn replaces the current process. Production: wraps syscall.Exec.
 type RelaunchFn func(argv0 string, argv []string, envv []string) error
 
+
 type Updater struct {
 	StateDir    string
 	InstallPath string
@@ -34,6 +37,7 @@ type Updater struct {
 	PinnedPub   ed25519.PublicKey
 	HTTPClient  *http.Client
 	Relaunch    RelaunchFn
+	Emitter     logging.EventEmitter // optional; if set, activity events are recorded
 }
 
 var (
@@ -57,10 +61,22 @@ func (u *Updater) Apply(ctx context.Context, cmd Cmd) error {
 	newPath := filepath.Join(newDir, "hl-agent.new")
 
 	if err := u.download(ctx, cmd.BinaryURL, cmd.DownloadToken, newPath); err != nil {
+		if u.Emitter != nil {
+			u.Emitter.EmitErr(4, "update", "update.swap.failed", "download failed", "DOWNLOAD_FAILED", err.Error(), map[string]any{
+				"from": u.CurrentVer,
+				"to":   manifest.Version,
+			})
+		}
 		return fmt.Errorf("download: %w", err)
 	}
 	if err := verifyFile(newPath, cmd.ExpectedSHA256, cmd.ExpectedSize); err != nil {
 		_ = os.Remove(newPath)
+		if u.Emitter != nil {
+			u.Emitter.EmitErr(4, "update", "update.swap.failed", "verify failed", "VERIFY_FAILED", err.Error(), map[string]any{
+				"from": u.CurrentVer,
+				"to":   manifest.Version,
+			})
+		}
 		return err
 	}
 	if err := os.Chmod(newPath, 0o755); err != nil {
@@ -84,6 +100,14 @@ func (u *Updater) Apply(ctx context.Context, cmd Cmd) error {
 
 	if err := os.Rename(newPath, u.InstallPath); err != nil {
 		return fmt.Errorf("swap: %w", err)
+	}
+
+	// Emit success event on swap
+	if u.Emitter != nil {
+		u.Emitter.Emit(0, "update", "update.swap.completed", "agent updated", map[string]any{
+			"from": u.CurrentVer,
+			"to":   manifest.Version,
+		})
 	}
 
 	if u.Relaunch == nil {

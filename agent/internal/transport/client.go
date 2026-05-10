@@ -509,7 +509,7 @@ func (c *Client) runOnce(ctx context.Context) error {
 			case *pb.ServerToAgent_RunInventory:
 				log.Printf("inventory: RunInventory received reason=%q includeLang=%v", m.RunInventory.Reason, m.RunInventory.IncludeLang)
 				go func(includeLang bool, langRoots []string) {
-					msgs := inventory.BuildMessages(ctx, c.opts.HostID, includeLang, langRoots)
+					msgs := inventory.BuildMessages(ctx, c.opts.HostID, includeLang, langRoots, c.opts.Emitter)
 					log.Printf("inventory: built %d envelopes", len(msgs))
 					for i, env := range msgs {
 						if env == nil {
@@ -779,6 +779,7 @@ func (c *Client) handleAgentUpdate(ctx context.Context, env *pb.CommandEnvelope,
 		CurrentVer:  c.opts.AgentVersion,
 		HTTPClient:  &http.Client{Timeout: 5 * time.Minute},
 		Relaunch:    updater.SyscallRelaunch,
+		Emitter:     c.opts.Emitter,
 	}
 
 	// Build the Cmd from protobuf message

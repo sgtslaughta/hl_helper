@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"time"
+
+	"github.com/hlhelper/hl-agent/internal/logging"
 )
 
 type Transport interface {
@@ -35,6 +37,7 @@ type Config struct {
 	PrevSerialFn func() (string, error)
 	MaxBackoff   time.Duration
 	IssueTimeout time.Duration
+	Emitter      logging.EventEmitter // optional; if set, activity events are recorded
 }
 
 type Rotator struct {
@@ -95,6 +98,15 @@ func (r *Rotator) RotateOnce(ctx context.Context) error {
 	st.ConsecutiveFailures = 0
 	st.HaltedReason = ""
 	_ = SaveState(r.cfg.StatePath, st)
+
+	// Emit cert rotation success event
+	if r.cfg.Emitter != nil {
+		r.cfg.Emitter.Emit(0, "cert", "cert.rotate.completed", "certificate rotated", map[string]any{
+			"prev_serial": prevSerial,
+			"host_id":     r.cfg.HostID,
+		})
+	}
+
 	log.Printf("rotator: ok host=%s prev=%s", r.cfg.HostID, prevSerial)
 	return nil
 }

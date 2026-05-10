@@ -3,6 +3,7 @@ package inventory
 import (
 	"context"
 
+	"github.com/hlhelper/hl-agent/internal/logging"
 	pb "github.com/hlhelper/hl-agent/proto/fleet/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -14,14 +15,17 @@ import (
 // hostID is required so the server can route persistence.
 // includeLang gates the language-package scan (off by default — opt-in).
 // langRoots override the default search roots when non-empty.
-func BuildMessages(ctx context.Context, hostID string, includeLang bool, langRoots []string) []*pb.AgentToServer {
+// emitter is optional; if set, activity events are recorded on scan completion.
+func BuildMessages(ctx context.Context, hostID string, includeLang bool, langRoots []string, emitter logging.EventEmitter) []*pb.AgentToServer {
 	now := timestamppb.Now()
 	out := make([]*pb.AgentToServer, 0, 3)
 
 	// OS packages (+ optional language packages).
 	pkgs, _ := CollectOSPackages()
+	langCount := 0
 	if includeLang {
 		more, _ := CollectLangPackages(langRoots)
+		langCount = len(more)
 		pkgs = append(pkgs, more...)
 	}
 	if len(pkgs) > 0 {
@@ -42,6 +46,14 @@ func BuildMessages(ctx context.Context, hostID string, includeLang bool, langRoo
 		out = append(out, &pb.AgentToServer{
 			Msg: &pb.AgentToServer_PackageInventory{PackageInventory: pi},
 		})
+
+		// Emit scan completion event
+		if emitter != nil {
+			emitter.Emit(0, "inventory", "inventory.scan.completed", "pkgs scanned", map[string]any{
+				"pkg_count":  len(pkgs),
+				"lang_count": langCount,
+			})
+		}
 	}
 
 	// Containers.

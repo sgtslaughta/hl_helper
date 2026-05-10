@@ -7,6 +7,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/hlhelper/hl-agent/internal/logging"
 	pb "github.com/hlhelper/hl-agent/proto/fleet/v1"
 )
 
@@ -14,7 +15,8 @@ type Scanner struct {
 	HostID     string
 	Collectors []Collector
 	Timeout    time.Duration
-	Resolver   Resolver // nil = no enrichment
+	Resolver   Resolver               // nil = no enrichment
+	Emitter    logging.EventEmitter   // optional; if set, activity events are recorded
 }
 
 func (s *Scanner) Scan(ctx context.Context) *pb.RuntimeExposure {
@@ -55,6 +57,16 @@ func (s *Scanner) Scan(ctx context.Context) *pb.RuntimeExposure {
 		paths := uniquePaths(out)
 		mapping := s.Resolver.Resolve(paths)
 		enrich(out, mapping)
+	}
+
+	// Emit scan completion event
+	if s.Emitter != nil {
+		s.Emitter.Emit(0, "posture", "exposure.scan.completed", "exposure scan completed", map[string]any{
+			"procs":      len(out.Processes),
+			"listeners":  len(out.Listeners),
+			"services":   len(out.Services),
+			"truncated":  out.Truncated,
+		})
 	}
 
 	return out
