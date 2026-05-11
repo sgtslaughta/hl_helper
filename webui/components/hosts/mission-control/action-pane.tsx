@@ -2,14 +2,7 @@
 
 import { HostTerminalPanel } from '@/components/hosts/host-terminal-panel';
 import type { Host } from '@/lib/api/hosts';
-import {
-	ChevronsLeft,
-	ChevronsRight,
-	Maximize2,
-	Minimize2,
-	Pause,
-	Play,
-} from 'lucide-react';
+import { ChevronsLeft, ChevronsRight, Maximize2, Minimize2, Pause, Play } from 'lucide-react';
 import { useState } from 'react';
 import { AgentConfig } from './agent-config';
 import { HostFilesPanel } from './host-files-panel';
