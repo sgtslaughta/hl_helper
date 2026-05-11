@@ -13,26 +13,30 @@ export function TimelineHistogram({ bins }: TimelineHistogramProps) {
 		);
 	}
 
-	const maxTotal = Math.max(...bins.map(b => b.total || 1), 1);
-	const maxErrors = Math.max(...bins.map(b => b.errors || 0), 1);
+	const maxTotal = Math.max(...bins.map(b => b.total), 1);
 
 	return (
-		<div className="w-full h-12 bg-surface border border-hairline rounded flex items-end justify-between gap-0.5 p-1">
-			{bins.map(bin => {
+		<div
+			className="w-full h-12 bg-surface border border-hairline rounded flex items-end justify-between gap-0.5 px-1 py-1"
+			role="img"
+			aria-label="Activity histogram (60 bins)"
+		>
+			{bins.map((bin, i) => {
 				const heightPct = bin.total > 0 ? (bin.total / maxTotal) * 100 : 0;
-				const errorPct = bin.errors > 0 ? (bin.errors / Math.max(bin.total, maxErrors)) * 100 : 0;
-				const binKey = `${bin.total}-${bin.errors}-${heightPct}`;
+				const errorPct = bin.total > 0 ? (bin.errors / bin.total) * 100 : 0;
+				const hasData = bin.total > 0;
 
 				return (
 					<div
-						key={binKey}
-						className="flex-1 bg-accent bg-opacity-20 rounded-sm relative"
-						style={{ height: `${Math.max(heightPct, 5)}%` }}
-						title={`${bin.total} total, ${bin.errors} errors`}
+						// biome-ignore lint/suspicious/noArrayIndexKey: 60 fixed-position bins
+						key={`bin-${i}`}
+						className={`flex-1 rounded-sm relative ${hasData ? 'bg-accent/60' : 'bg-hairline/40'}`}
+						style={{ height: hasData ? `${Math.max(heightPct, 8)}%` : '4%' }}
+						title={`${bin.total} events${bin.errors > 0 ? ` · ${bin.errors} errors` : ''}`}
 					>
 						{errorPct > 0 && (
 							<div
-								className="absolute bottom-0 left-0 right-0 bg-danger"
+								className="absolute bottom-0 left-0 right-0 bg-danger rounded-sm"
 								style={{ height: `${errorPct}%` }}
 							/>
 						)}
