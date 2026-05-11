@@ -98,16 +98,12 @@ describe('HostLogsPanel', () => {
 			</QueryClientProvider>,
 		);
 
-		// Check for time range selector
-		const selects = screen.getAllByRole('combobox');
-		expect(selects.length).toBeGreaterThan(0);
+		// Filter popover trigger present
+		const filterBtn = screen.getByTitle('Filter & sort');
+		expect(filterBtn).toBeInTheDocument();
 
-		// Check for outcome chips
-		const outcomeButtons = screen.getByRole('button', { name: 'all' });
-		expect(outcomeButtons).toBeInTheDocument();
-
-		// Check for search input
-		const searchInput = screen.getByPlaceholderText(/search message/i);
+		// Search input present
+		const searchInput = screen.getByPlaceholderText(/search/i);
 		expect(searchInput).toBeInTheDocument();
 	});
 

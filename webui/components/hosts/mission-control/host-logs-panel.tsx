@@ -1,10 +1,20 @@
 'use client';
 
-import { listLogs, type LogLevel, type LogRow, type Outcome } from '@/lib/api/logs';
 import { FieldsTable } from '@/components/logs/fields-table';
+import { type LogLevel, type LogRow, type Outcome, listLogs } from '@/lib/api/logs';
 import { useQuery } from '@tanstack/react-query';
+import { ArrowDownUp, ChevronDown, Search, SlidersHorizontal, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+
+type SortKey = 'ts' | 'level' | 'action' | 'outcome';
+type SortDir = 'asc' | 'desc';
+const LEVEL_ORDER: Record<LogLevel, number> = {
+	debug: 10,
+	info: 20,
+	warn: 30,
+	error: 40,
+	critical: 50,
+};
 
 interface Props {
 	hostId: string;
@@ -32,8 +42,23 @@ export function HostLogsPanel({ hostId, paused }: Props) {
 	const [levelFilter, setLevelFilter] = useState<LogLevel | 'all'>('all');
 	const [outcomeFilter, setOutcomeFilter] = useState<Outcome | 'all'>('all');
 	const [searchTerm, setSearchTerm] = useState('');
+	const [sortKey, setSortKey] = useState<SortKey>('ts');
+	const [sortDir, setSortDir] = useState<SortDir>('desc');
+	const [popoverOpen, setPopoverOpen] = useState(false);
 	const containerRef = useRef<HTMLDivElement>(null);
+	const popoverRef = useRef<HTMLDivElement>(null);
 	const dragRef = useRef(false);
+
+	// Click-outside to dismiss popover
+	useEffect(() => {
+		if (!popoverOpen) return;
+		const onDoc = (e: MouseEvent) => {
+			if (!popoverRef.current) return;
+			if (!popoverRef.current.contains(e.target as Node)) setPopoverOpen(false);
+		};
+		document.addEventListener('mousedown', onDoc);
+		return () => document.removeEventListener('mousedown', onDoc);
+	}, [popoverOpen]);
 
 	// Load split ratio from localStorage on mount
 	useEffect(() => {
@@ -54,7 +79,9 @@ export function HostLogsPanel({ hostId, paused }: Props) {
 	// Calculate time window (1h, 6h, 24h default to 1h)
 	const getTimeWindow = () => {
 		const now = new Date();
-		const ago = new Date(now.getTime() - (timeRange === '1h' ? 3600000 : timeRange === '6h' ? 21600000 : 86400000));
+		const ago = new Date(
+			now.getTime() - (timeRange === '1h' ? 3600000 : timeRange === '6h' ? 21600000 : 86400000),
+		);
 		return {
 			from: ago.toISOString(),
 			to: now.toISOString(),
@@ -94,6 +121,27 @@ export function HostLogsPanel({ hostId, paused }: Props) {
 		);
 	});
 
+	// Sort
+	const sortedLogs = [...filteredLogs].sort((a, b) => {
+		const dir = sortDir === 'asc' ? 1 : -1;
+		switch (sortKey) {
+			case 'ts':
+				return (new Date(a.ts).getTime() - new Date(b.ts).getTime()) * dir;
+			case 'level':
+				return (LEVEL_ORDER[a.level] - LEVEL_ORDER[b.level]) * dir;
+			case 'action':
+				return a.action.localeCompare(b.action) * dir;
+			case 'outcome':
+				return (a.outcome || '').localeCompare(b.outcome || '') * dir;
+		}
+	});
+
+	const activeFilterCount =
+		(timeRange !== '1h' ? 1 : 0) +
+		(levelFilter !== 'all' ? 1 : 0) +
+		(outcomeFilter !== 'all' ? 1 : 0) +
+		(sortKey !== 'ts' || sortDir !== 'desc' ? 1 : 0);
+
 	const handleDragStart = () => {
 		dragRef.current = true;
 	};
@@ -129,73 +177,159 @@ export function HostLogsPanel({ hostId, paused }: Props) {
 			onMouseLeave={handleDragEnd}
 			onMouseUp={handleDragEnd}
 		>
-			{/* Filter Row */}
-			<div className="flex items-center gap-2 border-b border-hairline px-2 py-2 bg-surface/50 flex-shrink-0">
-				{/* Time range */}
-				<select
-					value={timeRange}
-					onChange={e => {
-						setTimeRange(e.target.value);
-						setSelectedLog(null);
-					}}
-					className="px-2 py-1 rounded text-xs bg-surface border border-hairline text-text hover:bg-surface/70"
-				>
-					<option value="1h">1h</option>
-					<option value="6h">6h</option>
-					<option value="24h">24h</option>
-				</select>
-
-				{/* Level filter */}
-				<select
-					value={levelFilter}
-					onChange={e => {
-						setLevelFilter(e.target.value as LogLevel | 'all');
-						setSelectedLog(null);
-					}}
-					className="px-2 py-1 rounded text-xs bg-surface border border-hairline text-text hover:bg-surface/70"
-				>
-					<option value="all">All Levels</option>
-					<option value="debug">Debug</option>
-					<option value="info">Info</option>
-					<option value="warn">Warn</option>
-					<option value="error">Error</option>
-					<option value="critical">Critical</option>
-				</select>
-
-				{/* Outcome chips */}
-				<div className="flex gap-1">
-					{(['all', 'success', 'failure', 'unknown'] as const).map(outcome => (
+			{/* Filter Row — condensed: search + popover trigger */}
+			<div className="relative flex items-center gap-2 border-b border-hairline px-2 py-2 bg-surface/50 flex-shrink-0">
+				<div className="relative flex-1 min-w-0">
+					<Search
+						size={12}
+						className="absolute left-2 top-1/2 -translate-y-1/2 text-text-dim pointer-events-none"
+					/>
+					<input
+						type="text"
+						placeholder="Search…"
+						value={searchTerm}
+						onChange={e => {
+							setSearchTerm(e.target.value);
+							setSelectedLog(null);
+						}}
+						className="w-full pl-7 pr-7 py-1 rounded text-xs bg-surface border border-hairline text-text placeholder-text-dim focus:outline-none focus:ring-1 focus:ring-accent font-mono"
+					/>
+					{searchTerm && (
 						<button
-							key={outcome}
 							type="button"
-							onClick={() => {
-								setOutcomeFilter(outcome);
-								setSelectedLog(null);
-							}}
-							className={`px-2 py-1 rounded text-xs font-mono transition-colors ${
-								outcomeFilter === outcome
-									? outcome === 'all'
-										? 'bg-accent/30 text-accent border border-accent/50'
-										: OUTCOME_COLORS[outcome]
-									: 'bg-surface border border-hairline text-text-dim hover:text-text'
-							}`}
+							onClick={() => setSearchTerm('')}
+							className="absolute right-1.5 top-1/2 -translate-y-1/2 text-text-dim hover:text-text"
+							title="Clear search"
+							aria-label="Clear search"
 						>
-							{outcome}
+							<X size={12} />
 						</button>
-					))}
+					)}
 				</div>
 
-				{/* Search */}
-				<input
-					type="text"
-					placeholder="Search message, action, category…"
-					value={searchTerm}
-					onChange={e => {
-						setSearchTerm(e.target.value);
-						setSelectedLog(null);
-					}}
-					className="flex-1 px-2 py-1 rounded text-xs bg-surface border border-hairline text-text placeholder-text-dim focus:outline-none focus:ring-1 focus:ring-accent"
-				/>
+				<button
+					type="button"
+					onClick={() => setPopoverOpen(o => !o)}
+					className={`flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded text-xs border transition-colors ${
+						popoverOpen || activeFilterCount > 0
+							? 'border-accent text-accent bg-accent/10'
+							: 'border-hairline text-text-dim hover:text-text hover:bg-surface'
+					}`}
+					title="Filter & sort"
+					aria-haspopup="true"
+					aria-expanded={popoverOpen}
+				>
+					<SlidersHorizontal size={12} />
+					{activeFilterCount > 0 && (
+						<span className="font-mono leading-none">{activeFilterCount}</span>
+					)}
+				</button>
+
+				{popoverOpen && (
+					<div
+						ref={popoverRef}
+						className="absolute right-2 top-full mt-1 z-50 w-64 rounded border border-hairline bg-surface shadow-xl p-3 space-y-3 font-mono text-xs"
+					>
+						<FilterField label="TIME">
+							<div className="flex gap-1">
+								{(['1h', '6h', '24h'] as const).map(v => (
+									<PopChip
+										key={v}
+										active={timeRange === v}
+										onClick={() => {
+											setTimeRange(v);
+											setSelectedLog(null);
+										}}
+									>
+										{v}
+									</PopChip>
+								))}
+							</div>
+						</FilterField>
+
+						<FilterField label="LEVEL">
+							<select
+								value={levelFilter}
+								onChange={e => {
+									setLevelFilter(e.target.value as LogLevel | 'all');
+									setSelectedLog(null);
+								}}
+								className="w-full px-2 py-1 rounded text-xs bg-surface-2 border border-hairline text-text"
+							>
+								<option value="all">All</option>
+								<option value="debug">Debug</option>
+								<option value="info">Info</option>
+								<option value="warn">Warn</option>
+								<option value="error">Error</option>
+								<option value="critical">Critical</option>
+							</select>
+						</FilterField>
+
+						<FilterField label="OUTCOME">
+							<div className="flex flex-wrap gap-1">
+								{(['all', 'success', 'failure', 'unknown'] as const).map(o => (
+									<PopChip
+										key={o}
+										active={outcomeFilter === o}
+										onClick={() => {
+											setOutcomeFilter(o);
+											setSelectedLog(null);
+										}}
+									>
+										{o}
+									</PopChip>
+								))}
+							</div>
+						</FilterField>
+
+						<FilterField label="SORT BY">
+							<div className="flex items-center gap-2">
+								<select
+									value={sortKey}
+									onChange={e => setSortKey(e.target.value as SortKey)}
+									className="flex-1 px-2 py-1 rounded text-xs bg-surface-2 border border-hairline text-text"
+								>
+									<option value="ts">Time</option>
+									<option value="level">Level</option>
+									<option value="action">Action</option>
+									<option value="outcome">Outcome</option>
+								</select>
+								<button
+									type="button"
+									onClick={() => setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))}
+									className="flex items-center gap-1 px-2 py-1 rounded border border-hairline text-text-dim hover:text-text"
+									title={`Sort ${sortDir === 'asc' ? 'ascending' : 'descending'}`}
+								>
+									<ArrowDownUp size={12} />
+									<span>{sortDir}</span>
+								</button>
+							</div>
+						</FilterField>
+
+						<div className="pt-2 border-t border-hairline flex justify-between">
+							<button
+								type="button"
+								onClick={() => {
+									setTimeRange('1h');
+									setLevelFilter('all');
+									setOutcomeFilter('all');
+									setSortKey('ts');
+									setSortDir('desc');
+								}}
+								className="text-text-dim hover:text-text"
+							>
+								Reset
+							</button>
+							<button
+								type="button"
+								onClick={() => setPopoverOpen(false)}
+								className="text-accent hover:text-text"
+							>
+								Done
+							</button>
+						</div>
+					</div>
+				)}
 			</div>
 
 			{/* Table Section — independent vertical scroll */}
@@ -205,7 +339,7 @@ export function HostLogsPanel({ hostId, paused }: Props) {
 			>
 				{q.isLoading ? (
 					<div className="p-3 text-xs text-text-dim">Loading…</div>
-				) : filteredLogs.length === 0 ? (
+				) : sortedLogs.length === 0 ? (
 					<div className="p-3 text-xs text-text-dim">No logs match filters.</div>
 				) : (
 					<div className="w-full">
@@ -217,7 +351,7 @@ export function HostLogsPanel({ hostId, paused }: Props) {
 							<div>Outcome</div>
 						</div>
 						<div className="space-y-0">
-							{filteredLogs.map((log, i) => (
+							{sortedLogs.map((log, i) => (
 								<button
 									key={`${log.id}-${i}`}
 									type="button"
@@ -232,13 +366,13 @@ export function HostLogsPanel({ hostId, paused }: Props) {
 									<span className="text-text-dim whitespace-nowrap">
 										{new Date(log.ts).toLocaleTimeString()}
 									</span>
-									<span className={`font-semibold ${LEVEL_COLORS[log.level]}`}>
-										{log.level}
-									</span>
+									<span className={`font-semibold ${LEVEL_COLORS[log.level]}`}>{log.level}</span>
 									<span className="text-text truncate">{log.action}</span>
 									<span className="text-text-dim truncate">{log.message ?? '—'}</span>
 									{log.outcome && (
-										<span className={`px-1 rounded text-[10px] font-semibold whitespace-nowrap ${OUTCOME_COLORS[log.outcome]}`}>
+										<span
+											className={`px-1 rounded text-[10px] font-semibold whitespace-nowrap ${OUTCOME_COLORS[log.outcome]}`}
+										>
 											{log.outcome}
 										</span>
 									)}
@@ -257,10 +391,7 @@ export function HostLogsPanel({ hostId, paused }: Props) {
 			/>
 
 			{/* Detail Pane — independent vertical scroll */}
-			<div
-				style={{ flex: `${bottomFlex} 1 0` }}
-				className="overflow-y-auto min-h-0 p-3"
-			>
+			<div style={{ flex: `${bottomFlex} 1 0` }} className="overflow-y-auto min-h-0 p-3">
 				{selectedLog ? (
 					<div className="space-y-3">
 						<div className="text-xs text-text-dim">
@@ -276,5 +407,40 @@ export function HostLogsPanel({ hostId, paused }: Props) {
 				)}
 			</div>
 		</div>
+	);
+}
+
+function FilterField({ label, children }: { label: string; children: React.ReactNode }) {
+	return (
+		<div className="space-y-1">
+			<div className="text-[10px] uppercase tracking-wider text-text-dim font-semibold">
+				{label}
+			</div>
+			{children}
+		</div>
+	);
+}
+
+function PopChip({
+	active,
+	onClick,
+	children,
+}: {
+	active: boolean;
+	onClick: () => void;
+	children: React.ReactNode;
+}) {
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			className={`px-2 py-1 rounded text-xs transition-colors ${
+				active
+					? 'bg-accent/20 text-accent border border-accent/50'
+					: 'bg-surface-2 border border-hairline text-text-dim hover:text-text'
+			}`}
+		>
+			{children}
+		</button>
 	);
 }
