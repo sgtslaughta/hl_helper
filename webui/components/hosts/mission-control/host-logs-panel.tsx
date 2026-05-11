@@ -115,13 +115,16 @@ export function HostLogsPanel({ hostId, paused }: Props) {
 		return <div className="text-sm text-text-dim">Logs endpoint not available for this host.</div>;
 	}
 
-	const tableHeight = `${splitRatio * 100}%`;
-	const detailHeight = `${(1 - splitRatio) * 100}%`;
+	// Use flex ratios (not %-of-parent) so the two halves work even when the
+	// outer parent in action-pane.tsx (`space-y-3`) doesn't constrain height.
+	const topFlex = Math.round(splitRatio * 100);
+	const bottomFlex = 100 - topFlex;
 
 	return (
 		<div
 			ref={containerRef}
-			className="flex flex-col h-full bg-surface/30 rounded border border-hairline"
+			className="flex flex-col bg-surface/30 rounded border border-hairline min-h-0"
+			style={{ height: 'calc(100vh - 240px)' }}
 			onMouseMove={handleDragMove}
 			onMouseLeave={handleDragEnd}
 			onMouseUp={handleDragEnd}
@@ -195,8 +198,11 @@ export function HostLogsPanel({ hostId, paused }: Props) {
 				/>
 			</div>
 
-			{/* Table Section */}
-			<div style={{ height: tableHeight }} className="overflow-y-auto border-b border-hairline flex-shrink-0">
+			{/* Table Section — independent vertical scroll */}
+			<div
+				style={{ flex: `${topFlex} 1 0` }}
+				className="overflow-y-auto border-b border-hairline min-h-0"
+			>
 				{q.isLoading ? (
 					<div className="p-3 text-xs text-text-dim">Loading…</div>
 				) : filteredLogs.length === 0 ? (
@@ -250,8 +256,11 @@ export function HostLogsPanel({ hostId, paused }: Props) {
 				title="Drag to resize"
 			/>
 
-			{/* Detail Pane */}
-			<div style={{ height: detailHeight }} className="overflow-y-auto flex-shrink-0 p-3">
+			{/* Detail Pane — independent vertical scroll */}
+			<div
+				style={{ flex: `${bottomFlex} 1 0` }}
+				className="overflow-y-auto min-h-0 p-3"
+			>
 				{selectedLog ? (
 					<div className="space-y-3">
 						<div className="text-xs text-text-dim">
