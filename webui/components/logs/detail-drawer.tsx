@@ -97,16 +97,12 @@ function HighlightedJSON({ data }: { data: unknown }) {
 	};
 
 	return (
-		<div className="text-xs font-mono whitespace-pre-wrap break-words">
-			{lines.map((line) => {
+		<pre className="text-xs font-mono leading-relaxed whitespace-pre overflow-x-auto">
+			{lines.map(line => {
 				const lineKey = `${line.slice(0, 20)}-${line.length}`;
-				return (
-					<div key={lineKey} className="leading-relaxed">
-						{highlightLine(line)}
-					</div>
-				);
+				return <div key={lineKey}>{highlightLine(line)}</div>;
 			})}
-		</div>
+		</pre>
 	);
 }
 

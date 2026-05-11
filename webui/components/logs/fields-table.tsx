@@ -1,6 +1,6 @@
 'use client';
 
-import { Copy, ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, Copy } from 'lucide-react';
 import { Fragment, useState } from 'react';
 
 export type Field = {
@@ -28,7 +28,7 @@ function flatten(obj: unknown, prefix = ''): Field[] {
 	if (Array.isArray(obj)) {
 		if (obj.length === 0) {
 			out.push({ key: prefix, value: '[]', type: 'array' });
-		} else if (obj.every((v) => typeof v !== 'object' || v === null)) {
+		} else if (obj.every(v => typeof v !== 'object' || v === null)) {
 			out.push({ key: prefix, value: obj.map(String).join(', '), type: 'array' });
 		} else {
 			obj.forEach((v, i) => out.push(...flatten(v, `${prefix}[${i}]`)));
@@ -52,6 +52,58 @@ function flatten(obj: unknown, prefix = ''): Field[] {
 	}
 
 	return out;
+}
+
+// Humanize a dot-path key for display. Keeps full path in title attr.
+// Examples:
+//   "details.command_id"   → "Command Id"
+//   "labels.host_name"     → "Host Name"
+//   "details.cpu_pct"      → "CPU Pct"
+//   "ecs.version"          → "ECS Version"
+//   "details.items[3].id"  → "Items › Id  (item 3)" — keep array index inline.
+// Short tail-only label so the column stays scannable; full path in tooltip.
+const ACRONYMS = new Set([
+	'id',
+	'cpu',
+	'gpu',
+	'ram',
+	'os',
+	'pid',
+	'ip',
+	'ipv4',
+	'ipv6',
+	'url',
+	'uri',
+	'ecs',
+	'json',
+	'ts',
+	'rc',
+	'tls',
+	'ssh',
+	'http',
+	'https',
+	'api',
+	'ui',
+	'db',
+]);
+
+export function humanizeKey(rawKey: string): string {
+	// Use last meaningful segment so labels stay compact.
+	const segs = rawKey.split('.');
+	const tail = segs[segs.length - 1].replace(/\[\d+\]$/, '');
+	const parts = tail.split(/[_-]/).filter(Boolean);
+	return parts
+		.map(p =>
+			ACRONYMS.has(p.toLowerCase()) ? p.toUpperCase() : p.charAt(0).toUpperCase() + p.slice(1),
+		)
+		.join(' ');
+}
+
+// Path prefix shown above the label as a tiny breadcrumb when nested.
+export function keyPrefix(rawKey: string): string {
+	const segs = rawKey.split('.');
+	if (segs.length <= 1) return '';
+	return segs.slice(0, -1).join(' › ');
 }
 
 function getFieldTypeClass(type: Field['type']): string {
@@ -93,26 +145,41 @@ function FieldRow({
 	const [expanded, setExpanded] = useState(false);
 	const isLong = field.value.length > 60;
 
+	const prefix = keyPrefix(field.key);
+	const label = humanizeKey(field.key);
+
 	return (
 		<Fragment key={field.key}>
 			<button
-				className="text-text-dim truncate cursor-pointer hover:bg-surface transition-colors px-2 py-1 rounded text-left text-xs font-mono text-left"
+				className="w-full block cursor-pointer hover:bg-surface transition-colors px-2 py-1 rounded text-left min-w-0 overflow-hidden"
 				title={field.key}
 				onClick={() => onCopy(field.key, field.value)}
 				type="button"
 			>
-				{field.key}
+				{prefix && (
+					<div className="text-[10px] uppercase tracking-wider text-text-dim/70 truncate font-mono leading-tight">
+						{prefix}
+					</div>
+				)}
+				<div className="text-text text-xs font-sans truncate leading-tight">{label}</div>
 			</button>
-			<div className="flex items-start gap-2 px-2 py-1">
+			<div className="flex items-start gap-2 px-2 py-1 min-w-0 overflow-hidden">
 				<button
 					type="button"
 					onClick={() => onCopy(field.key, field.value)}
-					onKeyDown={(e) => {
+					onKeyDown={e => {
 						if (e.key === 'Enter' || e.key === ' ') {
 							onCopy(field.key, field.value);
 						}
 					}}
-					className={`flex-1 break-all ${getFieldTypeClass(field.type)} ${isLong && !expanded ? 'line-clamp-2' : ''} cursor-pointer hover:bg-surface/50 px-1 rounded transition-colors text-xs text-left`}
+					className={`block w-full flex-1 min-w-0 overflow-hidden ${getFieldTypeClass(field.type)} ${
+						isLong && !expanded
+							? 'line-clamp-2 break-all whitespace-normal'
+							: expanded
+								? 'break-all whitespace-normal'
+								: 'truncate'
+					} cursor-pointer hover:bg-surface/50 px-1 rounded transition-colors text-xs text-left font-mono`}
+					title={field.value}
 				>
 					{field.value}
 				</button>
@@ -171,7 +238,9 @@ export function FieldsTable({ obj, errorObj }: FieldsTableProps) {
 						</div>
 					)}
 					{errorObj.message && (
-						<div className="text-xs text-red-700 dark:text-red-300 break-all">{errorObj.message}</div>
+						<div className="text-xs text-red-700 dark:text-red-300 break-all">
+							{errorObj.message}
+						</div>
 					)}
 					{errorObj.stack_trace && (
 						<details className="mt-2">
@@ -209,7 +278,7 @@ export function FieldsTable({ obj, errorObj }: FieldsTableProps) {
 						{(hasMultipleFields ? isExpanded : true) && (
 							<div className="font-mono text-xs leading-relaxed">
 								<div className="grid grid-cols-[minmax(140px,260px)_1fr] gap-x-3 gap-y-1 ml-2">
-									{groupFields.map((f) => (
+									{groupFields.map(f => (
 										<FieldRow key={f.key} field={f} onCopy={handleCopy} />
 									))}
 								</div>
@@ -226,7 +295,9 @@ export function FieldsTable({ obj, errorObj }: FieldsTableProps) {
 
 			{/* Copy feedback */}
 			{copiedKey && (
-				<div className="text-xs text-accent px-2 py-1 rounded bg-surface animate-pulse">{copiedKey} copied!</div>
+				<div className="text-xs text-accent px-2 py-1 rounded bg-surface animate-pulse">
+					{copiedKey} copied!
+				</div>
 			)}
 		</div>
 	);

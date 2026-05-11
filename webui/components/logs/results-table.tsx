@@ -80,7 +80,7 @@ export function ResultsTable({ rows, onRowClick, pageSize = 50 }: ResultsTablePr
 			<button
 				type="button"
 				onClick={() => handleSort(col)}
-				onKeyDown={(e) => {
+				onKeyDown={e => {
 					if (e.key === 'Enter' || e.key === ' ') {
 						e.preventDefault();
 						handleSort(col);
@@ -89,7 +89,8 @@ export function ResultsTable({ rows, onRowClick, pageSize = 50 }: ResultsTablePr
 				className="flex items-center gap-1 cursor-pointer hover:text-text hover:bg-surface transition-colors w-full py-1 px-1 rounded"
 			>
 				{label}
-				{sortColumn === col && (sortDir === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />)}
+				{sortColumn === col &&
+					(sortDir === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />)}
 			</button>
 		</th>
 	);
@@ -142,7 +143,9 @@ export function ResultsTable({ rows, onRowClick, pageSize = 50 }: ResultsTablePr
 			{maxPages > 1 && (
 				<div className="flex items-center justify-between text-xs text-text-dim px-2 py-1">
 					<div>
-						{rows.length === 0 ? 'No rows' : `${currentPage * pageSize + 1}–${Math.min((currentPage + 1) * pageSize, sortedRows.length)} of ${sortedRows.length}`}
+						{rows.length === 0
+							? 'No rows'
+							: `${currentPage * pageSize + 1}–${Math.min((currentPage + 1) * pageSize, sortedRows.length)} of ${sortedRows.length}`}
 					</div>
 					<div className="flex gap-1">
 						<button
@@ -153,7 +156,9 @@ export function ResultsTable({ rows, onRowClick, pageSize = 50 }: ResultsTablePr
 						>
 							← Prev
 						</button>
-						<span className="px-2 py-1">{currentPage + 1} / {maxPages}</span>
+						<span className="px-2 py-1">
+							{currentPage + 1} / {maxPages}
+						</span>
 						<button
 							type="button"
 							onClick={() => setCurrentPage(Math.min(maxPages - 1, currentPage + 1))}

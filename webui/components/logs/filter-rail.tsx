@@ -39,7 +39,10 @@ export function FilterRail({ onChange }: FilterRailProps) {
 					className="flex items-center justify-between w-full text-sm font-semibold text-text hover:text-text-bright"
 				>
 					Time Range
-					<ChevronDown size={16} className={`transition-transform ${expandedSection === 'time-range' ? 'rotate-180' : ''}`} />
+					<ChevronDown
+						size={16}
+						className={`transition-transform ${expandedSection === 'time-range' ? 'rotate-180' : ''}`}
+					/>
 				</button>
 				{expandedSection === 'time-range' && (
 					<div className="mt-2 space-y-2">
@@ -53,7 +56,13 @@ export function FilterRail({ onChange }: FilterRailProps) {
 								className="px-2 py-1 text-xs bg-surface border border-hairline rounded outline-none"
 								onChange={e => {
 									const from = e.target.value;
-									handleChange({ ...filters, timeRange: { ...filters.timeRange, from } as unknown as { from: string; to: string } });
+									handleChange({
+										...filters,
+										timeRange: { ...filters.timeRange, from } as unknown as {
+											from: string;
+											to: string;
+										},
+									});
 								}}
 							/>
 						</div>
@@ -67,7 +76,13 @@ export function FilterRail({ onChange }: FilterRailProps) {
 								className="px-2 py-1 text-xs bg-surface border border-hairline rounded outline-none"
 								onChange={e => {
 									const to = e.target.value;
-									handleChange({ ...filters, timeRange: { ...filters.timeRange, to } as unknown as { from: string; to: string } });
+									handleChange({
+										...filters,
+										timeRange: { ...filters.timeRange, to } as unknown as {
+											from: string;
+											to: string;
+										},
+									});
 								}}
 							/>
 						</div>
@@ -83,7 +98,10 @@ export function FilterRail({ onChange }: FilterRailProps) {
 					className="flex items-center justify-between w-full text-sm font-semibold text-text hover:text-text-bright"
 				>
 					Hosts
-					<ChevronDown size={16} className={`transition-transform ${expandedSection === 'hosts' ? 'rotate-180' : ''}`} />
+					<ChevronDown
+						size={16}
+						className={`transition-transform ${expandedSection === 'hosts' ? 'rotate-180' : ''}`}
+					/>
 				</button>
 				{expandedSection === 'hosts' && (
 					<div className="mt-2">
@@ -92,7 +110,10 @@ export function FilterRail({ onChange }: FilterRailProps) {
 							placeholder="Comma-separated hosts"
 							className="w-full px-2 py-1 text-xs bg-surface border border-hairline rounded outline-none"
 							onChange={e => {
-								const hosts = e.target.value.split(',').map(h => h.trim()).filter(Boolean);
+								const hosts = e.target.value
+									.split(',')
+									.map(h => h.trim())
+									.filter(Boolean);
 								handleChange({ ...filters, hosts });
 							}}
 						/>
@@ -108,7 +129,10 @@ export function FilterRail({ onChange }: FilterRailProps) {
 					className="flex items-center justify-between w-full text-sm font-semibold text-text hover:text-text-bright"
 				>
 					Level
-					<ChevronDown size={16} className={`transition-transform ${expandedSection === 'level' ? 'rotate-180' : ''}`} />
+					<ChevronDown
+						size={16}
+						className={`transition-transform ${expandedSection === 'level' ? 'rotate-180' : ''}`}
+					/>
 				</button>
 				{expandedSection === 'level' && (
 					<div className="mt-2 space-y-1">
@@ -137,7 +161,10 @@ export function FilterRail({ onChange }: FilterRailProps) {
 					className="flex items-center justify-between w-full text-sm font-semibold text-text hover:text-text-bright"
 				>
 					Categories
-					<ChevronDown size={16} className={`transition-transform ${expandedSection === 'categories' ? 'rotate-180' : ''}`} />
+					<ChevronDown
+						size={16}
+						className={`transition-transform ${expandedSection === 'categories' ? 'rotate-180' : ''}`}
+					/>
 				</button>
 				{expandedSection === 'categories' && (
 					<div className="mt-2">
@@ -146,7 +173,10 @@ export function FilterRail({ onChange }: FilterRailProps) {
 							placeholder="Comma-separated categories"
 							className="w-full px-2 py-1 text-xs bg-surface border border-hairline rounded outline-none"
 							onChange={e => {
-								const categories = e.target.value.split(',').map(c => c.trim()).filter(Boolean);
+								const categories = e.target.value
+									.split(',')
+									.map(c => c.trim())
+									.filter(Boolean);
 								handleChange({ ...filters, categories });
 							}}
 						/>
@@ -162,7 +192,10 @@ export function FilterRail({ onChange }: FilterRailProps) {
 					className="flex items-center justify-between w-full text-sm font-semibold text-text hover:text-text-bright"
 				>
 					Search
-					<ChevronDown size={16} className={`transition-transform ${expandedSection === 'search' ? 'rotate-180' : ''}`} />
+					<ChevronDown
+						size={16}
+						className={`transition-transform ${expandedSection === 'search' ? 'rotate-180' : ''}`}
+					/>
 				</button>
 				{expandedSection === 'search' && (
 					<div className="mt-2">

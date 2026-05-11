@@ -18,7 +18,7 @@ export function TimelineHistogram({ bins }: TimelineHistogramProps) {
 
 	return (
 		<div className="w-full h-12 bg-surface border border-hairline rounded flex items-end justify-between gap-0.5 p-1">
-			{bins.map((bin) => {
+			{bins.map(bin => {
 				const heightPct = bin.total > 0 ? (bin.total / maxTotal) * 100 : 0;
 				const errorPct = bin.errors > 0 ? (bin.errors / Math.max(bin.total, maxErrors)) * 100 : 0;
 				const binKey = `${bin.total}-${bin.errors}-${heightPct}`;

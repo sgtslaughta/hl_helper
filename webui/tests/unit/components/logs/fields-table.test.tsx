@@ -25,9 +25,9 @@ describe('FieldsTable', () => {
 
 		render(<FieldsTable obj={obj} />);
 
-		expect(screen.getByText('ts')).toBeInTheDocument();
-		expect(screen.getByText('action')).toBeInTheDocument();
-		expect(screen.getByText('level')).toBeInTheDocument();
+		expect(screen.getByTitle('ts')).toBeInTheDocument();
+		expect(screen.getByTitle('action')).toBeInTheDocument();
+		expect(screen.getByTitle('level')).toBeInTheDocument();
 		expect(screen.getByText('2026-05-10T22:15:03Z')).toBeInTheDocument();
 	});
 
@@ -45,13 +45,13 @@ describe('FieldsTable', () => {
 		render(<FieldsTable obj={obj} />);
 		const user = userEvent.setup();
 
-		// Expand details group
-		const detailsButton = screen.getByText('details');
+		// Expand details group (group header still uses raw label)
+		const detailsButton = screen.getByRole('button', { name: /details/i });
 		await user.click(detailsButton);
 
-		expect(screen.getByText('details.host.os')).toBeInTheDocument();
-		expect(screen.getByText('details.host.arch')).toBeInTheDocument();
-		expect(screen.getByText('details.rc')).toBeInTheDocument();
+		expect(screen.getByTitle('details.host.os')).toBeInTheDocument();
+		expect(screen.getByTitle('details.host.arch')).toBeInTheDocument();
+		expect(screen.getByTitle('details.rc')).toBeInTheDocument();
 	});
 
 	it('renders array of primitives as comma-separated string', () => {
@@ -61,7 +61,7 @@ describe('FieldsTable', () => {
 
 		render(<FieldsTable obj={obj} />);
 
-		expect(screen.getByText('tags')).toBeInTheDocument();
+		expect(screen.getByTitle('tags')).toBeInTheDocument();
 		expect(screen.getByText('tag1, tag2, tag3')).toBeInTheDocument();
 	});
 
@@ -74,12 +74,11 @@ describe('FieldsTable', () => {
 		const user = userEvent.setup();
 
 		// Items group is collapsible, so first expand it
-		const itemsButton = screen.getByText('items');
+		const itemsButton = screen.getByRole('button', { name: /items/i });
 		await user.click(itemsButton);
 
-		// Now check that the keys are rendered
-		expect(screen.getByText('items[0].id')).toBeInTheDocument();
-		expect(screen.getByText('items[0].name')).toBeInTheDocument();
+		expect(screen.getByTitle('items[0].id')).toBeInTheDocument();
+		expect(screen.getByTitle('items[0].name')).toBeInTheDocument();
 		expect(screen.getByText('1')).toBeInTheDocument();
 		expect(screen.getByText('first')).toBeInTheDocument();
 	});
@@ -186,13 +185,13 @@ describe('FieldsTable', () => {
 		const { container } = render(<FieldsTable obj={obj} />);
 
 		// These are all at root level, so they should be visible without expanding
-		expect(screen.getByText('count')).toBeInTheDocument();
+		expect(screen.getByTitle('count')).toBeInTheDocument();
 		expect(screen.getByText('42')).toBeInTheDocument();
-		expect(screen.getByText('enabled')).toBeInTheDocument();
-		expect(screen.getByText('disabled')).toBeInTheDocument();
-		expect(screen.getByText('name')).toBeInTheDocument();
+		expect(screen.getByTitle('enabled')).toBeInTheDocument();
+		expect(screen.getByTitle('disabled')).toBeInTheDocument();
+		expect(screen.getByTitle('name')).toBeInTheDocument();
 		expect(screen.getByText('test')).toBeInTheDocument();
-		expect(screen.getByText('missing')).toBeInTheDocument();
+		expect(screen.getByTitle('missing')).toBeInTheDocument();
 	});
 
 	it('handles deeply nested objects', () => {
@@ -209,7 +208,7 @@ describe('FieldsTable', () => {
 		render(<FieldsTable obj={obj} />);
 
 		// Single item groups don't show a collapse button, so content is visible
-		expect(screen.getByText('a.b.c.d')).toBeInTheDocument();
+		expect(screen.getByTitle('a.b.c.d')).toBeInTheDocument();
 		expect(screen.getByText('value')).toBeInTheDocument();
 	});
 
