@@ -16,13 +16,18 @@ from sqlalchemy import (
 
 from server.app.models.base import Base
 
+# SQLite autoincrement requires INTEGER PRIMARY KEY (rowid alias).
+# BigInteger does not autoincrement on SQLite. with_variant keeps BigInteger
+# on Postgres while degrading to Integer on SQLite.
+_AutoPK = BigInteger().with_variant(Integer(), "sqlite")
+
 
 class AgentLog(Base):
     """Agent log entry in Elastic Common Schema format."""
 
     __tablename__ = "agent_logs"
 
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(_AutoPK, primary_key=True, autoincrement=True)
     host_id = Column(Text, nullable=False)
     agent_id = Column(Text, nullable=False)
     agent_session_id = Column(Text, nullable=False)
@@ -52,7 +57,7 @@ class AgentLogPolicy(Base):
 
     __tablename__ = "agent_log_policies"
 
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(_AutoPK, primary_key=True, autoincrement=True)
     scope = Column(Text, nullable=False, unique=True)
     policy_json = Column(JSON, nullable=False)
     policy_version = Column(Integer, nullable=False, default=1)

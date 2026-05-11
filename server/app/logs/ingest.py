@@ -116,3 +116,76 @@ def ingest_batch(
             ws_broker.publish(r)
 
     return max((r["seq"] for r in inserted_rows), default=0)
+
+
+async def ingest_batch_async(
+    session,                     # AsyncSession
+    ws_broker,
+    *,
+    host_id: str,
+    agent_id: str,
+    agent_session_id: str,
+    agent_version: str | None,
+    entries: Iterable[Mapping[str, Any]],
+    dictionary: dict[int, str] | None = None,
+) -> int:
+    """Async variant: validates + redacts + inserts using AsyncSession.
+
+    Avoids run_sync state quirks where the async session loses track of
+    transactions opened/committed by an embedded sync session.
+    """
+    rows: list[dict[str, Any]] = []
+    for e in entries:
+        doc = _entry_to_doc(e, dictionary)
+        doc = redact(doc)
+        ev = ECSEvent.model_validate(doc)
+        cat = ev.event.category[0] if ev.event.category else "system"
+        rows.append({
+            "host_id": host_id,
+            "agent_id": agent_id,
+            "agent_session_id": agent_session_id,
+            "agent_version": agent_version,
+            "seq": ev.event.sequence,
+            "ts": ev.ts,
+            "level": LEVEL_MAP.get(ev.log.level, 20),
+            "action": ev.event.action,
+            "category": cat,
+            "outcome": OUTCOME_MAP.get(ev.event.outcome or "unknown", 0),
+            "duration_ns": ev.event.duration,
+            "message": ev.message,
+            "labels": ev.labels,
+            "details": ev.details,
+            "error": ev.error.model_dump() if ev.error else None,
+        })
+    if not rows:
+        return 0
+
+    dialect = session.bind.dialect.name
+    inserted_rows: list[dict[str, Any]] = []
+    if dialect == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+        stmt = pg_insert(AgentLog).values(rows).on_conflict_do_nothing(
+            index_elements=["agent_session_id", "seq"]
+        ).returning(AgentLog.seq)
+        result = await session.execute(stmt)
+        kept = {row.seq for row in result}
+        inserted_rows = [r for r in rows if r["seq"] in kept]
+        await session.commit()
+    else:
+        for r in rows:
+            try:
+                await session.execute(insert(AgentLog).values(**r))
+                await session.flush()
+                inserted_rows.append(r)
+            except IntegrityError:
+                await session.rollback()
+        if inserted_rows:
+            await session.commit()
+
+    for r in inserted_rows:
+        try:
+            ws_broker.publish(host_id=r["host_id"], event=r)
+        except TypeError:
+            ws_broker.publish(r)
+
+    return max((r["seq"] for r in inserted_rows), default=0)

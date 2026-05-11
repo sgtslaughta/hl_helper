@@ -515,7 +515,7 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
                             hb = msg.heartbeat
                             if hb.HasField("logs") and len(hb.logs.entries) > 0:
                                 try:
-                                    from server.app.logs.ingest import ingest_batch
+                                    from server.app.logs.ingest import ingest_batch_async
                                     from server.app.logs.policy import resolve as resolve_policy
 
                                     # Convert proto entries to ingest-friendly dicts
@@ -545,19 +545,19 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
                                     if not dictionary and session_id:
                                         dictionary = self._log_dicts.get(session_id)
 
-                                    # Ingest the batch (run sync function in thread pool to avoid blocking)
+                                    # Ingest the batch — async variant uses AsyncSession directly,
+                                    # avoiding run_sync state quirks where committed inserts get
+                                    # rolled back by the outer async session lifecycle.
                                     try:
-                                        last_seq = await asyncio.to_thread(
-                                            lambda: ingest_batch(
-                                                session,
-                                                self._log_broker,
-                                                host_id=host_id,
-                                                agent_id=host_id,  # use host_id as agent_id for now
-                                                agent_session_id=session_id,
-                                                agent_version=hb.agent_version,
-                                                entries=entries,
-                                                dictionary=dictionary,
-                                            )
+                                        last_seq = await ingest_batch_async(
+                                            session,
+                                            self._log_broker,
+                                            host_id=host_id,
+                                            agent_id=host_id,
+                                            agent_session_id=session_id,
+                                            agent_version=hb.agent_version,
+                                            entries=entries,
+                                            dictionary=dictionary,
                                         )
                                         backoff_ms = 0
                                     except Exception as ingest_err:
@@ -569,9 +569,13 @@ class AgentBridgeService(agent_bridge_pb2_grpc.AgentBridgeServicer):
                                         last_seq = 0
                                         backoff_ms = 1000
 
-                                    # Resolve effective policy
+                                    # Resolve effective policy. resolve_policy is sync; run in a fresh
+                                    # short-lived sync session to avoid async-session entanglement.
                                     host_tags = await self._load_host_tags(host_id)
-                                    eff = resolve_policy(session, host_id=host_id, host_tags=host_tags)
+                                    eff = await session.run_sync(
+                                        lambda s: resolve_policy(s, host_id=host_id, host_tags=host_tags)
+                                    )
+                                    # Note: resolve_policy reads only; run_sync is safe for reads.
 
                                     # Build HeartbeatAck with policy
                                     ack = agent_bridge_pb2.HeartbeatAck()

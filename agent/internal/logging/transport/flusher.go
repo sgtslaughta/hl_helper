@@ -105,8 +105,11 @@ func (f *Flusher) Build(forced bool) (*v1.LogBatch, *v1.LogDictionary, uint64, u
 		maxBytes = policy.BatchMaxBytes
 	}
 
-	// Read up to 4096 oldest events from buffer
-	events, err := f.em.Buffer().PeekFrom(f.lastSeq, 4096)
+	// Read up to 4096 oldest events from buffer. Always start from 0 — the
+	// buffer's Ack mechanism (driven by server confirmation) handles deletion.
+	// Do NOT use f.lastSeq here; that would skip unacked events when the
+	// server-side ingest failed and HbAck.logs_acked_seq stayed at 0.
+	events, err := f.em.Buffer().PeekFrom(0, 4096)
 	if err != nil {
 		return nil, nil, 0, 0, err
 	}

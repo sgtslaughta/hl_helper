@@ -17,9 +17,14 @@ def upgrade():
     bind = op.get_bind()
     is_pg = bind.dialect.name == "postgresql"
 
+    # SQLite autoincrement requires INTEGER PRIMARY KEY (rowid alias).
+    # BigInteger does not autoincrement on SQLite. with_variant falls back
+    # to Integer on SQLite while keeping BigInteger on Postgres.
+    auto_pk = sa.BigInteger().with_variant(sa.Integer(), "sqlite")
+
     op.create_table(
         "agent_logs",
-        sa.Column("id", sa.BigInteger, primary_key=True, autoincrement=True),
+        sa.Column("id", auto_pk, primary_key=True, autoincrement=True),
         sa.Column("host_id", sa.Text, nullable=False),
         sa.Column("agent_id", sa.Text, nullable=False),
         sa.Column("agent_session_id", sa.Text, nullable=False),
@@ -48,7 +53,7 @@ def upgrade():
 
     op.create_table(
         "agent_log_policies",
-        sa.Column("id", sa.BigInteger, primary_key=True, autoincrement=True),
+        sa.Column("id", auto_pk, primary_key=True, autoincrement=True),
         sa.Column("scope", sa.Text, nullable=False),
         sa.Column("policy_json", sa.JSON, nullable=False),
         sa.Column("policy_version", sa.Integer, nullable=False, server_default="1"),
