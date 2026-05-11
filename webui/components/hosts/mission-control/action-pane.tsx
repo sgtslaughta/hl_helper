@@ -138,28 +138,28 @@ export function ActionPane({ host, mode, onModeChange, width, onWidthChange }: P
 			actions={actions}
 		>
 			<div className="space-y-3">
-				<button
-					type="button"
-					onClick={handleUpdateAgent}
-					disabled={updating}
-					className="w-full rounded-sm border border-accent bg-accent/15 px-3 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-accent hover:bg-accent/25 disabled:cursor-not-allowed disabled:opacity-40"
-				>
-					{updating ? 'Updating…' : 'Update Agent'}
-				</button>
-				<div className="space-y-3">
-					{mode === 'term' ? <HostTerminalPanel hostId={host.id} /> : null}
-					{mode === 'logs' ? (
-						<HostLogsPanel hostId={host.id} paused={paused} />
-					) : null}
-					{mode === 'files' ? <HostFilesPanel hostId={host.id} /> : null}
-					{mode === 'trust' ? (
-						<div className="font-mono text-xs uppercase tracking-wider text-text-dim">
-							Trust info for host {host.id}. Trust API not yet wired; placeholder pending backend
-							endpoint.
-						</div>
-					) : null}
-					{mode === 'agent' ? <AgentConfig host={host} /> : null}
-				</div>
+				{mode === 'term' ? <HostTerminalPanel hostId={host.id} /> : null}
+				{mode === 'logs' ? <HostLogsPanel hostId={host.id} paused={paused} /> : null}
+				{mode === 'files' ? <HostFilesPanel hostId={host.id} /> : null}
+				{mode === 'trust' ? (
+					<div className="font-mono text-xs uppercase tracking-wider text-text-dim">
+						Trust info for host {host.id}. Trust API not yet wired; placeholder pending backend
+						endpoint.
+					</div>
+				) : null}
+				{mode === 'agent' ? (
+					<>
+						<button
+							type="button"
+							onClick={handleUpdateAgent}
+							disabled={updating}
+							className="w-full rounded-sm border border-accent bg-accent/15 px-3 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-accent hover:bg-accent/25 disabled:cursor-not-allowed disabled:opacity-40"
+						>
+							{updating ? 'Updating…' : 'Update Agent'}
+						</button>
+						<AgentConfig host={host} />
+					</>
+				) : null}
 			</div>
 		</PaneChrome>
 	);
