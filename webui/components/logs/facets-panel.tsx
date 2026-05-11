@@ -1,6 +1,6 @@
 'use client';
 
-import { type FacetBucket } from '@/lib/api/logs';
+import type { FacetBucket } from '@/lib/api/logs';
 
 interface FacetsPanelProps {
 	facets?: Record<string, FacetBucket[]>;
@@ -21,9 +21,9 @@ export function FacetsPanel({ facets }: FacetsPanelProps) {
 				<div key={facetName}>
 					<h3 className="text-xs font-semibold text-text mb-2 uppercase">{facetName}</h3>
 					<ul className="space-y-1">
-						{buckets.slice(0, 5).map((bucket, idx) => (
+						{buckets.slice(0, 5).map((bucket) => (
 							<li
-								key={idx}
+								key={bucket.value}
 								className="flex items-center justify-between text-xs text-text-dim hover:text-text cursor-pointer group"
 							>
 								<span className="truncate group-hover:underline" title={bucket.value}>

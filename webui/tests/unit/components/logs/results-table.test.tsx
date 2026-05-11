@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ResultsTable } from '@/components/logs/results-table';
 import { describe, it, expect, vi } from 'vitest';
-import { type LogRow } from '@/lib/api/logs';
+import type { LogRow } from '@/lib/api/logs';
 
 describe('ResultsTable', () => {
 	const mockRows: LogRow[] = [

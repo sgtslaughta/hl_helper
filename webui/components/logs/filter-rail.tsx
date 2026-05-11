@@ -33,6 +33,7 @@ export function FilterRail({ onChange }: FilterRailProps) {
 			{/* Time Range */}
 			<div>
 				<button
+					type="button"
 					onClick={() => toggleSection('time-range')}
 					className="flex items-center justify-between w-full text-sm font-semibold text-text hover:text-text-bright"
 				>
@@ -42,24 +43,30 @@ export function FilterRail({ onChange }: FilterRailProps) {
 				{expandedSection === 'time-range' && (
 					<div className="mt-2 space-y-2">
 						<div className="flex flex-col gap-1">
-							<label className="text-xs text-text-dim">From</label>
+							<label htmlFor="from-input" className="text-xs text-text-dim">
+								From
+							</label>
 							<input
+								id="from-input"
 								type="datetime-local"
 								className="px-2 py-1 text-xs bg-surface border border-hairline rounded outline-none"
 								onChange={e => {
 									const from = e.target.value;
-									handleChange({ ...filters, timeRange: { ...filters.timeRange, from } as any });
+									handleChange({ ...filters, timeRange: { ...filters.timeRange, from } as unknown as { from: string; to: string } });
 								}}
 							/>
 						</div>
 						<div className="flex flex-col gap-1">
-							<label className="text-xs text-text-dim">To</label>
+							<label htmlFor="to-input" className="text-xs text-text-dim">
+								To
+							</label>
 							<input
+								id="to-input"
 								type="datetime-local"
 								className="px-2 py-1 text-xs bg-surface border border-hairline rounded outline-none"
 								onChange={e => {
 									const to = e.target.value;
-									handleChange({ ...filters, timeRange: { ...filters.timeRange, to } as any });
+									handleChange({ ...filters, timeRange: { ...filters.timeRange, to } as unknown as { from: string; to: string } });
 								}}
 							/>
 						</div>
@@ -70,6 +77,7 @@ export function FilterRail({ onChange }: FilterRailProps) {
 			{/* Hosts */}
 			<div>
 				<button
+					type="button"
 					onClick={() => toggleSection('hosts')}
 					className="flex items-center justify-between w-full text-sm font-semibold text-text hover:text-text-bright"
 				>
@@ -94,6 +102,7 @@ export function FilterRail({ onChange }: FilterRailProps) {
 			{/* Level */}
 			<div>
 				<button
+					type="button"
 					onClick={() => toggleSection('level')}
 					className="flex items-center justify-between w-full text-sm font-semibold text-text hover:text-text-bright"
 				>
@@ -103,15 +112,17 @@ export function FilterRail({ onChange }: FilterRailProps) {
 				{expandedSection === 'level' && (
 					<div className="mt-2 space-y-1">
 						{['debug', 'info', 'warn', 'error', 'critical'].map(level => (
-							<label key={level} className="flex items-center gap-2 text-xs text-text cursor-pointer hover:text-text-bright">
-								<input
-									type="radio"
-									name="level"
-									value={level}
-									onChange={e => handleChange({ ...filters, level: e.target.value })}
-								/>
-								{level.charAt(0).toUpperCase() + level.slice(1)}
-							</label>
+							<div key={level}>
+								<label className="flex items-center gap-2 text-xs text-text cursor-pointer hover:text-text-bright">
+									<input
+										type="radio"
+										name="level"
+										value={level}
+										onChange={e => handleChange({ ...filters, level: e.target.value })}
+									/>
+									{level.charAt(0).toUpperCase() + level.slice(1)}
+								</label>
+							</div>
 						))}
 					</div>
 				)}
@@ -120,6 +131,7 @@ export function FilterRail({ onChange }: FilterRailProps) {
 			{/* Categories */}
 			<div>
 				<button
+					type="button"
 					onClick={() => toggleSection('categories')}
 					className="flex items-center justify-between w-full text-sm font-semibold text-text hover:text-text-bright"
 				>
@@ -144,6 +156,7 @@ export function FilterRail({ onChange }: FilterRailProps) {
 			{/* Free-text Search */}
 			<div>
 				<button
+					type="button"
 					onClick={() => toggleSection('search')}
 					className="flex items-center justify-between w-full text-sm font-semibold text-text hover:text-text-bright"
 				>

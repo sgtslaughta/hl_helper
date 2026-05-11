@@ -8,17 +8,30 @@ import { FilterRail, type LogFilters } from '@/components/logs/filter-rail';
 import { ResultsTable } from '@/components/logs/results-table';
 import { TimelineHistogram } from '@/components/logs/timeline-histogram';
 import { listLogs, type LogRow } from '@/lib/api/logs';
-import { useSearchParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useDensity } from '@/lib/mission-control/density';
+import NumberFlow from '@number-flow/react';
+import { AlertTriangle, BarChart3, Lock, TrendingDown } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
 
 export default function LogsHubPage() {
-	const searchParams = useSearchParams();
+	const { density } = useDensity();
 	const [rows, setRows] = useState<LogRow[]>([]);
-	const [facets, setFacets] = useState<Record<string, any>>();
+	const [facets, setFacets] = useState<Record<string, unknown>>();
 	const [selectedRow, setSelectedRow] = useState<LogRow | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [filters, setFilters] = useState<LogFilters>({});
 	const [cursor, setCursor] = useState<string | null>(null);
+
+	// Hero metrics
+	const errorCount = rows.filter(r => r.level === 'error' || r.level === 'critical').length;
+	const failureCount = rows.filter(r => r.outcome === 'failure').length;
+	const successRate =
+		rows.length > 0
+			? Math.round(
+					((rows.length - failureCount) / rows.length) * 100,
+				)
+			: 100;
+	const uniqueHosts = new Set(rows.map(r => r.host_id)).size;
 
 	// Build histogram bins from rows
 	const bins = Array.from({ length: 60 }).map((_, i) => {
@@ -60,6 +73,53 @@ export default function LogsHubPage() {
 			<div className="border-b border-hairline px-6 py-4">
 				<h1 className="text-h1 text-text">Logs Hub</h1>
 				<p className="text-sm text-text-dim mt-1">Search and analyze activity logs across all hosts</p>
+
+				{/* Hero metrics */}
+				<div className={`grid gap-3 mt-4 ${density === 'lean' ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2 sm:grid-cols-4'}`}>
+					{/* Total Events */}
+					<div className="rounded border border-hairline bg-surface-2 px-3 py-2">
+						<div className="flex items-baseline justify-between gap-2">
+							<span className="text-xs text-text-dim font-semibold uppercase tracking-wider">Events</span>
+							<BarChart3 size={14} className="text-text-dim" />
+						</div>
+						<div className="text-lg font-bold text-text mt-1">
+							<NumberFlow value={rows.length} format={{ notation: 'compact' }} />
+						</div>
+					</div>
+
+					{/* Errors */}
+					<div className="rounded border border-hairline bg-surface-2 px-3 py-2">
+						<div className="flex items-baseline justify-between gap-2">
+							<span className="text-xs text-danger font-semibold uppercase tracking-wider">Errors</span>
+							<AlertTriangle size={14} className="text-danger" />
+						</div>
+						<div className="text-lg font-bold text-danger mt-1">
+							<NumberFlow value={errorCount} format={{ notation: 'compact' }} />
+						</div>
+					</div>
+
+					{/* Success Rate */}
+					<div className="rounded border border-hairline bg-surface-2 px-3 py-2">
+						<div className="flex items-baseline justify-between gap-2">
+							<span className="text-xs text-ok font-semibold uppercase tracking-wider">Success</span>
+							<TrendingDown size={14} className={successRate < 90 ? 'text-warn' : 'text-ok'} />
+						</div>
+						<div className={`text-lg font-bold mt-1 ${successRate < 90 ? 'text-warn' : 'text-ok'}`}>
+							<NumberFlow value={successRate} suffix="%" />
+						</div>
+					</div>
+
+					{/* Unique Hosts */}
+					<div className="rounded border border-hairline bg-surface-2 px-3 py-2">
+						<div className="flex items-baseline justify-between gap-2">
+							<span className="text-xs text-accent font-semibold uppercase tracking-wider">Hosts</span>
+							<Lock size={14} className="text-accent" />
+						</div>
+						<div className="text-lg font-bold text-accent mt-1">
+							<NumberFlow value={uniqueHosts} format={{ notation: 'compact' }} />
+						</div>
+					</div>
+				</div>
 			</div>
 
 			{/* Main Content */}

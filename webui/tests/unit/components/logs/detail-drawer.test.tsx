@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DetailDrawer } from '@/components/logs/detail-drawer';
 import { describe, it, expect, vi } from 'vitest';
-import { type LogRow } from '@/lib/api/logs';
+import type { LogRow } from '@/lib/api/logs';
 
 describe('DetailDrawer', () => {
 	const mockRow: LogRow = {
@@ -38,7 +38,7 @@ describe('DetailDrawer', () => {
 		render(<DetailDrawer row={mockRow} onClose={onClose} />);
 		const user = userEvent.setup();
 
-		const closeButton = screen.getByTitle('Close');
+		const closeButton = screen.getByTitle(/Close/);
 		await user.click(closeButton);
 
 		expect(onClose).toHaveBeenCalled();
