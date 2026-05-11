@@ -150,17 +150,20 @@ function FieldRow({
 
 	return (
 		<tr
-			className="hover:bg-surface/50 align-top cursor-pointer group focus:outline-none focus:bg-surface/50"
+			className="hover:bg-surface/50 align-top group focus-within:bg-surface/50"
 			tabIndex={0}
-			onClick={() => onCopy(field.key, field.value)}
 			onKeyDown={e => {
-				if (e.key === 'Enter' || e.key === ' ') {
+				if ((e.key === 'c' || e.key === 'C') && (e.metaKey || e.ctrlKey)) {
+					// allow native copy of selection; no-op
+					return;
+				}
+				if (e.key === 'Enter') {
 					e.preventDefault();
 					onCopy(field.key, field.value);
 				}
 			}}
 		>
-			<td className="px-2 py-1 whitespace-nowrap" title={field.key}>
+			<td className="px-2 py-1 whitespace-nowrap select-text" title={field.key}>
 				{prefix && (
 					<div className="text-[10px] uppercase tracking-wider text-text-dim/70 font-mono leading-tight">
 						{prefix}
@@ -171,7 +174,7 @@ function FieldRow({
 			<td className={`px-2 py-1 font-mono text-xs ${getFieldTypeClass(field.type)}`}>
 				<div className="flex items-start gap-2">
 					<span
-						className={wrap ? 'break-all whitespace-normal' : 'whitespace-nowrap'}
+						className={`select-text ${wrap ? 'break-all whitespace-normal' : 'whitespace-nowrap'}`}
 						title={field.value}
 					>
 						{field.value}
@@ -179,16 +182,22 @@ function FieldRow({
 					{isLong && (
 						<button
 							type="button"
-							onClick={e => {
-								e.stopPropagation();
-								setWrap(w => !w);
-							}}
+							onClick={() => setWrap(w => !w)}
 							className="flex-shrink-0 text-text-dim hover:text-text transition-colors opacity-0 group-hover:opacity-100"
 							title={wrap ? 'No-wrap' : 'Wrap'}
 						>
 							{wrap ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
 						</button>
 					)}
+					<button
+						type="button"
+						onClick={() => onCopy(field.key, field.value)}
+						className="flex-shrink-0 text-text-dim hover:text-accent transition-colors opacity-0 group-hover:opacity-100"
+						title={`Copy ${field.key}=${field.value}`}
+						aria-label="Copy field"
+					>
+						<Copy size={12} />
+					</button>
 				</div>
 			</td>
 		</tr>

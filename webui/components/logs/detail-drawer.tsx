@@ -2,12 +2,43 @@
 
 import type { LogRow } from '@/lib/api/logs';
 import { Copy, X } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { FieldsTable } from './fields-table';
 
 interface DetailDrawerProps {
 	row: LogRow | null;
 	onClose: () => void;
+}
+
+const WIDTH_KEY = 'logs.drawer.width';
+const MIN_WIDTH = 320;
+const MAX_WIDTH = 1400;
+const DEFAULT_WIDTH = 480;
+
+function flattenKV(row: LogRow): string {
+	const out: string[] = [];
+	const walk = (obj: unknown, prefix = '') => {
+		if (obj === null || obj === undefined) return;
+		if (typeof obj !== 'object') {
+			out.push(`${prefix || '_'}=${String(obj)}`);
+			return;
+		}
+		if (Array.isArray(obj)) {
+			if (obj.every(v => typeof v !== 'object' || v === null)) {
+				out.push(`${prefix}=${obj.map(String).join(',')}`);
+			} else {
+				obj.forEach((v, i) => walk(v, `${prefix}[${i}]`));
+			}
+			return;
+		}
+		for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+			const nk = prefix ? `${prefix}.${k}` : k;
+			if (v !== null && typeof v === 'object') walk(v, nk);
+			else out.push(`${nk}=${v === null ? 'null' : String(v)}`);
+		}
+	};
+	walk(row);
+	return out.join('\n');
 }
 
 // Simple JSON syntax highlighter
@@ -108,15 +139,78 @@ function HighlightedJSON({ data }: { data: unknown }) {
 
 export function DetailDrawer({ row, onClose }: DetailDrawerProps) {
 	const [activeTab, setActiveTab] = useState<'overview' | 'json'>('overview');
+	const [width, setWidth] = useState<number>(DEFAULT_WIDTH);
+	const [copied, setCopied] = useState<string | null>(null);
+	const draggingRef = useRef(false);
+
+	// Load persisted width on mount.
+	useEffect(() => {
+		const stored = typeof window !== 'undefined' ? localStorage.getItem(WIDTH_KEY) : null;
+		const n = stored ? Number.parseInt(stored, 10) : Number.NaN;
+		if (Number.isFinite(n)) setWidth(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, n)));
+	}, []);
+
+	// Drag-resize handlers (attached on demand to avoid global listeners).
+	useEffect(() => {
+		const onMove = (e: MouseEvent) => {
+			if (!draggingRef.current) return;
+			const next = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, window.innerWidth - e.clientX));
+			setWidth(next);
+		};
+		const onUp = () => {
+			if (!draggingRef.current) return;
+			draggingRef.current = false;
+			document.body.style.cursor = '';
+			document.body.style.userSelect = '';
+			try {
+				localStorage.setItem(WIDTH_KEY, String(width));
+			} catch {}
+		};
+		document.addEventListener('mousemove', onMove);
+		document.addEventListener('mouseup', onUp);
+		return () => {
+			document.removeEventListener('mousemove', onMove);
+			document.removeEventListener('mouseup', onUp);
+		};
+	}, [width]);
+
+	const startDrag = (e: React.MouseEvent) => {
+		draggingRef.current = true;
+		document.body.style.cursor = 'col-resize';
+		document.body.style.userSelect = 'none';
+		e.preventDefault();
+	};
 
 	if (!row) return null;
 
-	const handleCopyJSON = () => {
-		navigator.clipboard.writeText(JSON.stringify(row, null, 2));
+	const flash = (label: string) => {
+		setCopied(label);
+		setTimeout(() => setCopied(null), 1500);
+	};
+
+	const handleCopyJSON = async () => {
+		await navigator.clipboard.writeText(JSON.stringify(row, null, 2));
+		flash('JSON copied');
+	};
+
+	const handleCopyKV = async () => {
+		await navigator.clipboard.writeText(flattenKV(row));
+		flash('key=value lines copied');
 	};
 
 	return (
-		<div className="fixed inset-y-0 right-0 w-96 bg-surface border-l border-hairline flex flex-col z-40 shadow-xl">
+		<div
+			className="fixed inset-y-0 right-0 bg-surface border-l border-hairline flex flex-col z-40 shadow-xl"
+			style={{ width: `${width}px` }}
+		>
+			{/* Drag handle — left edge */}
+			<button
+				type="button"
+				aria-label="Resize drawer"
+				onMouseDown={startDrag}
+				className="absolute left-0 top-0 bottom-0 w-1 hover:w-1.5 cursor-col-resize bg-transparent hover:bg-accent/40 transition-all"
+				style={{ zIndex: 50 }}
+			/>
 			{/* Header */}
 			<div className="flex items-center justify-between border-b border-hairline px-4 py-3 bg-surface-2">
 				<h2 className="text-sm font-semibold text-text">Log Details</h2>
@@ -171,16 +265,29 @@ export function DetailDrawer({ row, onClose }: DetailDrawerProps) {
 			</div>
 
 			{/* Footer */}
-			<div className="border-t border-hairline px-4 py-3 flex gap-2 bg-surface-2">
-				{activeTab === 'json' && (
-					<button
-						onClick={handleCopyJSON}
-						className="flex items-center gap-2 px-3 py-1.5 text-xs rounded border border-hairline hover:bg-surface transition-colors text-text-dim hover:text-text"
-						type="button"
-					>
-						<Copy size={14} />
-						Copy JSON
-					</button>
+			<div className="border-t border-hairline px-4 py-2 flex items-center gap-2 bg-surface-2">
+				<button
+					onClick={handleCopyKV}
+					className="flex items-center gap-2 px-3 py-1.5 text-xs rounded border border-hairline hover:bg-surface transition-colors text-text-dim hover:text-text"
+					type="button"
+					title="Copy all fields as key=value lines"
+				>
+					<Copy size={14} />
+					Copy fields
+				</button>
+				<button
+					onClick={handleCopyJSON}
+					className="flex items-center gap-2 px-3 py-1.5 text-xs rounded border border-hairline hover:bg-surface transition-colors text-text-dim hover:text-text"
+					type="button"
+					title="Copy raw JSON"
+				>
+					<Copy size={14} />
+					Copy JSON
+				</button>
+				{copied && (
+					<span className="text-xs text-accent animate-pulse ml-auto" aria-live="polite">
+						{copied}
+					</span>
 				)}
 			</div>
 		</div>
