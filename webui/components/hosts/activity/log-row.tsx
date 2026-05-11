@@ -5,6 +5,7 @@ import { formatDuration, glyphForOutcome, humanize } from '@/lib/event-humanizer
 import { relTime } from '@/lib/time';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
+import { FieldsTable } from '@/components/logs/fields-table';
 
 const LEVEL_COLORS: Record<string, string> = {
 	debug: 'bg-blue-500/10 text-blue-700 dark:text-blue-400',
@@ -66,8 +67,8 @@ export function LogRow({ row }: { row: LogRowData }) {
 			{/* Expanded details */}
 			{expanded && (
 				<div className="px-4 py-3 bg-surface-2 border-b border-hairline">
-					<div className="rounded bg-surface border border-hairline p-3 font-mono text-xs text-text-dim overflow-x-auto max-h-48 overflow-y-auto">
-						<pre>{JSON.stringify(row, null, 2)}</pre>
+					<div className="rounded bg-surface border border-hairline p-3 font-mono text-xs overflow-x-auto max-h-48 overflow-y-auto">
+						<FieldsTable obj={row} errorObj={row.error} />
 					</div>
 				</div>
 			)}

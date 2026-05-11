@@ -3,6 +3,7 @@
 import type { LogRow } from '@/lib/api/logs';
 import { Copy, X } from 'lucide-react';
 import { useState } from 'react';
+import { FieldsTable } from './fields-table';
 
 interface DetailDrawerProps {
 	row: LogRow | null;
@@ -110,14 +111,12 @@ function HighlightedJSON({ data }: { data: unknown }) {
 }
 
 export function DetailDrawer({ row, onClose }: DetailDrawerProps) {
-	const [copied, setCopied] = useState(false);
+	const [activeTab, setActiveTab] = useState<'overview' | 'json'>('overview');
 
 	if (!row) return null;
 
-	const handleCopy = () => {
+	const handleCopyJSON = () => {
 		navigator.clipboard.writeText(JSON.stringify(row, null, 2));
-		setCopied(true);
-		setTimeout(() => setCopied(false), 2000);
 	};
 
 	return (
@@ -135,23 +134,58 @@ export function DetailDrawer({ row, onClose }: DetailDrawerProps) {
 				</button>
 			</div>
 
+			{/* Tabs */}
+			<div className="flex gap-0 border-b border-hairline bg-surface-2 px-2">
+				<button
+					onClick={() => setActiveTab('overview')}
+					className={`px-3 py-2 text-xs font-semibold border-b-2 transition-colors ${
+						activeTab === 'overview'
+							? 'border-accent text-text'
+							: 'border-transparent text-text-dim hover:text-text'
+					}`}
+					type="button"
+				>
+					OVERVIEW
+				</button>
+				<button
+					onClick={() => setActiveTab('json')}
+					className={`px-3 py-2 text-xs font-semibold border-b-2 transition-colors ${
+						activeTab === 'json'
+							? 'border-accent text-text'
+							: 'border-transparent text-text-dim hover:text-text'
+					}`}
+					type="button"
+				>
+					JSON
+				</button>
+			</div>
+
 			{/* Content */}
 			<div className="flex-1 overflow-auto p-4 bg-surface-2">
-				<div className="rounded bg-surface border border-hairline p-3">
-					<HighlightedJSON data={row} />
-				</div>
+				{activeTab === 'overview' && (
+					<div className="rounded bg-surface border border-hairline p-3">
+						<FieldsTable obj={row} errorObj={row.error} />
+					</div>
+				)}
+				{activeTab === 'json' && (
+					<div className="rounded bg-surface border border-hairline p-3">
+						<HighlightedJSON data={row} />
+					</div>
+				)}
 			</div>
 
 			{/* Footer */}
 			<div className="border-t border-hairline px-4 py-3 flex gap-2 bg-surface-2">
-				<button
-					onClick={handleCopy}
-					className="flex items-center gap-2 px-3 py-1.5 text-xs rounded border border-hairline hover:bg-surface transition-colors text-text-dim hover:text-text"
-					type="button"
-				>
-					<Copy size={14} />
-					{copied ? 'Copied!' : 'Copy JSON'}
-				</button>
+				{activeTab === 'json' && (
+					<button
+						onClick={handleCopyJSON}
+						className="flex items-center gap-2 px-3 py-1.5 text-xs rounded border border-hairline hover:bg-surface transition-colors text-text-dim hover:text-text"
+						type="button"
+					>
+						<Copy size={14} />
+						Copy JSON
+					</button>
+				)}
 			</div>
 		</div>
 	);
