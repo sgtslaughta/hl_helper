@@ -1,7 +1,7 @@
 'use client';
 
 import { ChevronDown, ChevronRight, Copy } from 'lucide-react';
-import { Fragment, useState } from 'react';
+import { useState } from 'react';
 
 export type Field = {
 	key: string;
@@ -142,59 +142,100 @@ function FieldRow({
 	field: Field;
 	onCopy: (key: string, value: string) => void;
 }) {
-	const [expanded, setExpanded] = useState(false);
-	const isLong = field.value.length > 60;
+	const [wrap, setWrap] = useState(false);
+	const isLong = field.value.length > 80;
 
 	const prefix = keyPrefix(field.key);
 	const label = humanizeKey(field.key);
 
 	return (
-		<Fragment key={field.key}>
-			<button
-				className="w-full block cursor-pointer hover:bg-surface transition-colors px-2 py-1 rounded text-left min-w-0 overflow-hidden"
-				title={field.key}
-				onClick={() => onCopy(field.key, field.value)}
-				type="button"
-			>
+		<tr
+			className="hover:bg-surface/50 align-top cursor-pointer group focus:outline-none focus:bg-surface/50"
+			tabIndex={0}
+			onClick={() => onCopy(field.key, field.value)}
+			onKeyDown={e => {
+				if (e.key === 'Enter' || e.key === ' ') {
+					e.preventDefault();
+					onCopy(field.key, field.value);
+				}
+			}}
+		>
+			<td className="px-2 py-1 whitespace-nowrap" title={field.key}>
 				{prefix && (
-					<div className="text-[10px] uppercase tracking-wider text-text-dim/70 truncate font-mono leading-tight">
+					<div className="text-[10px] uppercase tracking-wider text-text-dim/70 font-mono leading-tight">
 						{prefix}
 					</div>
 				)}
-				<div className="text-text text-xs font-sans truncate leading-tight">{label}</div>
-			</button>
-			<div className="flex items-start gap-2 px-2 py-1 min-w-0 overflow-hidden">
-				<button
-					type="button"
-					onClick={() => onCopy(field.key, field.value)}
-					onKeyDown={e => {
-						if (e.key === 'Enter' || e.key === ' ') {
-							onCopy(field.key, field.value);
-						}
-					}}
-					className={`block w-full flex-1 min-w-0 overflow-hidden ${getFieldTypeClass(field.type)} ${
-						isLong && !expanded
-							? 'line-clamp-2 break-all whitespace-normal'
-							: expanded
-								? 'break-all whitespace-normal'
-								: 'truncate'
-					} cursor-pointer hover:bg-surface/50 px-1 rounded transition-colors text-xs text-left font-mono`}
-					title={field.value}
-				>
-					{field.value}
-				</button>
-				{isLong && (
-					<button
-						type="button"
-						onClick={() => setExpanded(!expanded)}
-						className="flex-shrink-0 text-text-dim hover:text-text transition-colors"
-						title={expanded ? 'Collapse' : 'Expand'}
+				<div className="text-text text-xs font-sans leading-tight">{label}</div>
+			</td>
+			<td className={`px-2 py-1 font-mono text-xs ${getFieldTypeClass(field.type)}`}>
+				<div className="flex items-start gap-2">
+					<span
+						className={wrap ? 'break-all whitespace-normal' : 'whitespace-nowrap'}
+						title={field.value}
 					>
-						{expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-					</button>
-				)}
-			</div>
-		</Fragment>
+						{field.value}
+					</span>
+					{isLong && (
+						<button
+							type="button"
+							onClick={e => {
+								e.stopPropagation();
+								setWrap(w => !w);
+							}}
+							className="flex-shrink-0 text-text-dim hover:text-text transition-colors opacity-0 group-hover:opacity-100"
+							title={wrap ? 'No-wrap' : 'Wrap'}
+						>
+							{wrap ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+						</button>
+					)}
+				</div>
+			</td>
+		</tr>
+	);
+}
+
+function Group({
+	groupName,
+	groupFields,
+	isExpanded,
+	showHeader,
+	showDivider,
+	onToggle,
+	onCopy,
+}: {
+	groupName: string;
+	groupFields: Field[];
+	isExpanded: boolean;
+	showHeader: boolean;
+	showDivider: boolean;
+	onToggle: () => void;
+	onCopy: (key: string, value: string) => void;
+}) {
+	const visible = showHeader ? isExpanded : true;
+	return (
+		<>
+			{showDivider && (
+				<tr>
+					<td colSpan={2} className="border-t border-hairline p-0" />
+				</tr>
+			)}
+			{showHeader && (
+				<tr>
+					<td colSpan={2} className="px-2 py-1">
+						<button
+							type="button"
+							onClick={onToggle}
+							className="flex items-center gap-2 text-[10px] uppercase tracking-wider font-semibold text-text-dim hover:text-text transition-colors"
+						>
+							{isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+							{groupName}
+						</button>
+					</td>
+				</tr>
+			)}
+			{visible && groupFields.map(f => <FieldRow key={f.key} field={f} onCopy={onCopy} />)}
+		</>
 	);
 }
 
@@ -227,7 +268,7 @@ export function FieldsTable({ obj, errorObj }: FieldsTableProps) {
 	};
 
 	return (
-		<div className="space-y-3">
+		<div className="space-y-3 overflow-x-auto">
 			{/* Error box if present */}
 			{errorObj && (
 				<div className="rounded bg-red-500/10 border border-red-500/20 p-3 mb-3">
@@ -255,43 +296,30 @@ export function FieldsTable({ obj, errorObj }: FieldsTableProps) {
 				</div>
 			)}
 
-			{/* Fields grouped by top-level prefix */}
-			{Array.from(groups.entries()).map(([groupName, groupFields]) => {
-				const isExpanded = expandedGroups.has(groupName);
-				const hasMultipleFields = groupFields.length > 1;
+			{/* Single table for all groups so columns align + outer wrapper
+			    provides horizontal scroll uniformly across every row. */}
+			<table className="w-auto text-xs leading-relaxed border-collapse">
+				<tbody>
+					{Array.from(groups.entries()).map(([groupName, groupFields], idx) => {
+						const isExpanded = expandedGroups.has(groupName);
+						const hasMultipleFields = groupFields.length > 1;
+						const showHeader = hasMultipleFields && groupName !== '_root';
 
-				return (
-					<div key={groupName}>
-						{/* Group header */}
-						{hasMultipleFields && groupName !== '_root' && (
-							<button
-								type="button"
-								onClick={() => toggleGroup(groupName)}
-								className="flex items-center gap-2 text-xs font-semibold text-text-dim mb-1 hover:text-text transition-colors px-2"
-							>
-								{isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-								{groupName}
-							</button>
-						)}
-
-						{/* Fields grid */}
-						{(hasMultipleFields ? isExpanded : true) && (
-							<div className="font-mono text-xs leading-relaxed">
-								<div className="grid grid-cols-[minmax(140px,260px)_1fr] gap-x-3 gap-y-1 ml-2">
-									{groupFields.map(f => (
-										<FieldRow key={f.key} field={f} onCopy={handleCopy} />
-									))}
-								</div>
-							</div>
-						)}
-
-						{/* Hairline divider between groups */}
-						{groupName !== Array.from(groups.keys()).pop() && (
-							<div className="border-t border-hairline my-2" />
-						)}
-					</div>
-				);
-			})}
+						return (
+							<Group
+								key={groupName}
+								groupName={groupName}
+								groupFields={groupFields}
+								isExpanded={isExpanded}
+								showHeader={showHeader}
+								showDivider={idx > 0}
+								onToggle={() => toggleGroup(groupName)}
+								onCopy={handleCopy}
+							/>
+						);
+					})}
+				</tbody>
+			</table>
 
 			{/* Copy feedback */}
 			{copiedKey && (

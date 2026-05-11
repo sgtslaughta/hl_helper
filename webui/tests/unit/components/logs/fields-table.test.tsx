@@ -133,7 +133,7 @@ describe('FieldsTable', () => {
 		expect(summary).toBeInTheDocument();
 	});
 
-	it('displays values in grid layout', () => {
+	it('renders fields inside a horizontally-scrollable table', () => {
 		const obj = {
 			ts: '2026-05-10T22:15:03Z',
 			action: 'task.exec.completed',
@@ -141,10 +141,11 @@ describe('FieldsTable', () => {
 
 		const { container } = render(<FieldsTable obj={obj} />);
 
-		// Verify grid layout exists
-		const grid = container.querySelector('.grid');
-		expect(grid).toBeInTheDocument();
-		expect(grid).toHaveClass('grid-cols-[minmax(140px,260px)_1fr]');
+		const scroller = container.querySelector('.overflow-x-auto');
+		expect(scroller).toBeInTheDocument();
+		const table = container.querySelector('table');
+		expect(table).toBeInTheDocument();
+		expect(table?.tagName).toBe('TABLE');
 	});
 
 	it('groups fields by top-level prefix', () => {
