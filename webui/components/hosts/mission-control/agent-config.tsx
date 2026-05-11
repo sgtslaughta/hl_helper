@@ -1,6 +1,6 @@
 'use client';
 
-import { updateHeartbeatInterval, type Host } from '@/lib/api/hosts';
+import { type Host, updateHeartbeatInterval } from '@/lib/api/hosts';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Settings } from 'lucide-react';
 import { useState } from 'react';
@@ -33,9 +33,7 @@ export function AgentConfig({ host }: { host: Host }) {
 			</div>
 			<div className="mc-bezel space-y-2 px-2.5 py-2 font-mono text-[11px]">
 				<label className="block">
-					<div className="uppercase tracking-[0.14em] text-text-dim">
-						Heartbeat interval (sec)
-					</div>
+					<div className="uppercase tracking-[0.14em] text-text-dim">Heartbeat interval (sec)</div>
 					<div className="mt-1 flex gap-1.5">
 						<input
 							type="number"
@@ -54,11 +52,7 @@ export function AgentConfig({ host }: { host: Host }) {
 						>
 							{mut.isPending ? '...' : 'Save'}
 						</button>
-						{saved && (
-							<span className="ml-auto flex items-center text-ok">
-								Saved
-							</span>
-						)}
+						{saved && <span className="ml-auto flex items-center text-ok">Saved</span>}
 					</div>
 				</label>
 				<div className="border-t border-hairline pt-2 text-[9px] text-text-dim">

@@ -7,15 +7,7 @@ import { HostExposurePanel } from '@/components/hosts/host-exposure-panel';
 import { HostPosturePanel } from '@/components/hosts/host-posture-panel';
 import { HostTasksPanel } from '@/components/hosts/host-tasks-panel';
 import type { Host } from '@/lib/api/hosts';
-import {
-	Activity,
-	Cpu,
-	FileText,
-	ListChecks,
-	ScrollText,
-	ShieldCheck,
-	Tag,
-} from 'lucide-react';
+import { Activity, Cpu, FileText, ListChecks, ScrollText, ShieldCheck, Tag } from 'lucide-react';
 import { AgentConfig } from './agent-config';
 import { HardwarePanel } from './hardware-panel';
 import { type FocusMode, OverviewDashboard } from './overview-dashboard';

@@ -1,11 +1,11 @@
 'use client';
 
+import { AgentVersionChip } from '@/components/hosts/agent-version-chip';
 import type { Host } from '@/lib/api/hosts';
+import { getHostCert } from '@/lib/api/hosts';
 import type { Density } from '@/lib/mission-control/density';
 import { parseServerTime } from '@/lib/time';
-import { AgentVersionChip } from '@/components/hosts/agent-version-chip';
 import { useQuery } from '@tanstack/react-query';
-import { getHostCert } from '@/lib/api/hosts';
 
 interface Props {
 	host: Host;
@@ -117,7 +117,11 @@ export function FleetRow({ host, density, selected, onSelect, cpuHistory }: Prop
 				{density !== 'lean' && osLabel ? (
 					<span className="rounded bg-surface-2 px-1.5 text-[10px] text-text-dim">{osLabel}</span>
 				) : null}
-				<AgentVersionChip current={host.agent_version} latest={host.agent_version_latest} status={host.agent_update_status} />
+				<AgentVersionChip
+					current={host.agent_version}
+					latest={host.agent_version_latest}
+					status={host.agent_update_status}
+				/>
 				<CertPill hostId={host.id} isOffline={isOffline} />
 			</div>
 

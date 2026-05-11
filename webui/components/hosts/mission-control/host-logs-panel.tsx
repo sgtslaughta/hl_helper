@@ -171,8 +171,7 @@ export function HostLogsPanel({ hostId, paused }: Props) {
 	return (
 		<div
 			ref={containerRef}
-			className="flex flex-col bg-surface/30 rounded border border-hairline min-h-0"
-			style={{ height: 'calc(100vh - 240px)' }}
+			className="flex flex-1 h-full min-h-0 flex-col bg-surface/30 rounded border border-hairline"
 			onMouseMove={handleDragMove}
 			onMouseLeave={handleDragEnd}
 			onMouseUp={handleDragEnd}

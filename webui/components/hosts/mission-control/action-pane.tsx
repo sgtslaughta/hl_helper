@@ -130,7 +130,7 @@ export function ActionPane({ host, mode, onModeChange, width, onWidthChange }: P
 			onChange={k => onModeChange(k as ActionMode)}
 			actions={actions}
 		>
-			<div className="space-y-3">
+			<div className="flex h-full flex-col gap-3">
 				{mode === 'term' ? <HostTerminalPanel hostId={host.id} /> : null}
 				{mode === 'logs' ? <HostLogsPanel hostId={host.id} paused={paused} /> : null}
 				{mode === 'files' ? <HostFilesPanel hostId={host.id} /> : null}
