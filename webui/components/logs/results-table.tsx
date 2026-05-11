@@ -31,16 +31,18 @@ export function ResultsTable({ rows, onRowClick, pageSize = 50 }: ResultsTablePr
 	const levelOrder = { debug: 0, info: 1, warn: 2, error: 3, critical: 4 };
 
 	const sortedRows = [...rows].sort((a, b) => {
-		let aVal: unknown = a[sortColumn];
-		let bVal: unknown = b[sortColumn];
+		let aVal: string | number = String(a[sortColumn] || '');
+		let bVal: string | number = String(b[sortColumn] || '');
 
 		if (sortColumn === 'level') {
-			aVal = levelOrder[aVal as keyof typeof levelOrder] || 0;
-			bVal = levelOrder[bVal as keyof typeof levelOrder] || 0;
+			const aLevel = a[sortColumn] as unknown as keyof typeof levelOrder;
+			const bLevel = b[sortColumn] as unknown as keyof typeof levelOrder;
+			aVal = levelOrder[aLevel] || 0;
+			bVal = levelOrder[bLevel] || 0;
+		} else {
+			aVal = String(aVal).toLowerCase();
+			bVal = String(bVal).toLowerCase();
 		}
-
-		if (typeof aVal === 'string') aVal = aVal.toLowerCase();
-		if (typeof bVal === 'string') bVal = bVal.toLowerCase();
 
 		if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
 		if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;

@@ -1,12 +1,13 @@
 'use client';
 
+import type { LogLevel } from '@/lib/api/logs';
 import { ChevronDown } from 'lucide-react';
 import { useState } from 'react';
 
 export interface LogFilters {
 	timeRange?: { from: string; to: string };
 	hosts?: string[];
-	level?: string;
+	level?: LogLevel;
 	categories?: string[];
 	q?: string;
 }
@@ -111,14 +112,14 @@ export function FilterRail({ onChange }: FilterRailProps) {
 				</button>
 				{expandedSection === 'level' && (
 					<div className="mt-2 space-y-1">
-						{['debug', 'info', 'warn', 'error', 'critical'].map(level => (
+						{(['debug', 'info', 'warn', 'error', 'critical'] as const).map(level => (
 							<div key={level}>
 								<label className="flex items-center gap-2 text-xs text-text cursor-pointer hover:text-text-bright">
 									<input
 										type="radio"
 										name="level"
 										value={level}
-										onChange={e => handleChange({ ...filters, level: e.target.value })}
+										onChange={e => handleChange({ ...filters, level: e.target.value as LogLevel })}
 									/>
 									{level.charAt(0).toUpperCase() + level.slice(1)}
 								</label>

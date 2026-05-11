@@ -98,7 +98,7 @@ export async function listLogs(
 
 export async function streamLogs(
 	args: ListLogsArgs,
-	onRow: (r: LogRow) => void,
+	_onRow: (r: LogRow) => void,
 ): Promise<() => void> {
 	const wsUrl = new URL('/ws/logs', globalThis.location?.origin || 'ws://localhost');
 	const p = new URLSearchParams();

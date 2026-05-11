@@ -7,16 +7,16 @@ import { FacetsPanel } from '@/components/logs/facets-panel';
 import { FilterRail, type LogFilters } from '@/components/logs/filter-rail';
 import { ResultsTable } from '@/components/logs/results-table';
 import { TimelineHistogram } from '@/components/logs/timeline-histogram';
-import { listLogs, type LogRow } from '@/lib/api/logs';
+import { listLogs, type FacetBucket, type LogRow } from '@/lib/api/logs';
 import { useDensity } from '@/lib/mission-control/density';
 import NumberFlow from '@number-flow/react';
 import { AlertTriangle, BarChart3, Lock, TrendingDown } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 export default function LogsHubPage() {
 	const { density } = useDensity();
 	const [rows, setRows] = useState<LogRow[]>([]);
-	const [facets, setFacets] = useState<Record<string, unknown>>();
+	const [facets, setFacets] = useState<Record<string, FacetBucket[]>>();
 	const [selectedRow, setSelectedRow] = useState<LogRow | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [filters, setFilters] = useState<LogFilters>({});
