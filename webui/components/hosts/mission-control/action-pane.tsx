@@ -9,7 +9,6 @@ import {
 	Minimize2,
 	Pause,
 	Play,
-	WrapText,
 } from 'lucide-react';
 import { useState } from 'react';
 import { AgentConfig } from './agent-config';
@@ -45,7 +44,6 @@ const WIDTH_ORDER: PaneWidth[] = ['normal', 'wide', 'xwide'];
 
 export function ActionPane({ host, mode, onModeChange, width, onWidthChange }: Props) {
 	const [paused, setPaused] = useState(false);
-	const [wrap, setWrap] = useState(true);
 	const [updating, setUpdating] = useState(false);
 
 	const handleUpdateAgent = async () => {
@@ -126,11 +124,6 @@ export function ActionPane({ host, mode, onModeChange, width, onWidthChange }: P
 						label: paused ? 'Resume tail' : 'Pause tail',
 						onClick: () => setPaused(p => !p),
 					},
-					{
-						icon: <WrapText size={13} />,
-						label: wrap ? 'Disable wrap' : 'Enable wrap',
-						onClick: () => setWrap(w => !w),
-					},
 				]
 			: [];
 
@@ -156,7 +149,7 @@ export function ActionPane({ host, mode, onModeChange, width, onWidthChange }: P
 				<div className="space-y-3">
 					{mode === 'term' ? <HostTerminalPanel hostId={host.id} /> : null}
 					{mode === 'logs' ? (
-						<HostLogsPanel hostId={host.id} paused={paused} wrap={wrap} severity="all" />
+						<HostLogsPanel hostId={host.id} paused={paused} />
 					) : null}
 					{mode === 'files' ? <HostFilesPanel hostId={host.id} /> : null}
 					{mode === 'trust' ? (
